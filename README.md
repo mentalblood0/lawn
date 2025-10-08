@@ -1,4 +1,4 @@
-# 🌄 Lawn
+# 🌄 lawn
 
 Key-value store with mutable data files but without trees
 

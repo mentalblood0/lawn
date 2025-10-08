@@ -22,7 +22,7 @@ module Lawn
       (fbi + 1..n.bit_length).each do |i|
         next unless (n.bit i) == 1
         b = (n.class.new 1) << i
-        if a.size * @pointer_size >= b - asum
+        if ((a.size > 1) ? a.size * @pointer_size : 0) >= b - asum
           a = [b * 2]
           asum = b * 2
         else
