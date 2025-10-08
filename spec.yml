@@ -19,6 +19,7 @@ env:
         - OwnerAll
         - GroupRead
       sync: true
-    blocks_pointers_dir: /tmp/lawn
+    segments_pointers_dir: /tmp/lawn
+    segments_dir: /tmp/lawn
 seed: 1
 

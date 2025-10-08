@@ -14,24 +14,36 @@ module Lawn
     @[YAML::Field(converter: Lawn::IOConverter)]
     getter headers_io : IO::Memory | File
 
-    getter header_size : UInt64 { @data_size_size + @pointer_size }
+    getter header_size : UInt32 { @data_size_size + @pointer_size }
 
     @[YAML::Field(ignore: true)]
     getter headers : AlignedList { AlignedList.new headers_io, header_size }
 
-    getter blocks_pointers_dir : String
+    getter segments_pointers_dir : String
 
     @[YAML::Field(ignore: true)]
-    getter blocks_pointers_by_number : Hash(UInt8, AlignedList) = {} of UInt8 => AlignedList
+    getter segments_pointers_by_number : Hash(UInt8, AlignedList) = {} of UInt8 => AlignedList
 
-    def blocks_pointers(n : UInt8)
-      blocks_pointers[n] = AlignedList.new(
-        io: (File.new (Path.new @blocks_pointers_dir) / "#{n.rjust 2, '0'}_blocks_pointers.bin"),
-        element_size: n * @pointer_size) unless blocks_pointers.has_key? n
-      blocks_pointers[n]
+    getter segments_dir : String
+
+    @[YAML::Field(ignore: true)]
+    getter segments_by_size : Hash(UInt32, AlignedList) = {} of UInt32 => AlignedList
+
+    def segments_pointers(n : UInt8)
+      @segments_pointers_by_number[n] = AlignedList.new(
+        io: (File.new (Path.new @segments_pointers_dir) / "#{n.to_s.rjust 2, '0'}_segments_pointers.bin"),
+        element_size: n * @pointer_size) unless segments_pointers_by_number.has_key? n
+      segments_pointers_by_number[n]
     end
 
-    def initialize(@data_size_size, @pointer_size, @headers_io, @blocks_pointers_dir)
+    def segments(size : UInt32)
+      segments_by_size[n] = AlignedList.new(
+        io: (File.new (Path.new @segments_dir) / "#{size.to_s.rjust 2, '0'}byte_segments.bin"),
+        element_size: size) unless segments_by_size.has_key? size
+      segments_by_size[n]
+    end
+
+    def initialize(@data_size_size, @pointer_size, @headers_io, @segments_pointers_dir, @segments_dir)
     end
 
     def fast_split(n)
