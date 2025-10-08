@@ -10,7 +10,7 @@ config = Config.from_yaml File.read ENV["SPEC_CONFIG_PATH"]
 rnd = Random.new config[:seed]
 
 describe Lawn::SplitDataStorage do
-  sds = Lawn::SplitDataStorage.new 4_u8, 5_u8
+  sds = config[:env].split_data_storage
 
   it "splits correctly" do
     (1_i32..2**20).each do |n|

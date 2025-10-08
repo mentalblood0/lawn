@@ -2,6 +2,7 @@ require "yaml"
 
 require "./common"
 require "./Log"
+require "./SplitDataStorage"
 
 module Lawn
   class Transaction
@@ -43,6 +44,7 @@ module Lawn
     Lawn.mserializable
 
     getter log : Log
+    getter split_data_storage : SplitDataStorage
 
     @[YAML::Field(ignore: true)]
     getter h : Hash(Bytes, Bytes?) = Hash(Bytes, Bytes?).new

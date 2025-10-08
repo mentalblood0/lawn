@@ -7,22 +7,23 @@ module Lawn
   class AlignedList
     Lawn.mserializable
 
+    getter element_size : UInt32
+
     @[YAML::Field(converter: Lawn::IOConverter)]
     getter io : IO::Memory | File
-    getter s : UInt8
 
-    def initialize(@io, @s)
+    def initialize(@io, @element_size)
       after_initialize
     end
 
     def after_initialize
       @io.pos = 0
       return unless read.all? { |b| b == 255 } rescue nil
-      io.write Bytes.new @s.to_i32!, 255
+      io.write Bytes.new @element_size.to_i32, 255
     end
 
     protected def read
-      r = Bytes.new @s
+      r = Bytes.new @element_size
       @io.read_fully r
       r
     end
@@ -34,18 +35,18 @@ module Lawn
     end
 
     protected def as_b(f : UInt64)
-      r = Bytes.new Math.max 8, @s
-      IO::ByteFormat::BigEndian.encode f, r[(Math.max 8, @s) - 8..]
-      (@s >= 8) ? r : r[8 - @s..]
+      r = Bytes.new Math.max 8, @element_size
+      IO::ByteFormat::BigEndian.encode f, r[(Math.max 8, @element_size) - 8..]
+      (@element_size >= 8) ? r : r[8 - @element_size..]
     end
 
     def get(i : UInt64)
-      @io.pos = i * @s
+      @io.pos = i * @element_size
       read
     end
 
     protected def set(i : UInt64, b : Bytes)
-      @io.pos = i * @s
+      @io.pos = i * @element_size
       @io.write b
     end
 
@@ -56,7 +57,7 @@ module Lawn
       h = read
       if h.all? { |b| b == 255 }
         @io.seek 0, IO::Seek::End
-        r = @io.pos.to_u64! // @s
+        r = @io.pos.to_u64! // @element_size
         @io.write b
 
         r
@@ -78,16 +79,16 @@ module Lawn
     def delete(i : UInt64)
       ::Log.debug { "AlignedListdelete #{i}" }
 
-      if size > 2 * @s
+      if size > 2 * @element_size
         set i, get 0
         set 0, as_b i
       else
         case @io
         when File
-          @io.as(File).truncate @s.to_i32!
+          @io.as(File).truncate @element_size.to_i32
         when IO::Memory
           @io.as(IO::Memory).clear
-          @io.write Bytes.new @s.to_i32!, 255
+          @io.write Bytes.new @element_size.to_i32, 255
         end
       end
     end

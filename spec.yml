@@ -1,0 +1,24 @@
+env:
+  log:
+    io:
+      file:
+        filename: /tmp/lawn/log.bin
+        mode: a+
+        perm:
+        - OwnerAll
+        - GroupRead
+      sync: true
+  split_data_storage:
+    data_size_size: 2
+    pointer_size: 5
+    headers_io:
+      file:
+        filename: /tmp/lawn/headers.bin
+        mode: w+
+        perm:
+        - OwnerAll
+        - GroupRead
+      sync: true
+    blocks_pointers_dir: /tmp/lawn
+seed: 1
+
