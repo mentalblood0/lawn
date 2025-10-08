@@ -1,0 +1,15 @@
+env:
+  log:
+    io:
+      file:
+        filename: /tmp/ph/log.bin
+        mode: a+
+        perm:
+        - OwnerAll
+        - GroupRead
+      sync: true
+seed: 1
+amount: 10_000
+key_size: 16
+value_size: 32
+seed: 0
