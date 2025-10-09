@@ -26,14 +26,14 @@ record Example,
 describe Lawn::Codable do
   it "encodes/decodes" do
     e = Example.new(
-      i8: 1_i8,
-      i16: 2_i16,
-      i32: 3_i32,
-      i64: 4_i64,
-      u8: 5_u8,
-      u16: 6_u16,
-      u32: 7_u32,
-      u64: 8_u64,
+      i8: Int8::MIN,
+      i16: Int16::MIN,
+      i32: Int32::MIN,
+      i64: Int64::MIN,
+      u8: UInt8::MAX,
+      u16: UInt16::MAX,
+      u32: UInt32::MAX,
+      u64: UInt64::MAX,
       a: UInt8.static_array(1_u8, 2_u8, 3_u8),
       n: nil,
       b: "lalala".to_slice)
