@@ -3,29 +3,24 @@ require "spec"
 
 require "../src/Env"
 require "../src/SplitDataStorage"
-require "../src/Encodable"
+require "../src/Codable"
 
 alias Config = {env: Lawn::Env, seed: Int32}
 
 config = Config.from_yaml File.read ENV["SPEC_CONFIG_PATH"]
 rnd = Random.new config[:seed]
 
-struct Example
-  include Lawn::Codable
-
-  getter a : UInt32
-  getter b : UInt32
-
-  def initialize(@a, @b)
-  end
-end
+record Example, a : UInt32, b : UInt32, c : StaticArray(UInt8, 4) { include Lawn::Codable }
 
 describe Lawn::Codable do
-  it "encodes/decodes", focus: true do
-    e = Example.new 1_u32, 2_u32
+  it "encodes/decodes" do
+    e = Example.new 1_u32, 2_u32, UInt8.static_array 1_u8, 2_u8, 3_u8, 4_u8
+
     io = IO::Memory.new
     e.encode io
-    (Example.new io.to_slice).should eq e
+
+    io.rewind
+    (Example.new io).should eq e
   end
 end
 
