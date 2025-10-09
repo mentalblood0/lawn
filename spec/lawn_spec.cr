@@ -10,11 +10,29 @@ alias Config = {env: Lawn::Env, seed: Int32}
 config = Config.from_yaml File.read ENV["SPEC_CONFIG_PATH"]
 rnd = Random.new config[:seed]
 
-record Example, a : UInt32, b : UInt32, c : StaticArray(UInt8, 4) { include Lawn::Codable }
+record Example,
+  i8 : Int8,
+  i16 : Int16,
+  i32 : Int32,
+  i64 : Int64,
+  u8 : UInt8,
+  u16 : UInt16,
+  u32 : UInt32,
+  u64 : UInt64,
+  a : StaticArray(UInt8, 3) { include Lawn::Codable }
 
 describe Lawn::Codable do
   it "encodes/decodes" do
-    e = Example.new 1_u32, 2_u32, UInt8.static_array 1_u8, 2_u8, 3_u8, 4_u8
+    e = Example.new(
+      i8: 1_i8,
+      i16: 2_i16,
+      i32: 3_i32,
+      i64: 4_i64,
+      u8: 5_u8,
+      u16: 6_u16,
+      u32: 7_u32,
+      u64: 8_u64,
+      a: UInt8.static_array 1_u8, 2_u8, 3_u8)
 
     io = IO::Memory.new
     e.encode io

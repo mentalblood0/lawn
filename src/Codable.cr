@@ -23,7 +23,7 @@ module Lawn
                 b = Bytes.new {{s}}
                 io.read_fully b
                 @{{v}} = {{v.type}}.new 0
-                b.to_unsafe.copy_to pointerof(@{{v}}).as(UInt8*), {{s}}
+                b.copy_to pointerof(@{{v}}).as(UInt8*), {{s}}
               {% end %}
               {% i += s %}
             {% end %}
@@ -37,7 +37,7 @@ module Lawn
             {% for v in @type.instance_vars %}
               {% if [Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64].includes? v.type %}
                 io.write_bytes {{v}}, IO::ByteFormat::BigEndian
-              {% elsif v.type.name(generic_args: false) == "StaticArray" %}
+              {% elsif v.type.name.starts_with? "StaticArray(UInt8," %}
                 io.write {{v}}.to_slice
               {% end %}
             {% end %}
