@@ -4,7 +4,6 @@ module Lawn
       def initialize(io : IO)
         {% verbatim do %}
           {% begin %}
-            {% i = 0 %}
             {% for v in @type.instance_vars %}
               {% s = {
                    Int8   => 1,
@@ -24,8 +23,14 @@ module Lawn
                 io.read_fully b
                 @{{v}} = {{v.type}}.new 0
                 b.copy_to pointerof(@{{v}}).as(UInt8*), {{s}}
+              {% elsif v.type.name.starts_with? "Slice(UInt8)" %}
+                s = IO::ByteFormat::BigEndian.decode UInt16, io
+                {% if v.type == Bytes? %}
+                  @{{v}} = nil if s == UInt16::MAX
+                {% end %}
+                @{{v}} = Bytes.new s
+                io.read_fully @{{v}}
               {% end %}
-              {% i += s %}
             {% end %}
           {% end %}
         {% end %}
@@ -39,6 +44,10 @@ module Lawn
                 io.write_bytes {{v}}, IO::ByteFormat::BigEndian
               {% elsif v.type.name.starts_with? "StaticArray(UInt8," %}
                 io.write {{v}}.to_slice
+              {% elsif v.type.name.starts_with? "Slice(UInt8)" %}
+                io.write_bytes UInt16::MAX, IO::ByteFormat::BigEndian unless @{{v}}
+                io.write_bytes @{{v}}.size.to_u16, IO::ByteFormat::BigEndian
+                io.write @{{v}}
               {% end %}
             {% end %}
           {% end %}

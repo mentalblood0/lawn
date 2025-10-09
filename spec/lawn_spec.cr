@@ -19,7 +19,9 @@ record Example,
   u16 : UInt16,
   u32 : UInt32,
   u64 : UInt64,
-  a : StaticArray(UInt8, 3) { include Lawn::Codable }
+  a : StaticArray(UInt8, 3),
+  n : Bytes?,
+  b : Bytes { include Lawn::Codable }
 
 describe Lawn::Codable do
   it "encodes/decodes" do
@@ -32,7 +34,9 @@ describe Lawn::Codable do
       u16: 6_u16,
       u32: 7_u32,
       u64: 8_u64,
-      a: UInt8.static_array 1_u8, 2_u8, 3_u8)
+      a: UInt8.static_array(1_u8, 2_u8, 3_u8),
+      n: nil,
+      b: "lalala".to_slice)
 
     io = IO::Memory.new
     e.encode io
