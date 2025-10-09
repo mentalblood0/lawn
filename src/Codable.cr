@@ -1,21 +1,14 @@
 module Lawn
   module Codable
+    annotation Field
+    end
+
     macro included
       def initialize(io : IO)
         {% verbatim do %}
           {% begin %}
             {% for v in @type.instance_vars %}
-              {% s = {
-                   Int8   => 1,
-                   Int16  => 2,
-                   Int32  => 4,
-                   Int64  => 8,
-                   UInt8  => 1,
-                   UInt16 => 2,
-                   UInt32 => 4,
-                   UInt64 => 8,
-                 }[v.type] %}
-              {% if s %}
+              {% if [Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64].includes? v.type %}
                 @{{v}} = io.read_bytes {{v.type}}, IO::ByteFormat::BigEndian
               {% elsif v.type.name.starts_with? "StaticArray(UInt8," %}
                 {% s = v.type.type_vars[1] %}
