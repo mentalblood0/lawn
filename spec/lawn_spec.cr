@@ -59,6 +59,40 @@ describe Lawn::SplitDataStorage do
   end
 end
 
+describe Lawn::AlignedList do
+  it "raises on invalid element size" do
+    al = Lawn::AlignedList.new IO::Memory.new, 5
+    expect_raises(Lawn::AlignedList::Exception) { al.add Bytes.new 4 }
+    expect_raises(Lawn::AlignedList::Exception) { al.add Bytes.new 6 }
+  end
+
+  [2, 3, 5, 9].map { |s| s.to_u8! }.each do |s|
+    it "supports #{s} bytes elements" do
+      al = Lawn::AlignedList.new IO::Memory.new, s
+      l = Hash(UInt64, Bytes).new
+
+      1000.times do
+        case rnd.rand 0..2
+        when 0
+          b = rnd.random_bytes s
+          l[al.add b] = b
+        when 1
+          k = l.keys.sample rnd rescue next
+          al.delete k
+          l.delete k
+        when 2
+          k = l.keys.sample rnd rescue next
+          b = rnd.random_bytes s
+          al.replace k, b
+          l[k] = b
+        end
+        Log.debug { "{" + (l.map { |i, b| "#{i}: #{b.hexstring}" }.join ' ') + "}" }
+        l.each { |i, b| (al.get i).should eq b }
+      end
+    end
+  end
+end
+
 describe Lawn::Env do
   env = config[:env]
 

@@ -2,10 +2,14 @@ require "json"
 require "yaml"
 
 require "./common.cr"
+require "./exceptions"
 
 module Lawn
   class AlignedList
     Lawn.mserializable
+
+    class Exception < ::Lawn::Exception
+    end
 
     getter element_size : UInt32
 
@@ -52,6 +56,7 @@ module Lawn
 
     def add(b : Bytes)
       ::Log.debug { "AlignedList.add #{b.hexstring}" }
+      raise Exception.new "Element must be of size #{@element_size}, not #{b.size}" unless b.size == @element_size
 
       @io.pos = 0
       h = read
@@ -95,6 +100,7 @@ module Lawn
 
     def replace(i : UInt64, b : Bytes)
       ::Log.debug { "AlignedListreplace #{i} #{b.hexstring}" }
+      raise Exception.new "Element must be of size #{@element_size}, not #{b.size}" unless b.size == @element_size
 
       set i, b
     end
