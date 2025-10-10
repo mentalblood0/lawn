@@ -18,10 +18,11 @@ class Benchmarks
   @[YAML::Field(ignore: true)]
   getter kv : Hash(Bytes, Bytes) = {} of Bytes => Bytes
 
-  def add(name : String, time : Time::Span)
-    bites_written = @amount * (2 + @key_size + 2 + @value_size)
-    @results[name] = {data_speed:    "#{(bites_written / time.total_seconds).to_u64.humanize_bytes}/s",
-                      records_speed: "#{(@amount / time.total_seconds).to_u64.humanize}r/s",
+  def add(name : String, time : Time::Span, bytes_written : UInt64? = nil, amount : UInt64? = nil)
+    bytes_written = @amount * (2 + @key_size + 2 + @value_size) unless bytes_written
+    amount = @amount unless amount
+    @results[name] = {data_speed:    "#{(bytes_written / time.total_seconds).to_u64.humanize_bytes}/s",
+                      records_speed: "#{(amount / time.total_seconds).to_u64.humanize}r/s",
                       time:          "#{time.total_seconds.humanize}s passed"}
   end
 
@@ -42,8 +43,10 @@ class Benchmarks
   def benchmark_split_data_storage
     rnd = Random.new @seed
     sds = @env.split_data_storage
-    data = Array.new(@amount * 2) { rnd.random_bytes rnd.rand 1..1024 }
-    add "SplitDataStorage.add #{@amount * 2} data of total size #{(data.map &.size).sum.humanize_bytes}", Time.measure { data.each { |d| sds.add d } }
+    amount = @amount * 2
+    data = Array.new(amount) { rnd.random_bytes rnd.rand 1..1024 }
+    total_size = (data.map &.size.to_u64).sum
+    add "SplitDataStorage.add #{amount} data of total size #{total_size.humanize_bytes}", Time.measure { data.each { |d| sds.add d } }, total_size, amount
   end
 end
 
