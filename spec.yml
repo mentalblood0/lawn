@@ -1,5 +1,6 @@
 env:
   log:
+    data_size_size: 2
     io:
       file:
         filename: /tmp/lawn/log.bin

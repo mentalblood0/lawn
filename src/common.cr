@@ -46,6 +46,7 @@ module Lawn
   end
 
   def self.read_size(io : IO, size_size : UInt8) : UInt64?
+    raise Exception.new "Size size must be from 1 to 8, not #{size_size}" unless 1 <= size_size <= 8
     rb = Bytes.new 8
     io.read_fully rb[0 - size_size..]
     return nil if rb[0 - size_size..].all? { |b| b == 255_u8 }
@@ -54,8 +55,6 @@ module Lawn
     when 2          then (IO::ByteFormat::BigEndian.decode UInt16, rb[-2..]).to_u64!
     when 3, 4       then (IO::ByteFormat::BigEndian.decode UInt32, rb[-4..]).to_u64!
     when 5, 6, 7, 8 then IO::ByteFormat::BigEndian.decode UInt64, rb
-    else
-      raise Exception.new "Size size #{size_size} is too big"
     end
   end
 
