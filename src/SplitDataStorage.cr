@@ -22,29 +22,29 @@ module Lawn
     getter segments_pointers_dir : String
 
     @[YAML::Field(ignore: true)]
-    getter segments_pointers_by_number : Hash(UInt8, AlignedList) = {} of UInt8 => AlignedList
+    getter segments_pointers_by_number : Array(AlignedList?) = Array(AlignedList?).new 64 { nil }
 
     getter segments_dir : String
 
     @[YAML::Field(ignore: true)]
-    getter segments_by_size : Hash(UInt32, AlignedList) = {} of UInt32 => AlignedList
+    getter segments_by_size_exponent : Array(AlignedList?) = Array(AlignedList?).new 64 { nil }
 
     def segments_pointers(n : UInt8)
-      unless segments_pointers_by_number.has_key? n
+      unless segments_pointers_by_number[n - 1]
         io = File.new (Path.new @segments_pointers_dir) / "segments_pointers_groups_of_#{n.to_s.rjust 2, '0'}.dat", "w+"
         io.sync = true
-        @segments_pointers_by_number[n] = AlignedList.new io, n * @pointer_size
+        @segments_pointers_by_number[n - 1] = AlignedList.new io, n * @pointer_size
       end
-      segments_pointers_by_number[n]
+      segments_pointers_by_number[n - 1].not_nil!
     end
 
-    def segments(size : UInt32)
-      unless segments_by_size.has_key? size
-        io = File.new (Path.new @segments_dir) / "segments_of_size_#{size.to_s.rjust 10, '0'}byte.dat", "w+"
+    def segments(size_exponent : UInt8)
+      unless segments_by_size_exponent[size_exponent]
+        io = File.new (Path.new @segments_dir) / "segments_of_size_#{(1 << size_exponent).to_s.rjust 10, '0'}byte.dat", "w+"
         io.sync = true
-        segments_by_size[size] = AlignedList.new io, size
+        segments_by_size_exponent[size_exponent] = AlignedList.new io, (1_u32 << size_exponent)
       end
-      segments_by_size[size]
+      segments_by_size_exponent[size_exponent].not_nil!
     end
 
     def initialize(@data_size_size, @pointer_size, @headers_io, @segments_pointers_dir, @segments_dir)
@@ -55,7 +55,7 @@ module Lawn
 
       i = 0
       pointers = sizes.map do |size|
-        p = (segments size.to_u32).add data[i..(Math.min i + size, data.size) - 1]
+        p = (segments (size.bit_length - 1).to_u8).add data[i..(Math.min i + size, data.size) - 1]
         i += size
         p
       end
@@ -81,7 +81,7 @@ module Lawn
       pointers_encoded = IO::Memory.new ((segments_pointers sizes.size.to_u8).get pointers_pointer).not_nil!
       pointers = Array.new(sizes.size) { |i| (Lawn.decode_number pointers_encoded, @pointer_size).not_nil! }
 
-      segments = (0..pointers.size - 1).map { |p| ((segments sizes[p].to_u32).get pointers[p]).not_nil! }
+      segments = (0..pointers.size - 1).map { |p| ((segments (sizes[p].bit_length - 1).to_u8).get pointers[p]).not_nil! }
       data = segments.sum[..data_size - 1]
 
       data
