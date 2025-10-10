@@ -45,12 +45,12 @@ module Lawn
     end
   end
 
-  def self.read_size(io : IO, size_size : UInt8) : UInt64?
-    raise Exception.new "Size size must be from 1 to 8, not #{size_size}" unless 1 <= size_size <= 8
+  def self.decode_number(io : IO, size : UInt8) : UInt64?
+    raise Exception.new "Size must be from 1 to 8, not #{size}" unless 1 <= size <= 8
     rb = Bytes.new 8
-    io.read_fully rb[0 - size_size..]
-    return nil if rb[0 - size_size..].all? { |b| b == 255_u8 }
-    case size_size
+    io.read_fully rb[0 - size..]
+    return nil if rb[0 - size..].all? { |b| b == 255_u8 }
+    case size
     when 1          then (IO::ByteFormat::BigEndian.decode UInt8, rb[-1..]).to_u64!
     when 2          then (IO::ByteFormat::BigEndian.decode UInt16, rb[-2..]).to_u64!
     when 3, 4       then (IO::ByteFormat::BigEndian.decode UInt32, rb[-4..]).to_u64!
@@ -58,38 +58,44 @@ module Lawn
     end
   end
 
-  def self.write_size(io : IO, size, size_size : UInt8)
-    b = Bytes.new size_size
-    size_size.times do |i|
-      shift = (size_size - 1 - i) * 8
-      b[i] = ((size >> shift) & 0xFF).to_u8!
+  def self.encode_number(io : IO, n, size : UInt8)
+    b = Bytes.new size
+    size.times do |i|
+      shift = (size - 1 - i) * 8
+      b[i] = ((n >> shift) & 0xFF).to_u8!
     end
     io.write b
   end
 
-  def self.read_bytes(io : IO, size : UInt64)
+  def self.encode_number(n, size : UInt8)
+    io = IO::Memory.new size
+    encode_number io, n, size
+    io.to_slice
+  end
+
+  def self.decode_bytes(io : IO, size : UInt64)
     r = Bytes.new size
     io.read_fully r
     r
   end
 
-  def self.write_bytes(io : IO, b : Bytes)
+  def self.encode_bytes(io : IO, b : Bytes)
     io.write b
   end
 
-  def self.read_bytes_with_size(io : IO, size_size : UInt8) : Bytes?
-    case size = read_size io, size_size
+  def self.decode_bytes_with_size(io : IO, size_size : UInt8) : Bytes?
+    case size = decode_number io, size_size
     when nil then nil
-    else          read_bytes io, size
+    else          decode_bytes io, size
     end
   end
 
-  def self.write_bytes_with_size(io : IO, b : Bytes?, size_size : UInt8)
+  def self.encode_bytes_with_size(io : IO, b : Bytes?, size_size : UInt8)
     case b
-    when nil then write_bytes io, Bytes.new size_size.to_i32, 255_u8
+    when nil then encode_bytes io, Bytes.new size_size.to_i32, 255_u8
     else
-      write_size io, b.size, size_size
-      write_bytes io, b
+      encode_number io, b.size, size_size
+      encode_bytes io, b
     end
   end
 end

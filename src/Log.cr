@@ -19,8 +19,8 @@ module Lawn
       @io.pos = 0
       loop do
         begin
-          key = (Lawn.read_bytes_with_size @io, @data_size_size).not_nil!
-          value = Lawn.read_bytes_with_size @io, @data_size_size
+          key = (Lawn.decode_bytes_with_size @io, @data_size_size).not_nil!
+          value = Lawn.decode_bytes_with_size @io, @data_size_size
           yield({key, value})
         rescue IO::EOFError
           break
@@ -32,8 +32,8 @@ module Lawn
       return if batch.empty?
       buf = IO::Memory.new
       batch.each do |k, v|
-        Lawn.write_bytes_with_size @io, k, @data_size_size
-        Lawn.write_bytes_with_size @io, v, @data_size_size
+        Lawn.encode_bytes_with_size @io, k, @data_size_size
+        Lawn.encode_bytes_with_size @io, v, @data_size_size
       end
       @io.write buf.to_slice
     end

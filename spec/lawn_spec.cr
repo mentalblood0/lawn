@@ -10,30 +10,30 @@ config = Config.from_yaml File.read ENV["SPEC_CONFIG_PATH"]
 rnd = Random.new config[:seed]
 
 describe Lawn do
-  it "writes/reads sizes in arbitrary number of bytes" do
+  it "encodes/decodes numbers encoded in arbitrary number of bytes" do
     io = IO::Memory.new
     (1_u8..8).each do |size_size|
       (0_u64..Math.min 2_u64 ** 12, 2_u64 ** ((size_size == 8) ? 63 : (size_size * 8)) - 2).each do |size|
-        Lawn.write_size io, size, size_size
+        Lawn.encode_number io, size, size_size
         io.rewind
-        (Lawn.read_size io, size_size).should eq size
+        (Lawn.decode_number io, size_size).should eq size
         io.rewind
       end
     end
   end
-  it "writes/reads bytes with sizes" do
+  it "encodes/decodes bytes with sizes" do
     io = IO::Memory.new
-    Lawn.write_bytes_with_size io, "lalala".to_slice, 1_u8
+    Lawn.encode_bytes_with_size io, "lalala".to_slice, 1_u8
     io.rewind
-    (Lawn.read_bytes_with_size io, 1_u8).should eq "lalala".to_slice
+    (Lawn.decode_bytes_with_size io, 1_u8).should eq "lalala".to_slice
     io.rewind
-    Lawn.write_bytes_with_size io, "lalala".to_slice, 3_u8
+    Lawn.encode_bytes_with_size io, "lalala".to_slice, 3_u8
     io.rewind
-    (Lawn.read_bytes_with_size io, 3_u8).should eq "lalala".to_slice
+    (Lawn.decode_bytes_with_size io, 3_u8).should eq "lalala".to_slice
     io.rewind
-    Lawn.write_bytes_with_size io, nil, 3_u8
+    Lawn.encode_bytes_with_size io, nil, 3_u8
     io.rewind
-    (Lawn.read_bytes_with_size io, 3_u8).should eq nil
+    (Lawn.decode_bytes_with_size io, 3_u8).should eq nil
   end
 end
 
@@ -42,10 +42,10 @@ describe Lawn::SplitDataStorage do
 
   it "splits correctly" do
     (1_i32..2**20).each do |n|
-      ((sds.fast_split n).sum >= n).should eq true
+      ((sds.split n).sum >= n).should eq true
     end
     (UInt32::MAX // 2 - 1024 * 10..UInt32::MAX // 2).each do |n|
-      ((sds.fast_split n).sum >= n).should eq true
+      ((sds.split n).sum >= n).should eq true
     end
   end
 end
@@ -53,7 +53,6 @@ end
 describe Lawn::AlignedList do
   it "raises on invalid element size" do
     al = Lawn::AlignedList.new IO::Memory.new, 5
-    expect_raises(Lawn::AlignedList::Exception) { al.add Bytes.new 4 }
     expect_raises(Lawn::AlignedList::Exception) { al.add Bytes.new 6 }
   end
 
@@ -81,6 +80,19 @@ describe Lawn::AlignedList do
         l.each { |i, b| (al.get i).should eq b }
       end
     end
+  end
+end
+
+describe Lawn::SplitDataStorage do
+  sds = config[:env].split_data_storage
+
+  it "adds/gets data", focus: true do
+    added = Array({UInt64, Bytes}).new
+    100.times do
+      data = rnd.random_bytes rnd.rand 1..1024
+      added << {(sds.add data), data}
+    end
+    added.each { |pointer, data| (sds.get pointer).should eq data }
   end
 end
 

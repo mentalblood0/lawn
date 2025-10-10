@@ -49,14 +49,17 @@ module Lawn
       read
     end
 
-    protected def set(i : UInt64, b : Bytes)
+    protected def set(i : UInt64, b : Bytes) : UInt64
       @io.pos = i * @element_size
       @io.write b
+      i
     end
 
-    def add(b : Bytes)
+    def add(b : Bytes) : UInt64
       ::Log.debug { "AlignedList.add #{b.hexstring}" }
-      raise Exception.new "Element must be of size #{@element_size}, not #{b.size}" unless b.size == @element_size
+      raise Exception.new "Element size must be <= #{@element_size}, not #{b.size}" unless b.size <= @element_size
+
+      b += Bytes.new @element_size - b.size if b.size < @element_size
 
       @io.pos = 0
       h = read
@@ -81,7 +84,7 @@ module Lawn
       (@io.is_a? File) ? @io.as(File).size : @io.as(IO::Memory).size
     end
 
-    def delete(i : UInt64)
+    def delete(i : UInt64) : UInt64
       ::Log.debug { "AlignedListdelete #{i}" }
 
       if size > 2 * @element_size
@@ -96,11 +99,14 @@ module Lawn
           @io.write Bytes.new @element_size.to_i32, 255
         end
       end
+      i
     end
 
-    def replace(i : UInt64, b : Bytes)
+    def replace(i : UInt64, b : Bytes) : UInt64
       ::Log.debug { "AlignedListreplace #{i} #{b.hexstring}" }
-      raise Exception.new "Element must be of size #{@element_size}, not #{b.size}" unless b.size == @element_size
+      raise Exception.new "Element size must be <= #{@element_size}, not #{b.size}" unless b.size <= @element_size
+
+      b += Bytes.new @element_size - b.size if b.size < @element_size
 
       set i, b
     end
