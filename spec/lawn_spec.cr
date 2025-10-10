@@ -37,19 +37,6 @@ describe Lawn do
   end
 end
 
-describe Lawn::SplitDataStorage do
-  sds = config[:env].split_data_storage
-
-  it "splits correctly" do
-    (1_i32..2**20).each do |n|
-      ((sds.split n).sum >= n).should eq true
-    end
-    (UInt32::MAX // 2 - 1024 * 10..UInt32::MAX // 2).each do |n|
-      ((sds.split n).sum >= n).should eq true
-    end
-  end
-end
-
 describe Lawn::AlignedList do
   it "raises on invalid element size" do
     al = Lawn::AlignedList.new IO::Memory.new, 5
@@ -85,6 +72,15 @@ end
 
 describe Lawn::SplitDataStorage do
   sds = config[:env].split_data_storage
+
+  it "splits correctly" do
+    (1_i32..2**20).each do |n|
+      ((sds.split n).sum >= n).should eq true
+    end
+    (UInt32::MAX // 2 - 1024 * 10..UInt32::MAX // 2).each do |n|
+      ((sds.split n).sum >= n).should eq true
+    end
+  end
 
   it "adds/gets data", focus: true do
     added = Array({UInt64, Bytes}).new

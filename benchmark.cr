@@ -6,8 +6,6 @@ config = Config.from_yaml File.read ENV["BENCHMARK_CONFIG_PATH"]
 env = config[:env]
 rnd = Random.new config[:seed]
 
-puts config.to_yaml
-
 kv = Hash(Bytes, Bytes).new
 config[:amount].times { kv[rnd.random_bytes 16] = rnd.random_bytes 32 }
 time_to_write = Time.measure do
