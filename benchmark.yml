@@ -22,7 +22,7 @@ env:
       sync: true
     segments_pointers_dir: /tmp/lawn
     segments_dir: /tmp/lawn
-amount: 10_000
+amount: 100_000
 key_size: 16
 value_size: 32
 seed: 0

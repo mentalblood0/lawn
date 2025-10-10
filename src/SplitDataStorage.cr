@@ -30,15 +30,20 @@ module Lawn
     getter segments_by_size : Hash(UInt32, AlignedList) = {} of UInt32 => AlignedList
 
     def segments_pointers(n : UInt8)
-      io = File.new (Path.new @segments_pointers_dir) / "#{n.to_s.rjust 2, '0'}_segments_pointers.bin", "w+"
-      io.sync = true
-      @segments_pointers_by_number[n] = AlignedList.new io, n * @pointer_size unless segments_pointers_by_number.has_key? n
+      unless segments_pointers_by_number.has_key? n
+        io = File.new (Path.new @segments_pointers_dir) / "#{n.to_s.rjust 2, '0'}_segments_pointers.bin", "w+"
+        io.sync = true
+        @segments_pointers_by_number[n] = AlignedList.new io, n * @pointer_size
+      end
       segments_pointers_by_number[n]
     end
 
     def segments(size : UInt32)
-      io = File.new (Path.new @segments_dir) / "#{size.to_s.rjust 2, '0'}byte_segments.bin", "w+"
-      segments_by_size[size] = AlignedList.new io, size unless segments_by_size.has_key? size
+      unless segments_by_size.has_key? size
+        io = File.new (Path.new @segments_dir) / "#{size.to_s.rjust 2, '0'}byte_segments.bin", "w+"
+        io.sync = true
+        segments_by_size[size] = AlignedList.new io, size
+      end
       segments_by_size[size]
     end
 

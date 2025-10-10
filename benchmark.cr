@@ -29,21 +29,21 @@ class Benchmarks
     rnd = Random.new @seed
     @kv.clear
     @amount.times { kv[rnd.random_bytes 16] = rnd.random_bytes 32 }
-    add "write", Time.measure { kv.each { |k, v| env.transaction.set(k, v).commit } }
+    add "Env.write #{kv.size} key-value pairs of total size #{kv.map { |k, v| k.size + v.size }.sum.humanize_bytes}", Time.measure { kv.each { |k, v| env.transaction.set(k, v).commit } }
   end
 
   def benchmark_get
     rnd = Random.new @seed
     ks = @kv.keys
     ks.shuffle! rnd
-    add "get", Time.measure { ks.each { |k| env.get k } }
+    add "Env.get #{kv.size} key-value pairs of total size #{kv.map { |k, v| k.size + v.size }.sum.humanize_bytes}", Time.measure { ks.each { |k| env.get k } }
   end
 
   def benchmark_split_data_storage
     rnd = Random.new @seed
     sds = @env.split_data_storage
     data = Array.new(@amount * 2) { rnd.random_bytes rnd.rand 1..1024 }
-    data.each { |d| sds.add d }
+    add "SplitDataStorage.add #{amount} data of total size #{(data.map &.size).sum.humanize_bytes}", Time.measure { data.each { |d| sds.add d } }
   end
 end
 
