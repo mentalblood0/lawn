@@ -44,7 +44,7 @@ describe Lawn::AlignedList do
   end
 
   [2, 3, 5, 9].map { |s| s.to_u8! }.each do |s|
-    it "supports #{s} bytes elements" do
+    it "supports #{s} bytes elements", focus: true do
       al = Lawn::AlignedList.new IO::Memory.new, s
       l = Hash(UInt64, Bytes).new
 

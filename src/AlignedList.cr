@@ -16,14 +16,18 @@ module Lawn
     @[YAML::Field(converter: Lawn::IOConverter)]
     getter io : IO::Memory | File
 
+    @[YAML::Field(ignore: true)]
+    getter head : Bytes = Bytes.new 0
+
     def initialize(@io, @element_size)
       after_initialize
     end
 
     def after_initialize
       @io.pos = 0
-      return unless read.all? { |b| b == 255 } rescue nil
-      io.write Bytes.new @element_size.to_i32, 255
+      return unless (@head = read).all? { |b| b == 255 } rescue nil
+      @head = Bytes.new @element_size.to_i32, 255
+      io.write head
     end
 
     protected def read
@@ -50,6 +54,7 @@ module Lawn
     end
 
     protected def set(i : UInt64, b : Bytes) : UInt64
+      @head = b if i == 0
       @io.pos = i * @element_size
       @io.write b
       i
@@ -61,16 +66,14 @@ module Lawn
 
       b += Bytes.new @element_size - b.size if b.size < @element_size
 
-      @io.pos = 0
-      h = read
-      if h.all? { |b| b == 255 }
+      if @head.all? { |b| b == 255 }
         @io.seek 0, IO::Seek::End
         r = @io.pos.to_u64! // @element_size
         @io.write b
 
         r
       else
-        r = as_p h
+        r = as_p @head
         n1 = get r
 
         set r, b
@@ -96,7 +99,8 @@ module Lawn
           @io.as(File).truncate @element_size.to_i32
         when IO::Memory
           @io.as(IO::Memory).clear
-          @io.write Bytes.new @element_size.to_i32, 255
+          @head = Bytes.new @element_size.to_i32, 255
+          @io.write @head
         end
       end
       i

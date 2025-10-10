@@ -3,7 +3,7 @@ env:
     data_size_size: 2
     io:
       file:
-        filename: /tmp/lawn/log.bin
+        filename: /tmp/lawn/log.dat
         mode: a+
         perm:
         - OwnerAll
@@ -14,7 +14,7 @@ env:
     pointer_size: 5
     headers_io:
       file:
-        filename: /tmp/lawn/headers.bin
+        filename: /tmp/lawn/headers.dat
         mode: w+
         perm:
         - OwnerAll
