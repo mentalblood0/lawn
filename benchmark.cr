@@ -43,7 +43,7 @@ class Benchmarks
     rnd = Random.new @seed
     sds = @env.split_data_storage
     data = Array.new(@amount * 2) { rnd.random_bytes rnd.rand 1..1024 }
-    add "SplitDataStorage.add #{amount} data of total size #{(data.map &.size).sum.humanize_bytes}", Time.measure { data.each { |d| sds.add d } }
+    add "SplitDataStorage.add #{@amount * 2} data of total size #{(data.map &.size).sum.humanize_bytes}", Time.measure { data.each { |d| sds.add d } }
   end
 end
 

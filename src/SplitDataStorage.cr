@@ -31,7 +31,7 @@ module Lawn
 
     def segments_pointers(n : UInt8)
       unless segments_pointers_by_number.has_key? n
-        io = File.new (Path.new @segments_pointers_dir) / "#{n.to_s.rjust 2, '0'}_segments_pointers.bin", "w+"
+        io = File.new (Path.new @segments_pointers_dir) / "segments_pointers_groups_of_#{n.to_s.rjust 2, '0'}.dat", "w+"
         io.sync = true
         @segments_pointers_by_number[n] = AlignedList.new io, n * @pointer_size
       end
@@ -40,7 +40,7 @@ module Lawn
 
     def segments(size : UInt32)
       unless segments_by_size.has_key? size
-        io = File.new (Path.new @segments_dir) / "#{size.to_s.rjust 2, '0'}byte_segments.bin", "w+"
+        io = File.new (Path.new @segments_dir) / "segments_of_size_#{size.to_s.rjust 10, '0'}byte.dat", "w+"
         io.sync = true
         segments_by_size[size] = AlignedList.new io, size
       end
