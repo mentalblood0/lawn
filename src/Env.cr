@@ -16,7 +16,7 @@ module Lawn
     getter h : Hash(Bytes, Bytes?) = Hash(Bytes, Bytes?).new
 
     def after_initialize
-      @log.read { |entry| @h[entry.key] = entry.value }
+      @log.read { |kv| @h[kv[0]] = kv[1] }
     end
 
     def checkpoint

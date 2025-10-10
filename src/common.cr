@@ -11,7 +11,8 @@ module Lawn
   end
 
   alias K = Bytes
-  alias V = Bytes
+  alias V = Bytes?
+  alias KV = {K, V}
 
   module IOConverter
     alias Args = NamedTuple(

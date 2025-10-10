@@ -30,7 +30,7 @@ module Lawn
     end
 
     def commit
-      @env.log.write @batch.map { |k, v| Log::Entry.new k, v }
+      @env.log.write @batch
       @env.h.merge! @batch
       @env
     end

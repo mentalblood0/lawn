@@ -3,7 +3,6 @@ require "spec"
 
 require "../src/Env"
 require "../src/SplitDataStorage"
-require "../src/Codable"
 
 alias Config = {env: Lawn::Env, seed: Int32}
 
@@ -35,42 +34,6 @@ describe Lawn do
     Lawn.write_bytes_with_size io, nil, 3_u8
     io.rewind
     (Lawn.read_bytes_with_size io, 3_u8).should eq nil
-  end
-end
-
-record Example,
-  i8 : Int8,
-  i16 : Int16,
-  i32 : Int32,
-  i64 : Int64,
-  u8 : UInt8,
-  u16 : UInt16,
-  u32 : UInt32,
-  u64 : UInt64,
-  a : StaticArray(UInt8, 3),
-  n : Bytes?,
-  b : Bytes { include Lawn::Codable }
-
-describe Lawn::Codable do
-  it "encodes/decodes" do
-    e = Example.new(
-      i8: Int8::MIN,
-      i16: Int16::MIN,
-      i32: Int32::MIN,
-      i64: Int64::MIN,
-      u8: UInt8::MAX,
-      u16: UInt16::MAX,
-      u32: UInt32::MAX,
-      u64: UInt64::MAX,
-      a: UInt8.static_array(1_u8, 2_u8, 3_u8),
-      n: nil,
-      b: "lalala".to_slice)
-
-    io = IO::Memory.new
-    e.encode io
-
-    io.rewind
-    (Example.new io).should eq e
   end
 end
 
@@ -125,7 +88,7 @@ describe Lawn::Env do
   env = config[:env]
 
   it "generative test" do
-    h = Hash(Bytes, Bytes?).new
+    h = Hash(Lawn::K, Lawn::V).new
 
     ks = 0..1024
     vs = 0..1024
