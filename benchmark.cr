@@ -1,32 +1,55 @@
 require "./src/Env"
+require "./src/common"
 
-alias Config = {env: Lawn::Env, seed: Int32, amount: UInt64, key_size: UInt64, value_size: UInt64}
+alias Result = {data_speed: String, records_speed: String, time: String}
 
-config = Config.from_yaml File.read ENV["BENCHMARK_CONFIG_PATH"]
-env = config[:env]
-rnd = Random.new config[:seed]
+class Benchmarks
+  Lawn.mserializable
 
-kv = Hash(Bytes, Bytes).new
-config[:amount].times { kv[rnd.random_bytes 16] = rnd.random_bytes 32 }
-time_to_write = Time.measure do
-  kv.each { |k, v| env.transaction.set(k, v).commit }
+  getter env : Lawn::Env
+  getter seed : Int32
+  getter amount : UInt64
+  getter key_size : UInt64
+  getter value_size : UInt64
+
+  @[YAML::Field(ignore: true)]
+  getter results : Hash(String, Result) = {} of String => Result
+
+  @[YAML::Field(ignore: true)]
+  getter kv : Hash(Bytes, Bytes) = {} of Bytes => Bytes
+
+  def add(name : String, time : Time::Span)
+    bites_written = @amount * (2 + @key_size + 2 + @value_size)
+    @results[name] = {data_speed:    "#{(bites_written / time.total_seconds).to_u64.humanize_bytes}/s",
+                      records_speed: "#{(@amount / time.total_seconds).to_u64.humanize}r/s",
+                      time:          "#{time.total_seconds.humanize}s passed"}
+  end
+
+  def benchmark_write
+    rnd = Random.new @seed
+    @kv.clear
+    @amount.times { kv[rnd.random_bytes 16] = rnd.random_bytes 32 }
+    add "write", Time.measure { kv.each { |k, v| env.transaction.set(k, v).commit } }
+  end
+
+  def benchmark_get
+    rnd = Random.new @seed
+    ks = @kv.keys
+    ks.shuffle! rnd
+    add "get", Time.measure { ks.each { |k| env.get k } }
+  end
+
+  def benchmark_split_data_storage
+    rnd = Random.new @seed
+    sds = @env.split_data_storage
+    data = Array.new(@amount * 2) { rnd.random_bytes rnd.rand 1..1024 }
+    data.each { |d| sds.add d }
+  end
 end
 
-ks = kv.keys
-ks.shuffle! rnd
-time_to_get = Time.measure do
-  ks.each { |k| env.get k }
-end
+benchmarks = Benchmarks.from_yaml File.read ENV["BENCHMARK_CONFIG_PATH"]
+# benchmarks.benchmark_write
+# benchmarks.benchmark_get
+benchmarks.benchmark_split_data_storage
 
-bites_written = config[:amount] * (2 + config[:key_size] + 2 + config[:value_size])
-
-{"write" => time_to_write,
- "get"   => time_to_get,
-}.each do |o, tt|
-  puts "#{o}:"
-  puts "\t#{(bites_written / tt.total_seconds).to_u64.humanize_bytes}/s"
-  puts "\t#{(config[:amount] / tt.total_seconds).to_u64.humanize}r/s"
-  puts "\t#{tt.total_seconds.humanize}s passed"
-end
-
-puts "#{bites_written}B (#{bites_written.humanize_bytes}) written"
+puts benchmarks.results.to_yaml
