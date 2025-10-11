@@ -4,6 +4,12 @@ require "spec"
 require "../src/Env"
 require "../src/SplitDataStorage"
 
+struct Slice(T)
+  def pretty_print(pp : PrettyPrint)
+    pp.text "Bytes[#{self.hexstring}]"
+  end
+end
+
 alias Config = {env: Lawn::Env, seed: Int32}
 
 config = Config.from_yaml File.read ENV["SPEC_CONFIG_PATH"]
@@ -40,7 +46,7 @@ end
 describe Lawn::AlignedList do
   it "raises on invalid element size" do
     al = Lawn::AlignedList.new IO::Memory.new, 5
-    expect_raises(Lawn::AlignedList::Exception) { al.add Bytes.new 6 }
+    expect_raises(Lawn::AlignedList::Exception) { al.add [Bytes.new 6] }
   end
 
   [2, 3, 5, 9].map { |s| s.to_u8! }.each do |s|
@@ -52,7 +58,7 @@ describe Lawn::AlignedList do
         case rnd.rand 0..2
         when 0
           b = rnd.random_bytes s
-          l[al.add b] = b
+          (al.add [b]).each { |p| l[p] = b }
         when 1
           k = l.keys.sample rnd rescue next
           al.delete k
@@ -95,7 +101,9 @@ describe Lawn::SplitDataStorage do
         added.delete pointer
       end
     end
-    added.each { |pointer, data| (sds.get pointer).should eq data }
+    added.each do |pointer, data|
+      (sds.get pointer).should eq data
+    end
   end
 end
 

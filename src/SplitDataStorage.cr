@@ -53,19 +53,19 @@ module Lawn
 
       i = 0
       pointers = sizes.map do |size|
-        p = (segments (size.bit_length - 1).to_u8).add data[i..(Math.min i + size, data.size) - 1]
+        p = segments((size.bit_length - 1).to_u8).add [data[i..(Math.min i + size, data.size) - 1]]
         i += size
-        p
+        p.first
       end
 
       pointers_encoded = IO::Memory.new pointers.size * @pointer_size
       pointers.each { |p| Lawn.encode_number pointers_encoded, p, @pointer_size }
-      pointers_pointer = (segments_pointers pointers.size.to_u8).add pointers_encoded.to_slice
+      pointers_pointer = segments_pointers(pointers.size.to_u8).add([pointers_encoded.to_slice]).first
 
       header_encoded = IO::Memory.new @data_size_size + @pointer_size
       Lawn.encode_number header_encoded, data.size, @data_size_size
       Lawn.encode_number header_encoded, pointers_pointer, @pointer_size
-      header_pointer = headers.add header_encoded.to_slice
+      header_pointer = headers.add([header_encoded.to_slice]).first
 
       header_pointer
     end
@@ -94,7 +94,7 @@ module Lawn
       pointers_encoded = IO::Memory.new ((segments_pointers sizes.size.to_u8).get pointers_pointer).not_nil!
       pointers = Array.new(sizes.size) { |i| (Lawn.decode_number pointers_encoded, @pointer_size).not_nil! }
 
-      (0..pointers.size - 1).map { |p| ((segments (sizes[p].bit_length - 1).to_u8).delete pointers[p]).not_nil! }
+      (0..pointers.size - 1).each { |p| ((segments (sizes[p].bit_length - 1).to_u8).delete pointers[p]).not_nil! }
       (segments_pointers sizes.size.to_u8).delete pointers_pointer
       headers.delete header_pointer
 

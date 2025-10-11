@@ -23,11 +23,17 @@ module Lawn
       after_initialize
     end
 
-    def after_initialize
+    protected def write_head
       @io.pos = 0
       return unless (@head = read).all? { |b| b == 255 } rescue nil
       @head = Bytes.new @element_size.to_i32, 255
       io.write head
+    end
+
+    def after_initialize
+      write_head
+
+      @io.seek 0, IO::Seek::End
     end
 
     protected def read
@@ -60,27 +66,27 @@ module Lawn
       i
     end
 
-    def add(b : Bytes) : UInt64
-      ::Log.debug { "AlignedList.add #{b.hexstring}" }
-      raise Exception.new "Element size must be <= #{@element_size}, not #{b.size}" unless b.size <= @element_size
+    def add(data : Array(Bytes)) : Array(UInt64)
+      ::Log.debug { "AlignedList.add #{data.map &.hexstring}" }
 
-      b += Bytes.new @element_size - b.size if b.size < @element_size
+      rs = [] of UInt64
+      (0..data.size - 1).each do |i|
+        if @head.all? { |b| b == 255 }
+          @io.seek 0, IO::Seek::End
+          rn = @io.pos.to_u64 // @element_size
+          (rn..rn + data.size - i - 1).each { |r| rs << r }
+          @io.write Bytes.join data[i..] + (@element_size > data.last.size ? [Bytes.new @element_size - data.last.size] : [] of Bytes)
+          break
+        else
+          r = as_p @head
+          n1 = get r
 
-      if @head.all? { |b| b == 255 }
-        @io.seek 0, IO::Seek::End
-        r = @io.pos.to_u64! // @element_size
-        @io.write b
-
-        r
-      else
-        r = as_p @head
-        n1 = get r
-
-        set r, b
-        set 0, n1
-
-        r
+          set r, data[i]
+          set 0, n1
+          rs << r
+        end
       end
+      rs
     end
 
     protected def size
