@@ -80,7 +80,7 @@ module Lawn
       pointers = Array.new(sizes.size) { |i| (Lawn.decode_number pointers_encoded, @pointer_size).not_nil! }
 
       segments = (0..pointers.size - 1).map { |p| ((segments (sizes[p].bit_length - 1).to_u8).get pointers[p]).not_nil! }
-      data = segments.sum[..data_size - 1]
+      data = (Slice.join segments)[..data_size - 1]
 
       data
     end
