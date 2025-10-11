@@ -88,7 +88,7 @@ module Lawn
     end
 
     def delete(i : UInt64) : UInt64
-      ::Log.debug { "AlignedListdelete #{i}" }
+      ::Log.debug { "AlignedList.delete #{i}" }
 
       if size > 2 * @element_size
         set i, get 0

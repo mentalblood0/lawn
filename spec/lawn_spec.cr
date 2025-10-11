@@ -44,7 +44,7 @@ describe Lawn::AlignedList do
   end
 
   [2, 3, 5, 9].map { |s| s.to_u8! }.each do |s|
-    it "supports #{s} bytes elements", focus: true do
+    it "generative test: supports #{s} bytes elements", focus: true do
       al = Lawn::AlignedList.new IO::Memory.new, s
       l = Hash(UInt64, Bytes).new
 
@@ -82,11 +82,18 @@ describe Lawn::SplitDataStorage do
     end
   end
 
-  it "adds/gets data", focus: true do
-    added = Array({UInt64, Bytes}).new
+  it "generative test", focus: true do
+    added = Hash(UInt64, Bytes).new
     100.times do
-      data = rnd.random_bytes rnd.rand 1..1024
-      added << {(sds.add data), data}
+      case rnd.rand 0..1
+      when 0
+        data = rnd.random_bytes rnd.rand 1..1024
+        added[sds.add data] = data
+      when 1
+        pointer = added.keys.sample rnd rescue next
+        sds.delete pointer
+        added.delete pointer
+      end
     end
     added.each { |pointer, data| (sds.get pointer).should eq data }
   end

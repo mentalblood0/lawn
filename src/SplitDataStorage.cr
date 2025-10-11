@@ -14,20 +14,18 @@ module Lawn
     @[YAML::Field(converter: Lawn::IOConverter)]
     getter headers_io : IO::Memory | File
 
-    getter header_size : UInt32 { @data_size_size.to_u32 + @pointer_size }
-
     @[YAML::Field(ignore: true)]
-    getter headers : AlignedList { AlignedList.new headers_io, header_size }
+    getter headers : AlignedList { AlignedList.new headers_io, @data_size_size.to_u32 + @pointer_size }
 
     getter segments_pointers_dir : String
 
     @[YAML::Field(ignore: true)]
-    getter segments_pointers_by_number : Array(AlignedList?) = Array(AlignedList?).new 64 { nil }
+    getter segments_pointers_by_number : Array(AlignedList?) = Array(AlignedList?).new 32 { nil }
 
     getter segments_dir : String
 
     @[YAML::Field(ignore: true)]
-    getter segments_by_size_exponent : Array(AlignedList?) = Array(AlignedList?).new 64 { nil }
+    getter segments_by_size_exponent : Array(AlignedList?) = Array(AlignedList?).new 32 { nil }
 
     def segments_pointers(n : UInt8)
       unless segments_pointers_by_number[n - 1]
@@ -85,6 +83,22 @@ module Lawn
       data = segments.sum[..data_size - 1]
 
       data
+    end
+
+    def delete(header_pointer : UInt64) : UInt64
+      header_encoded = IO::Memory.new (headers.get header_pointer).not_nil! rescue return header_pointer
+      data_size = (Lawn.decode_number header_encoded, @data_size_size).not_nil!
+      pointers_pointer = (Lawn.decode_number header_encoded, @pointer_size).not_nil!
+
+      sizes = split data_size
+      pointers_encoded = IO::Memory.new ((segments_pointers sizes.size.to_u8).get pointers_pointer).not_nil!
+      pointers = Array.new(sizes.size) { |i| (Lawn.decode_number pointers_encoded, @pointer_size).not_nil! }
+
+      (0..pointers.size - 1).map { |p| ((segments (sizes[p].bit_length - 1).to_u8).delete pointers[p]).not_nil! }
+      (segments_pointers sizes.size.to_u8).delete pointers_pointer
+      headers.delete header_pointer
+
+      header_pointer
     end
 
     def split(n)
