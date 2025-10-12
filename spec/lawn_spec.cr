@@ -49,8 +49,14 @@ describe Lawn::AlignedList do
     expect_raises(Lawn::AlignedList::Exception) { al.add [Bytes.new 6] }
   end
 
+  it "simple test", focus: true do
+    al = Lawn::AlignedList.new IO::Memory.new, (1 << 9).to_u32
+    data = [Bytes.new(512) { 1_u8 }, Bytes.new(505) { 2_u8 }, Bytes.new(512) { 3_u8 }]
+    al.add(data).each_with_index { |pointer, data_index| al.get(pointer).should eq data[data_index] }
+  end
+
   [2, 3, 5, 9].map { |s| s.to_u8! }.each do |s|
-    it "generative test: supports #{s} bytes elements", focus: true do
+    it "generative test: supports #{s} bytes elements" do
       al = Lawn::AlignedList.new IO::Memory.new, s
       l = Hash(UInt64, Bytes).new
 
@@ -88,13 +94,18 @@ describe Lawn::SplitDataStorage do
     end
   end
 
-  it "generative test", focus: true do
+  it "simple test" do
+    data = Array(Bytes).new(5) { rnd.random_bytes rnd.rand 1..1024 }
+    (sds.add data).each_with_index { |pointer, data_index| sds.get(pointer).should eq data[data_index] }
+  end
+
+  it "generative test" do
     added = Hash(UInt64, Bytes).new
     100.times do
       case rnd.rand 0..1
       when 0
-        data = rnd.random_bytes rnd.rand 1..1024
-        added[sds.add data] = data
+        data = Array(Bytes).new(rnd.rand 1..16) { rnd.random_bytes rnd.rand 1..1024 }
+        (sds.add data).each_with_index { |pointer, data_index| added[pointer] = data[data_index] }
       when 1
         pointer = added.keys.sample rnd rescue next
         sds.delete pointer

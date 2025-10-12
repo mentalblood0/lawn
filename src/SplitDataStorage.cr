@@ -48,26 +48,85 @@ module Lawn
     def initialize(@data_size_size, @pointer_size, @headers_io, @segments_pointers_dir, @segments_dir)
     end
 
-    def add(data : Bytes) : UInt64
-      sizes = split data.size
+    class Segment
+      property data_index : Int32
+      property value : Bytes
+      property size_exponent : UInt8
+      property index : Int32
+      property total : Int32
+      property pointer : UInt64 = 0_u64
+      property pointers_pointer : UInt64 = 0_u64
 
-      i = 0
-      pointers = sizes.map do |size|
-        p = segments((size.bit_length - 1).to_u8).add [data[i..(Math.min i + size, data.size) - 1]]
-        i += size
-        p.first
+      def initialize(@data_index, @value, @size_exponent, @index, @total)
+      end
+    end
+
+    class PointersEncoded
+      property data_index : Int32
+      property value : Bytes
+
+      def initialize(@data_index, @value)
+      end
+    end
+
+    def add(data : Array(Bytes)) : Array(UInt64)
+      puts "data:"
+      pp data
+
+      segments_by_size_exponent = Array(Array(Segment)).new(32) { Array(Segment).new }
+      segments_by_data_index = Array(Array(Segment)).new(data.size) { Array(Segment).new }
+      data.each_with_index do |d, data_index|
+        sizes = split d.size
+        i = 0
+        sizes.each_with_index do |size, size_index|
+          size_exponent = (size.bit_length - 1).to_u8
+          segment = Segment.new(
+            data_index: data_index,
+            value: d[i..Math.min(i + size, d.size) - 1],
+            size_exponent: size_exponent,
+            index: size_index,
+            total: sizes.size)
+          segments_by_size_exponent[size_exponent] << segment
+          segments_by_data_index[data_index] << segment
+          i += size
+        end
       end
 
-      pointers_encoded = IO::Memory.new pointers.size * @pointer_size
-      pointers.each { |p| Lawn.encode_number pointers_encoded, p, @pointer_size }
-      pointers_pointer = segments_pointers(pointers.size.to_u8).add([pointers_encoded.to_slice]).first
+      segments_by_size_exponent.each_with_index do |ss, se|
+        next if ss.empty?
+        pointers = segments(se.to_u8).add(ss.map &.value)
+        puts "segments(#{se}).add #{ss.map &.value.hexstring} => #{pointers}"
+        pointers.each_with_index do |p, i|
+          ss[i].pointer = p
+        end
+      end
+      # puts "\nsegments_by_size_exponent:"
+      # pp segments_by_size_exponent
 
-      header_encoded = IO::Memory.new @data_size_size + @pointer_size
-      Lawn.encode_number header_encoded, data.size, @data_size_size
-      Lawn.encode_number header_encoded, pointers_pointer, @pointer_size
-      header_pointer = headers.add([header_encoded.to_slice]).first
+      pointers_encoded_by_total = Array(Array(PointersEncoded)).new(32) { Array(PointersEncoded).new }
+      segments_by_data_index.each_with_index do |ss, data_index|
+        pointers_encoded_io = IO::Memory.new ss.size
+        ss.each { |s| Lawn.encode_number pointers_encoded_io, s.pointer, @pointer_size }
+        pointers_encoded_by_total[ss.size] << PointersEncoded.new(
+          data_index: data_index,
+          value: pointers_encoded_io.to_slice)
+      end
+      pointers_pointer_by_data_index = Array(UInt64).new(data.size) { 0_u64 }
+      pointers_encoded_by_total.each_with_index do |pse, total|
+        next if pse.empty?
+        puts "segments_pointers(#{total}).add #{pse.map &.value}"
+        pointers_pointers = segments_pointers(total.to_u8).add pse.map &.value
+        (0..pse.size - 1).each { |i| pointers_pointer_by_data_index[pse[i].data_index] = pointers_pointers[i] }
+      end
+      # puts "\npointers_pointer_by_data_index:"
+      # pp pointers_pointer_by_data_index
 
-      header_pointer
+      r = headers.add(pointers_pointer_by_data_index.map_with_index do |pointers_pointer, data_index|
+        header_encoded = IO::Memory.new @data_size_size + @pointer_size
+        Lawn.encode_number header_encoded, data[data_index].size, @data_size_size
+        Lawn.encode_number header_encoded, pointers_pointer, @pointer_size
+        header_encoded.to_slice
+      end)
     end
 
     def get(header_pointer : UInt64) : Bytes?
@@ -79,7 +138,10 @@ module Lawn
       pointers_encoded = IO::Memory.new ((segments_pointers sizes.size.to_u8).get pointers_pointer).not_nil!
       pointers = Array.new(sizes.size) { |i| (Lawn.decode_number pointers_encoded, @pointer_size).not_nil! }
 
-      segments = (0..pointers.size - 1).map { |p| ((segments (sizes[p].bit_length - 1).to_u8).get pointers[p]).not_nil! }
+      segments = (0..pointers.size - 1).map do |p|
+        puts "segments(#{sizes[p].bit_length - 1}).get #{pointers[p]}"
+        ((segments (sizes[p].bit_length - 1).to_u8).get pointers[p]).not_nil!
+      end
       data = (Slice.join segments)[..data_size - 1]
 
       data
