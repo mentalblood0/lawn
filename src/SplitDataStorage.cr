@@ -70,9 +70,6 @@ module Lawn
     end
 
     def add(data : Array(Bytes)) : Array(UInt64)
-      puts "data:"
-      pp data
-
       segments_by_size_exponent = Array(Array(Segment)).new(32) { Array(Segment).new }
       segments_by_data_index = Array(Array(Segment)).new(data.size) { Array(Segment).new }
       data.each_with_index do |d, data_index|
@@ -95,13 +92,10 @@ module Lawn
       segments_by_size_exponent.each_with_index do |ss, se|
         next if ss.empty?
         pointers = segments(se.to_u8).add(ss.map &.value)
-        puts "segments(#{se}).add #{ss.map &.value.hexstring} => #{pointers}"
         pointers.each_with_index do |p, i|
           ss[i].pointer = p
         end
       end
-      # puts "\nsegments_by_size_exponent:"
-      # pp segments_by_size_exponent
 
       pointers_encoded_by_total = Array(Array(PointersEncoded)).new(32) { Array(PointersEncoded).new }
       segments_by_data_index.each_with_index do |ss, data_index|
@@ -114,12 +108,9 @@ module Lawn
       pointers_pointer_by_data_index = Array(UInt64).new(data.size) { 0_u64 }
       pointers_encoded_by_total.each_with_index do |pse, total|
         next if pse.empty?
-        puts "segments_pointers(#{total}).add #{pse.map &.value}"
         pointers_pointers = segments_pointers(total.to_u8).add pse.map &.value
         (0..pse.size - 1).each { |i| pointers_pointer_by_data_index[pse[i].data_index] = pointers_pointers[i] }
       end
-      # puts "\npointers_pointer_by_data_index:"
-      # pp pointers_pointer_by_data_index
 
       r = headers.add(pointers_pointer_by_data_index.map_with_index do |pointers_pointer, data_index|
         header_encoded = IO::Memory.new @data_size_size + @pointer_size
@@ -139,7 +130,6 @@ module Lawn
       pointers = Array.new(sizes.size) { |i| (Lawn.decode_number pointers_encoded, @pointer_size).not_nil! }
 
       segments = (0..pointers.size - 1).map do |p|
-        puts "segments(#{sizes[p].bit_length - 1}).get #{pointers[p]}"
         ((segments (sizes[p].bit_length - 1).to_u8).get pointers[p]).not_nil!
       end
       data = (Slice.join segments)[..data_size - 1]

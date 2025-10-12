@@ -46,7 +46,7 @@ class Benchmarks
     amount = @amount * 2
     data = Array.new(amount) { rnd.random_bytes rnd.rand 1..1024 }
     total_size = (data.map &.size.to_u64).sum
-    add "SplitDataStorage.add #{amount} data of total size #{total_size.humanize_bytes}", Time.measure { data.each { |d| sds.add d } }, total_size, amount
+    add "SplitDataStorage.add #{amount} data of total size #{total_size.humanize_bytes}", Time.measure { sds.add data }, total_size, amount
 
     add "SplitDataStorage.get #{amount} data of total size #{total_size.humanize_bytes}", Time.measure { (1_u64..data.size).each { |p| sds.get p } }, total_size, amount
   end

@@ -75,7 +75,7 @@ module Lawn
           @io.seek 0, IO::Seek::End
           rn = @io.pos.to_u64 // @element_size
           (rn..rn + data.size - i - 1).each { |r| rs << r }
-          @io.write Bytes.join data[i..] + (@element_size > data.last.size ? [Bytes.new @element_size - data.last.size] : [] of Bytes)
+          @io.write Bytes.join data[i..].map { |d| @element_size > d.size ? d + Bytes.new(@element_size - d.size) : d }
           break
         else
           r = as_p @head
