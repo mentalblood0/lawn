@@ -44,11 +44,11 @@ class Benchmarks
     rnd = Random.new @seed
     sds = @env.split_data_storage
     amount = @amount * 2
-    data = Array.new(amount) { rnd.random_bytes rnd.rand 1..1024 }
-    total_size = (data.map &.size.to_u64).sum
-    add "SplitDataStorage.add #{amount} data of total size #{total_size.humanize_bytes}", Time.measure { sds.add data }, total_size, amount
+    add = Array.new(amount) { rnd.random_bytes rnd.rand 1..1024 }
+    total_size = (add.map &.size.to_u64).sum
+    add "SplitDataStorage: add #{amount} data of total size #{total_size.humanize_bytes}", Time.measure { sds.update add, [] of UInt64 }, total_size, amount
 
-    add "SplitDataStorage.get #{amount} data of total size #{total_size.humanize_bytes}", Time.measure { (1_u64..data.size).each { |p| sds.get p } }, total_size, amount
+    add "SplitDataStorage: get #{amount} data of total size #{total_size.humanize_bytes}", Time.measure { (1_u64..add.size).each { |p| sds.get p } }, total_size, amount
   end
 end
 
