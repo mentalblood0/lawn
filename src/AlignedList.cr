@@ -74,13 +74,15 @@ module Lawn
       replaced = 0
       if delete
         while (replaced < add.size) && (replaced < delete.size)
-          set delete[replaced], add[replaced]
-          rs << delete[replaced]
+          rs << set delete[replaced], add[replaced]
           replaced += 1
         end
-        (replaced..delete.size - 1).each do |i|
-          set delete[i], @head
-          set 0, as_b delete[i]
+        if replaced < delete.size
+          set delete[replaced], @head
+          (replaced + 1..delete.size - 1).each do |i|
+            set delete[i], as_b delete[i - 1]
+          end
+          set 0, as_b delete.last
         end
       end
 
@@ -95,9 +97,8 @@ module Lawn
           r = as_p @head
           n1 = get r
 
-          set r, add[i]
+          rs << set r, add[i]
           set 0, n1
-          rs << r
         end
       end
       rs

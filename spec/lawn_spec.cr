@@ -64,7 +64,9 @@ describe Lawn::AlignedList do
           r.each_with_index { |pointer, add_index| added[pointer] = add[add_index] }
         end
         Log.debug { "{" + (added.map { |i, b| "#{i}: #{b.hexstring}" }.join ' ') + "}" }
-        added.each { |i, b| (al.get i).should eq b }
+        added.each do |i, b|
+          (al.get i).should eq b
+        end
       end
     end
   end
