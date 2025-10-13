@@ -49,25 +49,16 @@ module Lawn
     end
 
     class Segment
-      property data_index : Int32
       property value : Bytes
       property size_exponent : UInt8
-      property index : Int32
-      property total : Int32
       property pointer : UInt64 = 0_u64
       property pointers_pointer : UInt64 = 0_u64
 
-      def initialize(@data_index, @value, @size_exponent, @index, @total)
+      def initialize(@value, @size_exponent)
       end
     end
 
-    class PointersEncoded
-      property data_index : Int32
-      property value : Bytes
-
-      def initialize(@data_index, @value)
-      end
-    end
+    alias PointersEncoded = {data_index: Int32, value: Bytes}
 
     def add(data : Array(Bytes)) : Array(UInt64)
       segments_by_size_exponent = Array(Array(Segment)).new(32) { Array(Segment).new }
@@ -78,11 +69,8 @@ module Lawn
         sizes.each_with_index do |size, size_index|
           size_exponent = (size.bit_length - 1).to_u8
           segment = Segment.new(
-            data_index: data_index,
             value: d[i..Math.min(i + size, d.size) - 1],
-            size_exponent: size_exponent,
-            index: size_index,
-            total: sizes.size)
+            size_exponent: size_exponent)
           segments_by_size_exponent[size_exponent] << segment
           segments_by_data_index[data_index] << segment
           i += size
@@ -101,15 +89,13 @@ module Lawn
       segments_by_data_index.each_with_index do |ss, data_index|
         pointers_encoded_io = IO::Memory.new ss.size
         ss.each { |s| Lawn.encode_number pointers_encoded_io, s.pointer, @pointer_size }
-        pointers_encoded_by_total[ss.size] << PointersEncoded.new(
-          data_index: data_index,
-          value: pointers_encoded_io.to_slice)
+        pointers_encoded_by_total[ss.size] << {data_index: data_index, value: pointers_encoded_io.to_slice}
       end
       pointers_pointer_by_data_index = Array(UInt64).new(data.size) { 0_u64 }
       pointers_encoded_by_total.each_with_index do |pse, total|
         next if pse.empty?
-        pointers_pointers = segments_pointers(total.to_u8).add pse.map &.value
-        (0..pse.size - 1).each { |i| pointers_pointer_by_data_index[pse[i].data_index] = pointers_pointers[i] }
+        pointers_pointers = segments_pointers(total.to_u8).add pse.map &.[:value]
+        (0..pse.size - 1).each { |i| pointers_pointer_by_data_index[pse[i][:data_index]] = pointers_pointers[i] }
       end
 
       r = headers.add(pointers_pointer_by_data_index.map_with_index do |pointers_pointer, data_index|
