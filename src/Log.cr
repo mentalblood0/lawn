@@ -35,7 +35,7 @@ module Lawn
         Lawn.encode_bytes_with_size @io, k, @data_size_size
         Lawn.encode_bytes_with_size @io, v, @data_size_size
       end
-      @io.write buf.to_slice
+      IO.copy buf, @io
     end
 
     def truncate
