@@ -46,31 +46,25 @@ end
 describe Lawn::AlignedList do
   it "raises on invalid element size" do
     al = Lawn::AlignedList.new IO::Memory.new, 5
-    expect_raises(Lawn::AlignedList::Exception) { al.add [Bytes.new 6] }
+    expect_raises(Lawn::AlignedList::Exception) { al.update [Bytes.new 6] }
   end
 
   [2, 3, 5, 9].map { |s| s.to_u8! }.each do |s|
-    it "generative test: supports #{s} bytes elements" do
+    it "generative test: supports #{s} bytes elements", focus: true do
       al = Lawn::AlignedList.new IO::Memory.new, s
-      l = Hash(UInt64, Bytes).new
+      added = Hash(UInt64, Bytes).new
 
       1000.times do
-        case rnd.rand 0..2
+        case rnd.rand 0..0
         when 0
-          b = rnd.random_bytes s
-          (al.add [b]).each { |p| l[p] = b }
-        when 1
-          k = l.keys.sample rnd rescue next
-          al.delete k
-          l.delete k
-        when 2
-          k = l.keys.sample rnd rescue next
-          b = rnd.random_bytes s
-          al.replace k, b
-          l[k] = b
+          add = Array.new(rnd.rand 1..16) { rnd.random_bytes s }
+          delete = added.keys.sample rnd.rand(1..16), rnd
+          delete.each { |k| added.delete k } if delete
+          r = al.update add, delete
+          r.each_with_index { |pointer, add_index| added[pointer] = add[add_index] }
         end
-        Log.debug { "{" + (l.map { |i, b| "#{i}: #{b.hexstring}" }.join ' ') + "}" }
-        l.each { |i, b| (al.get i).should eq b }
+        Log.debug { "{" + (added.map { |i, b| "#{i}: #{b.hexstring}" }.join ' ') + "}" }
+        added.each { |i, b| (al.get i).should eq b }
       end
     end
   end
@@ -88,12 +82,12 @@ describe Lawn::SplitDataStorage do
     end
   end
 
-  it "simple test", focus: true do
+  it "simple test" do
     data = Array(Bytes).new(100) { rnd.random_bytes rnd.rand 1..1024 }
     (sds.add data).each_with_index { |pointer, data_index| sds.get(pointer).should eq data[data_index] }
   end
 
-  it "generative test", focus: true do
+  it "generative test" do
     added = Hash(UInt64, Bytes).new
     100.times do
       case rnd.rand 0..1

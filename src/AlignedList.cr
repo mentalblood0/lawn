@@ -66,59 +66,41 @@ module Lawn
       i
     end
 
-    def add(data : Array(Bytes)) : Array(UInt64)
-      ::Log.debug { "AlignedList.add #{data.map &.hexstring}" }
+    def update(add : Array(Bytes), delete : Array(UInt64)? = nil) : Array(UInt64)
+      ::Log.debug { "AlignedList.update add: #{add.map &.hexstring}, delete: #{delete}" }
 
       rs = [] of UInt64
-      (0..data.size - 1).each do |i|
+
+      replaced = 0
+      if delete
+        while (replaced < add.size) && (replaced < delete.size)
+          set delete[replaced], add[replaced]
+          rs << delete[replaced]
+          replaced += 1
+        end
+        (replaced..delete.size - 1).each do |i|
+          set delete[i], @head
+          set 0, as_b delete[i]
+        end
+      end
+
+      (replaced..add.size - 1).each do |i|
         if @head.all? { |b| b == 255 }
           @io.seek 0, IO::Seek::End
           rn = @io.pos.to_u64 // @element_size
-          (rn..rn + data.size - i - 1).each { |r| rs << r }
-          @io.write Bytes.join data[i..].map { |d| @element_size > d.size ? d + Bytes.new(@element_size - d.size) : d }
+          (rn..rn + add.size - i - 1).each { |r| rs << r }
+          @io.write Bytes.join add[i..].map { |d| @element_size > d.size ? d + Bytes.new(@element_size - d.size) : d }
           break
         else
           r = as_p @head
           n1 = get r
 
-          set r, data[i]
+          set r, add[i]
           set 0, n1
           rs << r
         end
       end
       rs
-    end
-
-    protected def size
-      (@io.is_a? File) ? @io.as(File).size : @io.as(IO::Memory).size
-    end
-
-    def delete(i : UInt64) : UInt64
-      ::Log.debug { "AlignedList.delete #{i}" }
-
-      if size > 2 * @element_size
-        set i, get 0
-        set 0, as_b i
-      else
-        case @io
-        when File
-          @io.as(File).truncate @element_size.to_i32
-        when IO::Memory
-          @io.as(IO::Memory).clear
-          @head = Bytes.new @element_size.to_i32, 255
-          @io.write @head
-        end
-      end
-      i
-    end
-
-    def replace(i : UInt64, b : Bytes) : UInt64
-      ::Log.debug { "AlignedListreplace #{i} #{b.hexstring}" }
-      raise Exception.new "Element size must be <= #{@element_size}, not #{b.size}" unless b.size <= @element_size
-
-      b += Bytes.new @element_size - b.size if b.size < @element_size
-
-      set i, b
     end
   end
 end
