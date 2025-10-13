@@ -57,12 +57,33 @@ module Lawn
       end
     end
 
-    alias PointersEncoded = {data_index: Int32, value: Bytes}
+    alias PointersEncoded = {add_index: Int32, value: Bytes}
 
-    def add(data : Array(Bytes)) : Array(UInt64)
+    def update(add : Array(Bytes), delete : Array(UInt64)) : Array(UInt64)
+      delete_segments_by_size_exponent = Array(Array(UInt64)?).new(32) { nil }
+      delete_pointers_by_total = Array(Array(UInt64)?).new(32) { nil }
+      delete.each do |header_pointer|
+        header_encoded = IO::Memory.new (headers.get header_pointer).not_nil! rescue next
+        data_size = (Lawn.decode_number header_encoded, @data_size_size).not_nil!
+        pointers_pointer = (Lawn.decode_number header_encoded, @pointer_size).not_nil!
+
+        sizes = split data_size
+        pointers_encoded = IO::Memory.new ((segments_pointers sizes.size.to_u8).get pointers_pointer).not_nil!
+        pointers = Array.new(sizes.size) { |i| (Lawn.decode_number pointers_encoded, @pointer_size).not_nil! }
+
+        (0..pointers.size - 1).each do |p|
+          size_exponent = sizes[p].bit_length - 1
+          delete_segments_by_size_exponent[size_exponent] = Array(UInt64).new unless delete_segments_by_size_exponent[size_exponent]
+          delete_segments_by_size_exponent[size_exponent].not_nil! << pointers[p]
+        end
+        total = sizes.size
+        delete_pointers_by_total[total] = Array(UInt64).new unless delete_pointers_by_total[total]
+        delete_pointers_by_total[total].not_nil! << pointers_pointer
+      end
+
       segments_by_size_exponent = Array(Array(Segment)?).new(32) { nil }
-      segments_by_data_index = Array(Array(Segment)).new(data.size) { Array(Segment).new }
-      data.each_with_index do |d, data_index|
+      segments_by_add_index = Array(Array(Segment)).new(add.size) { Array(Segment).new }
+      add.each_with_index do |d, add_index|
         sizes = split d.size
         i = 0
         sizes.each_with_index do |size, size_index|
@@ -72,7 +93,7 @@ module Lawn
             size_exponent: size_exponent)
           segments_by_size_exponent[size_exponent] = Array(Segment).new unless segments_by_size_exponent[size_exponent]
           segments_by_size_exponent[size_exponent].not_nil! << segment
-          segments_by_data_index[data_index] << segment
+          segments_by_add_index[add_index] << segment
           i += size
         end
       end
@@ -80,33 +101,35 @@ module Lawn
       segments_by_size_exponent.each_with_index do |ss, se|
         case ss
         when nil then next
-        else          segments(se.to_u8).update(ss.map &.value).each_with_index { |p, i| ss[i].pointer = p }
+        else          segments(se.to_u8).update(add: ss.map &.value, delete: delete_segments_by_size_exponent[se]).each_with_index { |p, i| ss[i].pointer = p }
         end
       end
 
       pointers_encoded_by_total = Array(Array(PointersEncoded)?).new(32) { nil }
-      segments_by_data_index.each_with_index do |ss, data_index|
+      segments_by_add_index.each_with_index do |ss, add_index|
         pointers_encoded_io = IO::Memory.new ss.size
         ss.each { |s| Lawn.encode_number pointers_encoded_io, s.pointer, @pointer_size }
         pointers_encoded_by_total[ss.size] = Array(PointersEncoded).new unless pointers_encoded_by_total[ss.size]
-        pointers_encoded_by_total[ss.size].not_nil! << {data_index: data_index, value: pointers_encoded_io.to_slice}
+        pointers_encoded_by_total[ss.size].not_nil! << {add_index: add_index, value: pointers_encoded_io.to_slice}
       end
-      pointers_pointer_by_data_index = Array(UInt64).new(data.size) { 0_u64 }
+      pointers_pointer_by_add_index = Array(UInt64).new(add.size) { 0_u64 }
       pointers_encoded_by_total.each_with_index do |pse, total|
         case pse
         when nil then next
         else
-          pointers_pointers = segments_pointers(total.to_u8).update pse.map &.[:value]
-          (0..pse.size - 1).each { |i| pointers_pointer_by_data_index[pse[i][:data_index]] = pointers_pointers[i] }
+          pointers_pointers = segments_pointers(total.to_u8).update add: pse.map(&.[:value]), delete: delete_pointers_by_total[total]
+          (0..pse.size - 1).each { |i| pointers_pointer_by_add_index[pse[i][:add_index]] = pointers_pointers[i] }
         end
       end
 
-      r = headers.update(pointers_pointer_by_data_index.map_with_index do |pointers_pointer, data_index|
-        header_encoded = IO::Memory.new @data_size_size + @pointer_size
-        Lawn.encode_number header_encoded, data[data_index].size, @data_size_size
-        Lawn.encode_number header_encoded, pointers_pointer, @pointer_size
-        header_encoded.to_slice
-      end)
+      r = headers.update(
+        add: (pointers_pointer_by_add_index.map_with_index do |pointers_pointer, add_index|
+          header_encoded = IO::Memory.new @data_size_size + @pointer_size
+          Lawn.encode_number header_encoded, add[add_index].size, @data_size_size
+          Lawn.encode_number header_encoded, pointers_pointer, @pointer_size
+          header_encoded.to_slice
+        end),
+        delete: delete)
     end
 
     def get(header_pointer : UInt64) : Bytes?
@@ -124,22 +147,6 @@ module Lawn
       data = (Slice.join segments)[..data_size - 1]
 
       data
-    end
-
-    def delete(header_pointer : UInt64) : UInt64
-      header_encoded = IO::Memory.new (headers.get header_pointer).not_nil! rescue return header_pointer
-      data_size = (Lawn.decode_number header_encoded, @data_size_size).not_nil!
-      pointers_pointer = (Lawn.decode_number header_encoded, @pointer_size).not_nil!
-
-      sizes = split data_size
-      pointers_encoded = IO::Memory.new ((segments_pointers sizes.size.to_u8).get pointers_pointer).not_nil!
-      pointers = Array.new(sizes.size) { |i| (Lawn.decode_number pointers_encoded, @pointer_size).not_nil! }
-
-      (0..pointers.size - 1).each { |p| ((segments (sizes[p].bit_length - 1).to_u8).update add: [] of Bytes, delete: [pointers[p]]).not_nil! }
-      (segments_pointers sizes.size.to_u8).update add: [] of Bytes, delete: [pointers_pointer]
-      headers.update add: [] of Bytes, delete: [header_pointer]
-
-      header_pointer
     end
 
     def split(n)

@@ -2,14 +2,10 @@ require "json"
 require "yaml"
 
 require "./common.cr"
-require "./exceptions"
 
 module Lawn
   class AlignedList
     Lawn.mserializable
-
-    class Exception < ::Lawn::Exception
-    end
 
     getter element_size : UInt32
 

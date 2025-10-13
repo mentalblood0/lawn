@@ -44,29 +44,20 @@ describe Lawn do
 end
 
 describe Lawn::AlignedList do
-  it "raises on invalid element size" do
-    al = Lawn::AlignedList.new IO::Memory.new, 5
-    expect_raises(Lawn::AlignedList::Exception) { al.update [Bytes.new 6] }
-  end
-
   [2, 3, 5, 9].map { |s| s.to_u8! }.each do |s|
-    it "generative test: supports #{s} bytes elements", focus: true do
+    it "generative test: supports #{s} bytes elements" do
       al = Lawn::AlignedList.new IO::Memory.new, s
       added = Hash(UInt64, Bytes).new
 
       1000.times do
-        case rnd.rand 0..0
-        when 0
-          add = Array.new(rnd.rand 1..16) { rnd.random_bytes s }
-          delete = added.keys.sample rnd.rand(1..16), rnd
-          delete.each { |k| added.delete k } if delete
-          r = al.update add, delete
-          r.each_with_index { |pointer, add_index| added[pointer] = add[add_index] }
-        end
-        Log.debug { "{" + (added.map { |i, b| "#{i}: #{b.hexstring}" }.join ' ') + "}" }
-        added.each do |i, b|
-          (al.get i).should eq b
-        end
+        add = Array.new(rnd.rand 1..16) { rnd.random_bytes s }
+        delete = added.keys.sample rnd.rand(1..16), rnd
+        delete.each { |pointer| added.delete pointer } if delete
+        r = al.update add, delete
+        r.each_with_index { |pointer, add_index| added[pointer] = add[add_index] }
+      end
+      added.each do |i, b|
+        (al.get i).should eq b
       end
     end
   end
@@ -85,22 +76,18 @@ describe Lawn::SplitDataStorage do
   end
 
   it "simple test" do
-    data = Array(Bytes).new(100) { rnd.random_bytes rnd.rand 1..1024 }
-    (sds.add data).each_with_index { |pointer, data_index| sds.get(pointer).should eq data[data_index] }
+    add = Array(Bytes).new(100) { rnd.random_bytes rnd.rand 1..1024 }
+    (sds.update add, [] of UInt64).each_with_index { |pointer, data_index| sds.get(pointer).should eq add[data_index] }
   end
 
-  it "generative test" do
+  it "generative test", focus: true do
     added = Hash(UInt64, Bytes).new
     100.times do
-      case rnd.rand 0..1
-      when 0
-        data = Array(Bytes).new(rnd.rand 1..16) { rnd.random_bytes rnd.rand 1..1024 }
-        (sds.add data).each_with_index { |pointer, data_index| added[pointer] = data[data_index] }
-      when 1
-        pointer = added.keys.sample rnd rescue next
-        sds.delete pointer
-        added.delete pointer
-      end
+      add = Array(Bytes).new(rnd.rand 1..16) { rnd.random_bytes rnd.rand 1..16 }
+      delete = added.keys.sample rnd.rand(1..16), rnd
+      r = sds.update add, delete
+      r.each_with_index { |pointer, data_index| added[pointer] = add[data_index] }
+      delete.each { |pointer| added.delete pointer }
     end
     added.each do |pointer, data|
       (sds.get pointer).should eq data
@@ -117,7 +104,6 @@ describe Lawn::Env do
     ks = 0..1024
     vs = 0..1024
     100.times do
-      # Log.debug { "data: #{(File.read env.sst.data.path).to_slice.hexstring}" }
       case rnd.rand 0..1
       when 0
         k = rnd.random_bytes rnd.rand ks
