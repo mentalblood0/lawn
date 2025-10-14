@@ -98,6 +98,8 @@ module Lawn
           set 0, n1
         end
       end
+
+      ::Log.debug { "AlignedList.update => #{rs}" }
       rs
     end
   end

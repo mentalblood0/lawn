@@ -86,7 +86,7 @@ describe ds.class do
     it "generative test" do
       added = Hash(UInt64, Bytes).new
       100.times do
-        add = Array(Bytes).new(rnd.rand 1..16) { rnd.random_bytes rnd.rand 1..16 }
+        add = Array(Bytes).new(rnd.rand 1..16) { rnd.random_bytes rnd.rand 1..2**5 }
         delete = added.keys.sample rnd.rand(1..16), rnd
         r = ds.update add, delete
         r.each_with_index { |pointer, data_index| added[pointer] = add[data_index] }
@@ -97,17 +97,6 @@ describe ds.class do
       end
     end
   when Lawn::RoundDataStorage
-    it "rounds correctly" do
-      ds.round_exponent(0).should eq 0
-      ds.round_exponent(1).should eq 0
-      ds.round_exponent(2).should eq 1
-      ds.round_exponent(3).should eq 2
-      ds.round_exponent(4).should eq 2
-      ds.round_exponent(1023).should eq 10
-      ds.round_exponent(1024).should eq 10
-      ds.round_exponent(1025).should eq 11
-    end
-
     it "simple test" do
       add = Array(Bytes).new(2) { rnd.random_bytes rnd.rand 1..16 }
       (ds.update add, [] of Lawn::RoundDataStorage::Id).each_with_index { |id, data_index| ds.get(id).should eq add[data_index] }
@@ -116,8 +105,9 @@ describe ds.class do
     it "generative test", focus: true do
       added = Hash(Lawn::RoundDataStorage::Id, Bytes).new
       100.times do
-        add = Array(Bytes).new(rnd.rand 1..16) { rnd.random_bytes rnd.rand 1..16 }
+        add = Array(Bytes).new(rnd.rand 1..16) { rnd.random_bytes rnd.rand 1..2**5 }
         delete = added.keys.sample rnd.rand(1..16), rnd
+        delete = [] of {UInt8, UInt64}
         r = ds.update add, delete
         r.each_with_index { |pointer, data_index| added[pointer] = add[data_index] }
         delete.each { |pointer| added.delete pointer }

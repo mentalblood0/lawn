@@ -52,9 +52,9 @@ class Benchmarks
     add = Array.new(amount) { rnd.random_bytes rnd.rand 1..1024 }
     ids = [] of Lawn::RoundDataStorage::Id
     total_size = (add.map &.size.to_u64).sum
-    add "SplitDataStorage: add #{amount} data of total size #{total_size.humanize_bytes}", Time.measure { ids = ds.update add, [] of Lawn::RoundDataStorage::Id }, total_size, amount
+    add "#{ds.class}: add #{amount} data of total size #{total_size.humanize_bytes}", Time.measure { ids = ds.update add, [] of Lawn::RoundDataStorage::Id }, total_size, amount
 
-    add "SplitDataStorage: get #{amount} data of total size #{total_size.humanize_bytes}", Time.measure { ids.each { |id| ds.get id } }, total_size, amount
+    add "#{ds.class}: get #{amount} data of total size #{total_size.humanize_bytes}", Time.measure { ids.each { |id| ds.get id } }, total_size, amount
   end
 end
 

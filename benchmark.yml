@@ -13,8 +13,11 @@ env:
     data_size_size: 2
     pointer_size: 5
     data_dir: /tmp/lawn
+    logarithmically_divided_sizes_scale:
+      max: 65536
+      points: 327
   sorted_pointers_dir: /tmp/lawn
-amount: 100_000
+amount: 300_000
 key_size: 64
 value_size: 128
 seed: 0
