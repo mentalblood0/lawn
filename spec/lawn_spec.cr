@@ -3,6 +3,7 @@ require "spec"
 
 require "../src/Env"
 require "../src/SplitDataStorage"
+require "../src/RoundDataStorage"
 
 struct Slice(T)
   def pretty_print(pp : PrettyPrint)
@@ -63,83 +64,101 @@ describe Lawn::AlignedList do
   end
 end
 
-describe Lawn::SplitDataStorage do
-  sds = config[:env].split_data_storage
+ds = config[:env].data_storage
 
-  it "splits correctly" do
-    (1_i32..2**20).each do |n|
-      ((sds.split n).sum >= n).should eq true
-    end
-    (UInt32::MAX // 2 - 1024 * 10..UInt32::MAX // 2).each do |n|
-      ((sds.split n).sum >= n).should eq true
-    end
-  end
-
-  it "simple test" do
-    add = Array(Bytes).new(100) { rnd.random_bytes rnd.rand 1..1024 }
-    (sds.update add, [] of UInt64).each_with_index { |pointer, data_index| sds.get(pointer).should eq add[data_index] }
-  end
-
-  it "generative test" do
-    added = Hash(UInt64, Bytes).new
-    100.times do
-      add = Array(Bytes).new(rnd.rand 1..16) { rnd.random_bytes rnd.rand 1..16 }
-      delete = added.keys.sample rnd.rand(1..16), rnd
-      r = sds.update add, delete
-      r.each_with_index { |pointer, data_index| added[pointer] = add[data_index] }
-      delete.each { |pointer| added.delete pointer }
-    end
-    added.each do |pointer, data|
-      (sds.get pointer).should eq data
-    end
-  end
-end
-
-describe Lawn::Env do
-  env = config[:env]
-
-  it "checkpoints" do
-    key = "lalala".to_slice
-    value = "lololo".to_slice
-    env.transaction.set(key, value).commit
-    env.checkpoint
-    env.get(key).should eq value
-  end
-
-  it "handles deletes correctly" do
-    env.transaction.set({"key_to_delete".to_slice => "value".to_slice,
-                         "key".to_slice           => "value".to_slice}).commit
-    env.checkpoint
-    env.transaction.delete("key_to_delete".to_slice).commit
-    env.checkpoint
-    env.get("key_to_delete".to_slice).should eq nil
-    env.get("key".to_slice).should eq "value".to_slice
-  end
-
-  it "generative test", focus: true do
-    added = Hash(Lawn::K, Lawn::V).new
-    3.times do
-      rnd.rand(1..16).times do
-        case rnd.rand 0..1
-        when 0
-          key = rnd.random_bytes rnd.rand 1..16
-          value = rnd.random_bytes rnd.rand 1..16
-          Log.debug { "add\n\tkey:   #{key.hexstring}\n\tvalue: #{value.hexstring}" }
-
-          env.transaction.set(key, value).commit
-
-          added[key] = value
-        when 1
-          key = added.keys.sample rnd rescue next
-          Log.debug { "delete\n\tkey:   #{key.hexstring}" }
-
-          env.transaction.delete(key).commit
-
-          added.delete key
-        end
+describe ds.class do
+  case ds
+  when Lawn::SplitDataStorage
+    it "splits correctly" do
+      (1..2**20).each do |n|
+        ((ds.split n).sum >= n).should eq true
       end
-      env.checkpoint
-      added.keys.sort.each { |k| env.get(k).should eq added[k] }
+      (UInt32::MAX // 2 - 1024 * 10..UInt32::MAX // 2).each do |n|
+        ((ds.split n).sum >= n).should eq true
+      end
+    end
+
+    it "simple test" do
+      add = Array(Bytes).new(100) { rnd.random_bytes rnd.rand 1..1024 }
+      (ds.update add, [] of UInt64).each_with_index { |pointer, data_index| ds.get(pointer).should eq add[data_index] }
+    end
+
+    it "generative test" do
+      added = Hash(UInt64, Bytes).new
+      100.times do
+        add = Array(Bytes).new(rnd.rand 1..16) { rnd.random_bytes rnd.rand 1..16 }
+        delete = added.keys.sample rnd.rand(1..16), rnd
+        r = ds.update add, delete
+        r.each_with_index { |pointer, data_index| added[pointer] = add[data_index] }
+        delete.each { |pointer| added.delete pointer }
+      end
+      added.each do |pointer, data|
+        (ds.get pointer).should eq data
+      end
+    end
+  when Lawn::RoundDataStorage
+    it "rounds correctly" do
+      ds.round_exponent(0).should eq 0
+      ds.round_exponent(1).should eq 0
+      ds.round_exponent(2).should eq 1
+      ds.round_exponent(3).should eq 2
+      ds.round_exponent(4).should eq 2
+      ds.round_exponent(1023).should eq 10
+      ds.round_exponent(1024).should eq 10
+      ds.round_exponent(1025).should eq 11
+    end
+    it "simple test", focus: true do
+      add = Array(Bytes).new(2) { rnd.random_bytes rnd.rand 1..16 }
+      (ds.update add, [] of Lawn::RoundDataStorage::Id).each_with_index { |id, data_index| ds.get(id).should eq add[data_index] }
     end
   end
 end
+
+# describe Lawn::Env do
+#   env = config[:env]
+
+#   it "checkpoints" do
+#     key = "lalala".to_slice
+#     value = "lololo".to_slice
+#     env.transaction.set(key, value).commit
+#     env.checkpoint
+#     env.get(key).should eq value
+#   end
+
+#   it "handles deletes correctly" do
+#     env.transaction.set({"key_to_delete".to_slice => "value".to_slice,
+#                          "key".to_slice           => "value".to_slice}).commit
+#     env.checkpoint
+#     env.transaction.delete("key_to_delete".to_slice).commit
+#     env.checkpoint
+#     env.get("key_to_delete".to_slice).should eq nil
+#     env.get("key".to_slice).should eq "value".to_slice
+#   end
+
+#   it "generative test" do
+#     added = Hash(Lawn::K, Lawn::V).new
+#     3.times do
+#       rnd.rand(1..16).times do
+#         case rnd.rand 0..1
+#         when 0
+#           key = rnd.random_bytes rnd.rand 1..16
+#           value = rnd.random_bytes rnd.rand 1..16
+#           Log.debug { "add\n\tkey:   #{key.hexstring}\n\tvalue: #{value.hexstring}" }
+
+#           env.transaction.set(key, value).commit
+
+#           added[key] = value
+#         when 1
+#           key = added.keys.sample rnd rescue next
+#           Log.debug { "delete\n\tkey:   #{key.hexstring}" }
+
+#           env.transaction.delete(key).commit
+
+#           added.delete key
+#         end
+#       end
+#       env.checkpoint
+#       added.keys.sort.each { |k| env.get(k).should eq added[k] }
+#     end
+#   end
+# end

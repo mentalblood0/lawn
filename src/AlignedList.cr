@@ -51,6 +51,7 @@ module Lawn
     end
 
     def get(i : UInt64)
+      ::Log.debug { "AlignedList.get #{i}" }
       @io.pos = i * @element_size
       read
     end

@@ -149,6 +149,7 @@ module Lawn
         ((segments (sizes[p].bit_length - 1).to_u8).get pointers[p]).not_nil!
       end
       data = (Slice.join segments)[..data_size - 1]
+      ::Log.debug { "data = #{data}" }
 
       data
     end

@@ -9,19 +9,9 @@ env:
         - OwnerAll
         - GroupRead
       sync: true
-  split_data_storage:
-    data_size_size: 2
-    pointer_size: 5
-    headers_io:
-      file:
-        filename: /tmp/lawn/headers.dat
-        mode: w+
-        perm:
-        - OwnerAll
-        - GroupRead
-      sync: true
-    segments_pointers_dir: /tmp/lawn
-    segments_dir: /tmp/lawn
+  data_storage:
+    pointer_size : 5
+    data_dir: /tmp/lawn
   sorted_pointers_dir: /tmp/lawn
 seed: 1
 
