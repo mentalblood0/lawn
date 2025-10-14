@@ -43,6 +43,7 @@ module Lawn
     end
 
     def checkpoint
+      ::Log.debug { "Env.checkpoint" }
       return self if @memtable.empty?
 
       sorted_keyvalues = @memtable.to_a
@@ -71,10 +72,12 @@ module Lawn
     end
 
     def transaction
+      ::Log.debug { "Env.transaction" }
       Transaction.new self
     end
 
     def get(k : Bytes)
+      ::Log.debug { "Env.get #{k.hexstring}" }
       return @memtable[k]?.not_nil! rescue get_from_checkpointed(k).not_nil![:value] rescue nil
     end
   end

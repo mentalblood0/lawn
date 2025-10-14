@@ -8,6 +8,7 @@ module Lawn
     end
 
     def set(kvs : Hash(K, V))
+      ::Log.debug { "Transaction.set #{kvs.map { |k, v| {k.hexstring, v.hexstring} }}" }
       @batch.merge! kvs
       self
     end
@@ -21,6 +22,7 @@ module Lawn
     end
 
     def delete(ks : Enumerable(K))
+      ::Log.debug { "Transaction.delete #{ks.map &.hexstring}" }
       ks.each { |k| @batch[k] = nil }
       self
     end
@@ -30,6 +32,7 @@ module Lawn
     end
 
     def commit
+      ::Log.debug { "Transaction.commit" }
       @env.log.write @batch
       @env.memtable.merge! @batch
       @env

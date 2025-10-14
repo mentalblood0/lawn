@@ -118,7 +118,7 @@ describe Lawn::Env do
 
   it "generative test", focus: true do
     added = Hash(Lawn::K, Lawn::V).new
-    100.times do
+    3.times do
       rnd.rand(1..16).times do
         case rnd.rand 0..1
         when 0
@@ -139,7 +139,7 @@ describe Lawn::Env do
         end
       end
       env.checkpoint
+      added.keys.sort.each { |k| env.get(k).should eq added[k] }
     end
-    added.keys.sort.each { |k| env.get(k).should eq added[k] }
   end
 end

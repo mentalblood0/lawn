@@ -60,6 +60,8 @@ module Lawn
     alias PointersEncoded = {add_index: Int32, value: Bytes}
 
     def update(add : Array(Bytes), delete : Array(UInt64)) : Array(UInt64)
+      ::Log.debug { "SplitDataStorage.update add: #{add.map &.hexstring}, delete: #{delete}" }
+
       delete_segments_by_size_exponent = Array(Array(UInt64)?).new(32) { nil }
       delete_pointers_by_total = Array(Array(UInt64)?).new(32) { nil }
       delete.each do |header_pointer|
@@ -133,6 +135,8 @@ module Lawn
     end
 
     def get(header_pointer : UInt64) : Bytes?
+      ::Log.debug { "SplitDataStorage.get #{header_pointer}" }
+
       header_encoded = IO::Memory.new (headers.get header_pointer).not_nil! rescue return nil
       data_size = (Lawn.decode_number header_encoded, @data_size_size).not_nil!
       pointers_pointer = (Lawn.decode_number header_encoded, @pointer_size).not_nil!

@@ -22,6 +22,7 @@ module Lawn
     end
 
     def get(key : Bytes, get_data : Proc(UInt64, Bytes), key_size_size : UInt8) : {header_pointer: UInt64, value: Bytes?}?
+      ::Log.debug { "SortedPointers.get #{key.hexstring}" }
       begin
         @io.seek 0, IO::Seek::End
         @io.pos = @io.pos / 2 // @pointer_size * @pointer_size
