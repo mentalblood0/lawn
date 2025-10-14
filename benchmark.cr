@@ -30,7 +30,11 @@ class Benchmarks
     rnd = Random.new @seed
     @kv.clear
     @amount.times { kv[rnd.random_bytes 16] = rnd.random_bytes 32 }
-    add "Env.write #{kv.size} key-value pairs of total size #{kv.map { |k, v| k.size + v.size }.sum.humanize_bytes}", Time.measure { kv.each { |k, v| env.transaction.set(k, v).commit } }
+    add "Env.write #{kv.size} key-value pairs of total size #{kv.map { |k, v| k.size + v.size }.sum.humanize_bytes}", Time.measure { kv.each { |k, v| @env.transaction.set(k, v).commit } }
+  end
+
+  def benchmark_checkpointing
+    add "Env.checkpoint #{kv.size} key-value pairs of total size #{kv.map { |k, v| k.size + v.size }.sum.humanize_bytes}", Time.measure { @env.checkpoint }
   end
 
   def benchmark_get
@@ -53,8 +57,9 @@ class Benchmarks
 end
 
 benchmarks = Benchmarks.from_yaml File.read ENV["BENCHMARK_CONFIG_PATH"]
-# benchmarks.benchmark_write
-# benchmarks.benchmark_get
-benchmarks.benchmark_split_data_storage
+benchmarks.benchmark_write
+benchmarks.benchmark_checkpointing
+benchmarks.benchmark_get
+# benchmarks.benchmark_split_data_storage
 
 puts benchmarks.results.to_yaml
