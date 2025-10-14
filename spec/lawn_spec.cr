@@ -98,7 +98,7 @@ end
 describe Lawn::Env do
   env = config[:env]
 
-  it "can checkpoint" do
+  it "checkpoints" do
     key = "lalala".to_slice
     value = "lololo".to_slice
     env.transaction.set(key, value).commit
@@ -106,28 +106,40 @@ describe Lawn::Env do
     env.get(key).should eq value
   end
 
+  it "handles deletes correctly" do
+    env.transaction.set({"key_to_delete".to_slice => "value".to_slice,
+                         "key".to_slice           => "value".to_slice}).commit
+    env.checkpoint
+    env.transaction.delete("key_to_delete".to_slice).commit
+    env.checkpoint
+    env.get("key_to_delete".to_slice).should eq nil
+    env.get("key".to_slice).should eq "value".to_slice
+  end
+
   it "generative test", focus: true do
     added = Hash(Lawn::K, Lawn::V).new
     100.times do
-      case rnd.rand 0..1
-      when 0
-        key = rnd.random_bytes rnd.rand 1..1024
-        value = rnd.random_bytes rnd.rand 1..1024
-        Log.debug { "add\n\tkey:   #{key.hexstring}\n\tvalue: #{value.hexstring}" }
+      rnd.rand(1..16).times do
+        case rnd.rand 0..1
+        when 0
+          key = rnd.random_bytes rnd.rand 1..16
+          value = rnd.random_bytes rnd.rand 1..16
+          Log.debug { "add\n\tkey:   #{key.hexstring}\n\tvalue: #{value.hexstring}" }
 
-        env.transaction.set(key, value).commit
+          env.transaction.set(key, value).commit
 
-        added[key] = value
-      when 1
-        key = added.keys.sample rnd rescue next
-        Log.debug { "delete\n\tkey:   #{key.hexstring}" }
+          added[key] = value
+        when 1
+          key = added.keys.sample rnd rescue next
+          Log.debug { "delete\n\tkey:   #{key.hexstring}" }
 
-        env.transaction.delete(key).commit
+          env.transaction.delete(key).commit
 
-        added.delete key
+          added.delete key
+        end
       end
+      env.checkpoint
     end
-    env.checkpoint
     added.keys.sort.each { |k| env.get(k).should eq added[k] }
   end
 end

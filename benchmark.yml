@@ -24,6 +24,6 @@ env:
     segments_dir: /tmp/lawn
   sorted_pointers_dir: /tmp/lawn
 amount: 100_000
-key_size: 16
-value_size: 32
+key_size: 64
+value_size: 128
 seed: 0

@@ -21,7 +21,7 @@ module Lawn
       @io.write buf.to_slice
     end
 
-    def get(key : Bytes, get_data : Proc(UInt64, Bytes), key_size_size : UInt8) : {header_pointer: UInt64, value: Bytes}?
+    def get(key : Bytes, get_data : Proc(UInt64, Bytes), key_size_size : UInt8) : {header_pointer: UInt64, value: Bytes?}?
       begin
         @io.seek 0, IO::Seek::End
         @io.pos = @io.pos / 2 // @pointer_size * @pointer_size
@@ -29,10 +29,11 @@ module Lawn
         loop do
           header_pointer = Lawn.decode_number(@io, @pointer_size).not_nil!
           data = IO::Memory.new get_data.call header_pointer
-          current_key = Lawn.decode_bytes_with_size(data, key_size_size).not_nil!
+          current_value = Lawn.decode_bytes_with_size data, key_size_size
+          current_key = data.getb_to_end
 
           _c = key <=> current_key
-          return {header_pointer: header_pointer, value: data.getb_to_end} if _c == 0
+          return {header_pointer: header_pointer, value: current_value} if _c == 0
 
           c = _c <= 0 ? _c < 0 ? -1 : 0 : 1
           return nil if step.abs == 1 && c * step < 0

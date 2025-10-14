@@ -29,7 +29,7 @@ class Benchmarks
   def benchmark_write
     rnd = Random.new @seed
     @kv.clear
-    @amount.times { kv[rnd.random_bytes 16] = rnd.random_bytes 32 }
+    @amount.times { kv[rnd.random_bytes @key_size] = rnd.random_bytes @value_size }
     add "Env.write #{kv.size} key-value pairs of total size #{kv.map { |k, v| k.size + v.size }.sum.humanize_bytes}", Time.measure { kv.each { |k, v| @env.transaction.set(k, v).commit } }
   end
 

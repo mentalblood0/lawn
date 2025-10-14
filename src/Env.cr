@@ -46,20 +46,16 @@ module Lawn
       return self if @memtable.empty?
 
       sorted_keyvalues = @memtable.to_a
-      sorted_keyvalues.sort_by! { |key, _| key }
+      sorted_keyvalues.sort! { |a, b| b[0] <=> a[0] }
 
       to_add = [] of Bytes
       to_delete = [] of UInt64
       sorted_keyvalues.each do |key, value|
-        case value
-        when nil
-          to_delete << get_from_checkpointed(key).not_nil![:header_pointer] rescue next
-        else
-          key_value_encoded = IO::Memory.new
-          Lawn.encode_bytes_with_size key_value_encoded, key, @split_data_storage.data_size_size
-          Lawn.encode_bytes key_value_encoded, value
-          to_add << key_value_encoded.to_slice
-        end
+        to_delete << get_from_checkpointed(key).not_nil![:header_pointer] rescue nil unless value
+        value_key_encoded = IO::Memory.new
+        Lawn.encode_bytes_with_size value_key_encoded, value, @split_data_storage.data_size_size
+        Lawn.encode_bytes value_key_encoded, key
+        to_add << value_key_encoded.to_slice
       end
       pointers = @split_data_storage.update add: to_add, delete: to_delete
 
