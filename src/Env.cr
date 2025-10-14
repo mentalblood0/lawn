@@ -10,8 +10,6 @@ module Lawn
   class Env
     Lawn.mserializable
 
-    getter key_size_size : UInt8
-
     getter log : Log
     getter split_data_storage : SplitDataStorage
 
@@ -23,19 +21,23 @@ module Lawn
     @[YAML::Field(ignore: true)]
     getter sorted_pointers_old_to_new = [] of SortedPointers
 
-    def initialize(@key_size_size, @log, @split_data_storage, @sorted_pointers_dir)
+    def initialize(@log, @split_data_storage, @sorted_pointers_dir)
     end
 
     def after_initialize
       @log.read { |kv| @memtable[kv[0]] = kv[1] }
-      filenames = Dir.glob(sorted_pointers_dir).children.select { |filename| filename.starts_with "sorted_pointers_" }
+      filenames = Dir.new(sorted_pointers_dir).children.select { |filename| filename.starts_with? "sorted_pointers_" }
       filenames.sort!
-      @sorted_pointers_old_to_new = filenames.map { |filename| SortedPointers.new File.new Path.new(sorted_pointers_dir) / filename, "w+" }
+      @sorted_pointers_old_to_new = filenames.map do |filename|
+        io = File.new "#{sorted_pointers_dir}/#{filename}", "w+"
+        io.sync = true
+        SortedPointers.new @split_data_storage.pointer_size, io
+      end
     end
 
-    def get_header_pointer(key : Bytes)
+    def get_from_checkpointed(key : Bytes)
       (@sorted_pointers_old_to_new.size - 1).downto(0) do |i|
-        r = @sorted_pointers_old_to_new[i].get(key) { |k| @split_data_storage.get k }
+        r = @sorted_pointers_old_to_new[i].get key, ->(header_pointer : UInt64) { @split_data_storage.get(header_pointer).not_nil! }, @split_data_storage.data_size_size
         return r if r
       end
     end
@@ -51,18 +53,21 @@ module Lawn
       sorted_keyvalues.each do |key, value|
         case value
         when nil
-          to_delete << get_header_pointer key
+          to_delete << get_from_checkpointed(key).not_nil![:header_pointer] rescue next
         else
           key_value_encoded = IO::Memory.new
-          Lawn.encode_bytes_with_size key_value_encoded, key, @key_size_size
+          Lawn.encode_bytes_with_size key_value_encoded, key, @split_data_storage.data_size_size
           Lawn.encode_bytes key_value_encoded, value
           to_add << key_value_encoded.to_slice
         end
       end
       pointers = @split_data_storage.update add: to_add, delete: to_delete
 
-      sorted_pointers = SortedPointers.new Path.new(@sorted_pointers_dir) / "sorted_headers_pointers_#{(@sorted_pointers_old_to_new.size + 1).to_s.rjust 10, '0'}.idx"
+      io = File.new "#{@sorted_pointers_dir}/sorted_headers_pointers_#{(@sorted_pointers_old_to_new.size + 1).to_s.rjust 10, '0'}.idx", "w+"
+      io.sync = true
+      sorted_pointers = SortedPointers.new @split_data_storage.pointer_size, io
       sorted_pointers.write pointers
+      sorted_pointers_old_to_new << sorted_pointers
 
       @log.truncate
       @memtable.clear
@@ -74,7 +79,7 @@ module Lawn
     end
 
     def get(k : Bytes)
-      return @memtable[k]?
+      return @memtable[k]?.not_nil! rescue get_from_checkpointed(k).not_nil![:value] rescue nil
     end
   end
 end

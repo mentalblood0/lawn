@@ -35,11 +35,14 @@ module Lawn
         Lawn.encode_bytes_with_size @io, k, @data_size_size
         Lawn.encode_bytes_with_size @io, v, @data_size_size
       end
-      IO.copy buf, @io
+      @io.write buf.to_slice
     end
 
     def truncate
-      @io.truncate
+      case c = @io
+      when IO::Memory then c.clear
+      when File       then c.truncate
+      end
     end
   end
 end

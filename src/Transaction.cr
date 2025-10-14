@@ -31,7 +31,7 @@ module Lawn
 
     def commit
       @env.log.write @batch
-      @env.h.merge! @batch
+      @env.memtable.merge! @batch
       @env
     end
   end

@@ -22,5 +22,6 @@ env:
       sync: true
     segments_pointers_dir: /tmp/lawn
     segments_dir: /tmp/lawn
+  sorted_pointers_dir: /tmp/lawn
 seed: 1
 

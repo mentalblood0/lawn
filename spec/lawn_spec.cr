@@ -80,7 +80,7 @@ describe Lawn::SplitDataStorage do
     (sds.update add, [] of UInt64).each_with_index { |pointer, data_index| sds.get(pointer).should eq add[data_index] }
   end
 
-  it "generative test", focus: true do
+  it "generative test" do
     added = Hash(UInt64, Bytes).new
     100.times do
       add = Array(Bytes).new(rnd.rand 1..16) { rnd.random_bytes rnd.rand 1..16 }
@@ -98,30 +98,36 @@ end
 describe Lawn::Env do
   env = config[:env]
 
-  it "generative test" do
-    h = Hash(Lawn::K, Lawn::V).new
+  it "can checkpoint" do
+    key = "lalala".to_slice
+    value = "lololo".to_slice
+    env.transaction.set(key, value).commit
+    env.checkpoint
+    env.get(key).should eq value
+  end
 
-    ks = 0..1024
-    vs = 0..1024
+  it "generative test", focus: true do
+    added = Hash(Lawn::K, Lawn::V).new
     100.times do
       case rnd.rand 0..1
       when 0
-        k = rnd.random_bytes rnd.rand ks
-        v = rnd.random_bytes rnd.rand vs
-        Log.debug { "add #{k.hexstring} #{v.hexstring}" }
+        key = rnd.random_bytes rnd.rand 1..1024
+        value = rnd.random_bytes rnd.rand 1..1024
+        Log.debug { "add\n\tkey:   #{key.hexstring}\n\tvalue: #{value.hexstring}" }
 
-        env.transaction.set(k, v).commit
+        env.transaction.set(key, value).commit
 
-        h[k] = v
+        added[key] = value
       when 1
-        k = h.keys.sample rnd rescue next
-        Log.debug { "delete #{k.hexstring}" }
+        key = added.keys.sample rnd rescue next
+        Log.debug { "delete\n\tkey:   #{key.hexstring}" }
 
-        env.transaction.delete(k).commit
+        env.transaction.delete(key).commit
 
-        h.delete k
+        added.delete key
       end
-      h.keys.sort.each { |k| env.get(k).should eq h[k] }
     end
+    env.checkpoint
+    added.keys.sort.each { |k| env.get(k).should eq added[k] }
   end
 end
