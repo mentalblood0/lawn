@@ -1,5 +1,6 @@
 require "./src/Env"
 require "./src/common"
+require "./src/RoundDataStorage"
 
 alias Result = {data_speed: String, records_speed: String, time: String}
 
@@ -44,22 +45,23 @@ class Benchmarks
     add "Env.get #{kv.size} key-value pairs of total size #{kv.map { |k, v| k.size + v.size }.sum.humanize_bytes}", Time.measure { ks.each { |k| env.get k } }
   end
 
-  def benchmark_split_data_storage
+  def benchmark_data_storage
     rnd = Random.new @seed
-    sds = @env.split_data_storage
+    ds = @env.data_storage
     amount = @amount * 2
     add = Array.new(amount) { rnd.random_bytes rnd.rand 1..1024 }
+    ids = [] of Lawn::RoundDataStorage::Id
     total_size = (add.map &.size.to_u64).sum
-    add "SplitDataStorage: add #{amount} data of total size #{total_size.humanize_bytes}", Time.measure { sds.update add, [] of UInt64 }, total_size, amount
+    add "SplitDataStorage: add #{amount} data of total size #{total_size.humanize_bytes}", Time.measure { ids = ds.update add, [] of Lawn::RoundDataStorage::Id }, total_size, amount
 
-    add "SplitDataStorage: get #{amount} data of total size #{total_size.humanize_bytes}", Time.measure { (1_u64..add.size).each { |p| sds.get p } }, total_size, amount
+    add "SplitDataStorage: get #{amount} data of total size #{total_size.humanize_bytes}", Time.measure { ids.each { |id| ds.get id } }, total_size, amount
   end
 end
 
 benchmarks = Benchmarks.from_yaml File.read ENV["BENCHMARK_CONFIG_PATH"]
-benchmarks.benchmark_write
-benchmarks.benchmark_checkpointing
-benchmarks.benchmark_get
-# benchmarks.benchmark_split_data_storage
+# benchmarks.benchmark_write
+# benchmarks.benchmark_checkpointing
+# benchmarks.benchmark_get
+benchmarks.benchmark_data_storage
 
 puts benchmarks.results.to_yaml

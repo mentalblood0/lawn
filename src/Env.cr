@@ -38,7 +38,7 @@ module Lawn
 
     def get_from_checkpointed(key : Bytes)
       (@sorted_pointers_old_to_new.size - 1).downto(0) do |i|
-        r = @sorted_pointers_old_to_new[i].get key, ->(header_pointer : UInt64) { @data_storage.get(header_pointer).not_nil! }, @data_storage.data_size_size
+        r = @sorted_pointers_old_to_new[i].get key, ->(header_pointer : RoundDataStorage::Id) { @data_storage.get(header_pointer).not_nil! }, @data_storage.data_size_size
         return r if r
       end
     end
@@ -51,9 +51,9 @@ module Lawn
       sorted_keyvalues.sort! { |a, b| b[0] <=> a[0] }
 
       to_add = [] of Bytes
-      to_delete = [] of UInt64
+      to_delete = [] of RoundDataStorage::Id
       sorted_keyvalues.each do |key, value|
-        to_delete << get_from_checkpointed(key).not_nil![:header_pointer] rescue nil unless value
+        to_delete << get_from_checkpointed(key).not_nil![:data_id] rescue nil unless value
         value_key_encoded = IO::Memory.new
         Lawn.encode_bytes_with_size value_key_encoded, value, @data_storage.data_size_size
         Lawn.encode_bytes value_key_encoded, key
