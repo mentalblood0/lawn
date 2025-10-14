@@ -10,7 +10,8 @@ env:
         - GroupRead
       sync: true
   data_storage:
-    pointer_size : 5
+    data_size_size: 2
+    pointer_size: 5
     data_dir: /tmp/lawn
   sorted_pointers_dir: /tmp/lawn
 seed: 1

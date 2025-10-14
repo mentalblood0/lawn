@@ -107,9 +107,24 @@ describe ds.class do
       ds.round_exponent(1024).should eq 10
       ds.round_exponent(1025).should eq 11
     end
-    it "simple test", focus: true do
+
+    it "simple test" do
       add = Array(Bytes).new(2) { rnd.random_bytes rnd.rand 1..16 }
       (ds.update add, [] of Lawn::RoundDataStorage::Id).each_with_index { |id, data_index| ds.get(id).should eq add[data_index] }
+    end
+
+    it "generative test", focus: true do
+      added = Hash(Lawn::RoundDataStorage::Id, Bytes).new
+      100.times do
+        add = Array(Bytes).new(rnd.rand 1..16) { rnd.random_bytes rnd.rand 1..16 }
+        delete = added.keys.sample rnd.rand(1..16), rnd
+        r = ds.update add, delete
+        r.each_with_index { |pointer, data_index| added[pointer] = add[data_index] }
+        delete.each { |pointer| added.delete pointer }
+      end
+      added.each do |pointer, data|
+        (ds.get pointer).should eq data
+      end
     end
   end
 end

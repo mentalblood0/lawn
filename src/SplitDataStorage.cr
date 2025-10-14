@@ -48,6 +48,8 @@ module Lawn
     def initialize(@data_size_size, @pointer_size, @headers_io, @segments_pointers_dir, @segments_dir)
     end
 
+    alias Id = UInt64
+
     class Segment
       getter value : Bytes
       getter size_exponent : UInt8
@@ -59,7 +61,7 @@ module Lawn
 
     alias PointersEncoded = {add_index: Int32, value: Bytes}
 
-    def update(add : Array(Bytes), delete : Array(UInt64)) : Array(UInt64)
+    def update(add : Array(Bytes), delete : Array(Id)) : Array(Id)
       ::Log.debug { "SplitDataStorage.update add: #{add.map &.hexstring}, delete: #{delete}" }
 
       delete_segments_by_size_exponent = Array(Array(UInt64)?).new(32) { nil }
@@ -134,7 +136,7 @@ module Lawn
         delete: delete)
     end
 
-    def get(header_pointer : UInt64) : Bytes?
+    def get(header_pointer : Id) : Bytes?
       ::Log.debug { "SplitDataStorage.get #{header_pointer}" }
 
       header_encoded = IO::Memory.new (headers.get header_pointer).not_nil! rescue return nil
