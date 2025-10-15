@@ -18,18 +18,20 @@ module Lawn
     @[YAML::Field(ignore: true)]
     getter size : Int64 = 0_i64
 
+    getter id_size : UInt8 { @pointer_size + 1 }
+
     def initialize(@file, @pointer_size)
       after_initialize
     end
 
     def after_initialize
-      @size = @file.size // @pointer_size
+      @size = @file.size // id_size
     end
 
     def [](i : Int64) : RoundDataStorage::Id
-      @file.pos = i * @pointer_size
+      @file.pos = i * id_size
       rounded_size_index = Lawn.decode_number(@file, 1).not_nil!.to_u8
-      pointer = Lawn.decode_number(@file, @pointer_size).not_nil!
+      pointer = Lawn.decode_number(@file, id_size).not_nil!
       {rounded_size_index, pointer}
     end
   end
@@ -100,7 +102,7 @@ module Lawn
       end
       new_index_file.write buf.to_slice
       new_index_file.rename @index.file.path
-      @index = Index.new new_index_file, @index.pointer_size
+      @index = Index.new new_index_file, @index.id_size
 
       @log.truncate
       @memtable.clear
