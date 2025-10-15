@@ -118,8 +118,12 @@ module Lawn
   end
 
   def self.encode_bytes_with_size_size(io : IO, b : Bytes?)
-    encode_number_with_size io, b.size
-    encode_bytes io, b
+    case b
+    when nil then encode_number io, 255, 1
+    else
+      encode_number_with_size io, b.size
+      encode_bytes io, b
+    end
   end
 
   def self.decode_bytes_with_size_size(io : IO) : Bytes?

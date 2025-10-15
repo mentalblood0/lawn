@@ -8,7 +8,6 @@ module Lawn
   class RoundDataStorage
     Lawn.mserializable
 
-    getter pointer_size : UInt8
     getter data_dir : String
     getter logarithmically_divided_sizes_scale : {max: Int32, points: Int32}
 
@@ -39,7 +38,7 @@ module Lawn
       rs
     }
 
-    def initialize(@pointer_size, @data_dir, @logarithmically_divided_sizes_scale)
+    def initialize(@data_dir, @logarithmically_divided_sizes_scale)
     end
 
     alias Id = {UInt8, UInt64}

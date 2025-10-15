@@ -4,7 +4,6 @@ require "./common"
 require "./Transaction"
 require "./Log"
 require "./SplitDataStorage"
-require "./SortedPointers"
 require "./RoundDataStorage"
 
 module Lawn
@@ -17,29 +16,57 @@ module Lawn
     @[YAML::Field(ignore: true)]
     getter memtable : Hash(Bytes, Bytes?) = Hash(Bytes, Bytes?).new
 
-    getter sorted_pointers_dir : String
+    getter indexes : {dir: String, pointer_size: UInt8}
 
     @[YAML::Field(ignore: true)]
-    getter sorted_pointers_old_to_new = [] of SortedPointers
+    getter indexes_old_to_new = [] of File
 
-    def initialize(@log, @data_storage, @sorted_pointers_dir)
+    def initialize(@log, @data_storage, @indexes)
     end
 
     def after_initialize
       @log.read { |kv| @memtable[kv[0]] = kv[1] }
-      filenames = Dir.new(sorted_pointers_dir).children.select { |filename| filename.starts_with? "sorted_pointers_" }
+      filenames = Dir.new(@indexes[:dir]).children.select { |filename| filename.starts_with? "index_" }
       filenames.sort!
-      @sorted_pointers_old_to_new = filenames.map do |filename|
-        io = File.new "#{sorted_pointers_dir}/#{filename}", "w+"
-        io.sync = true
-        SortedPointers.new @data_storage.pointer_size, io
+      @indexes_old_to_new = filenames.map do |filename|
+        file = File.new "#{@indexes[:dir]}/#{filename}", "w+"
+        file.sync = true
+        file
       end
     end
 
     def get_from_checkpointed(key : Bytes)
-      (@sorted_pointers_old_to_new.size - 1).downto(0) do |i|
-        r = @sorted_pointers_old_to_new[i].get key, ->(header_pointer : RoundDataStorage::Id) { @data_storage.get(header_pointer).not_nil! }, @data_storage.data_size_size
-        return r if r
+      (@indexes_old_to_new.size - 1).downto(0) do |index_index|
+        index = @indexes_old_to_new[index_index]
+        index_size = index.size // @indexes[:pointer_size]
+
+        data_id : RoundDataStorage::Id? = nil
+        current_value : Bytes? = nil
+        result_index = (0..index_size - 1).bsearch do |i0|
+          ::Log.debug { "Env.get_from_checkpointed #{index.path}[#{i0}]" }
+          comparison = false
+          (i0..index_size - 1).each do |i|
+            ::Log.debug { "Env.get_from_checkpointed i = #{i}" }
+            index.pos = i * @indexes[:pointer_size]
+            rounded_size_index = Lawn.decode_number(index, 1).not_nil!.to_u8
+            pointer = Lawn.decode_number(index, @indexes[:pointer_size]).not_nil!
+            data_id = {rounded_size_index, pointer}
+
+            data = IO::Memory.new @data_storage.get(data_id).not_nil! rescue next
+            current_value = Lawn.decode_bytes_with_size_size data
+            ::Log.debug { "Env.get_from_checkpointed current_value = #{current_value ? current_value.hexstring : nil}" }
+            current_key = data.getb_to_end
+            ::Log.debug { "Env.get_from_checkpointed current_key = #{current_key.hexstring}" }
+
+            comparison = (key >= current_key)
+          end
+          comparison
+        end
+        if result_index
+          r = {data_id: data_id.not_nil!, value: current_value} if result_index
+          ::Log.debug { "Env.get_from_checkpointed r = #{r}" }
+          return r
+        end
       end
     end
 
@@ -48,24 +75,28 @@ module Lawn
       return self if @memtable.empty?
 
       sorted_keyvalues = @memtable.to_a
-      sorted_keyvalues.sort! { |a, b| b[0] <=> a[0] }
+      sorted_keyvalues.sort_by! { |key, _| key }
 
       to_add = [] of Bytes
       to_delete = [] of RoundDataStorage::Id
       sorted_keyvalues.each do |key, value|
         to_delete << get_from_checkpointed(key).not_nil![:data_id] rescue nil unless value
         value_key_encoded = IO::Memory.new
-        Lawn.encode_bytes_with_size value_key_encoded, value, @data_storage.data_size_size
+        Lawn.encode_bytes_with_size_size value_key_encoded, value
         Lawn.encode_bytes value_key_encoded, key
         to_add << value_key_encoded.to_slice
       end
       pointers = @data_storage.update add: to_add, delete: to_delete
 
-      io = File.new "#{@sorted_pointers_dir}/sorted_headers_pointers_#{(@sorted_pointers_old_to_new.size + 1).to_s.rjust 10, '0'}.idx", "w+"
-      io.sync = true
-      sorted_pointers = SortedPointers.new @data_storage.pointer_size, io
-      sorted_pointers.write pointers
-      sorted_pointers_old_to_new << sorted_pointers
+      index = File.new "#{@indexes[:dir]}/sorted_headers_pointers_#{(@indexes_old_to_new.size + 1).to_s.rjust 10, '0'}.idx", "w+"
+      index.sync = true
+      buf = IO::Memory.new
+      pointers.each do |rounded_size_index, pointer|
+        Lawn.encode_number buf, rounded_size_index, 1
+        Lawn.encode_number buf, pointer, @indexes[:pointer_size]
+      end
+      index.write buf.to_slice
+      indexes_old_to_new << index
 
       @log.truncate
       @memtable.clear
@@ -77,9 +108,14 @@ module Lawn
       Transaction.new self
     end
 
-    def get(k : Bytes)
-      ::Log.debug { "Env.get #{k.hexstring}" }
-      return @memtable[k]?.not_nil! rescue get_from_checkpointed(k).not_nil![:value] rescue nil
+    def get(key : Bytes)
+      ::Log.debug { "Env.get #{key.hexstring}" }
+
+      r = @memtable[key]?
+      return r if r
+
+      r = get_from_checkpointed key
+      return r[:value] if r
     end
   end
 end
