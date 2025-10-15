@@ -8,13 +8,19 @@ env:
         - OwnerAll
         - GroupRead
       sync: true
-  indexes:
-    dir: /tmp/lawn
-    pointer_size: 5
   data_storage:
     data_dir: /tmp/lawn
     logarithmically_divided_sizes_scale:
-      max: 65536
+      max: 65534
       points: 327
+  index:
+    file:
+      filename: /tmp/lawn/index.id
+      mode: w+
+      perm:
+      - OwnerAll
+      - GroupRead
+      sync: true
+    pointer_size: 5
 seed: 1
 

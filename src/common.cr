@@ -14,6 +14,26 @@ module Lawn
   alias V = Bytes?
   alias KV = {K, V}
 
+  module FileConverter
+    alias Args = NamedTuple(
+      filename: Path | String,
+      mode: String,
+      perm: File::Permissions,
+      sync: Bool)
+
+    def self.from_yaml(ctx : YAML::ParseContext, node : YAML::Nodes::Node) : File
+      args = Args.new ctx, node
+      Dir.mkdir_p (Path.new args[:filename]).parent
+      r = File.new filename: args[:filename], mode: args[:mode], perm: args[:perm]
+      r.sync = args[:sync]
+      r
+    end
+
+    def self.to_yaml(value : IO | File, builder : YAML::Nodes::Builder)
+      {filename: value.path, perm: value.info.permissions, sync: value.sync?}.to_yaml builder
+    end
+  end
+
   module IOConverter
     alias Args = NamedTuple(
       file: NamedTuple(
