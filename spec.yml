@@ -15,7 +15,7 @@ env:
     data_dir: /tmp/lawn
     logarithmically_divided_sizes_scale:
       max: 65536
-      points: 325
+      points: 327
   sorted_pointers_dir: /tmp/lawn
 seed: 1
 

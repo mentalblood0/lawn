@@ -73,6 +73,18 @@ module Lawn
     io.to_slice
   end
 
+  def self.encode_additional_number(io : IO, base, next_base, n)
+    return if next_base == base
+    size = ((next_base - base).bit_length / 8).ceil
+    encode_number io, n, size
+  end
+
+  def self.decode_additional_number(io : IO, base, next_base)
+    return 0 if base == next_base
+    size = ((next_base - base).bit_length / 8).ceil
+    decode_number io, size
+  end
+
   def self.decode_bytes(io : IO, size : UInt64)
     r = Bytes.new size
     io.read_fully r
