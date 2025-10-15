@@ -45,19 +45,6 @@ module Lawn
     end
   end
 
-  def self.decode_number(io : IO, size : UInt8) : UInt64?
-    raise Exception.new "Size must be from 1 to 8, not #{size}" unless 1 <= size <= 8
-    rb = Bytes.new 8
-    io.read_fully rb[0 - size..]
-    return nil if rb[0 - size..].all? { |b| b == 255_u8 }
-    case size
-    when 1          then (IO::ByteFormat::BigEndian.decode UInt8, rb[-1..]).to_u64!
-    when 2          then (IO::ByteFormat::BigEndian.decode UInt16, rb[-2..]).to_u64!
-    when 3, 4       then (IO::ByteFormat::BigEndian.decode UInt32, rb[-4..]).to_u64!
-    when 5, 6, 7, 8 then IO::ByteFormat::BigEndian.decode UInt64, rb
-    end
-  end
-
   def self.encode_number(io : IO, n, size : UInt8)
     b = Bytes.new size
     size.times do |i|
@@ -73,16 +60,32 @@ module Lawn
     io.to_slice
   end
 
-  def self.encode_additional_number(io : IO, base, next_base, n)
-    return if next_base == base
-    size = ((next_base - base).bit_length / 8).ceil
-    encode_number io, n, size
+  def self.decode_number(io : IO, size : UInt8) : UInt64?
+    raise Exception.new "Size must be from 1 to 8, not #{size}" unless 1 <= size <= 8
+    rb = Bytes.new 8
+    io.read_fully rb[0 - size..]
+    return nil if rb[0 - size..].all? { |b| b == 255_u8 }
+    case size
+    when 1          then (IO::ByteFormat::BigEndian.decode UInt8, rb[-1..]).to_u64!
+    when 2          then (IO::ByteFormat::BigEndian.decode UInt16, rb[-2..]).to_u64!
+    when 3, 4       then (IO::ByteFormat::BigEndian.decode UInt32, rb[-4..]).to_u64!
+    when 5, 6, 7, 8 then IO::ByteFormat::BigEndian.decode UInt64, rb
+    end
   end
 
-  def self.decode_additional_number(io : IO, base, next_base)
-    return 0 if base == next_base
-    size = ((next_base - base).bit_length / 8).ceil
-    decode_number io, size
+  def self.encode_number_with_size(io : IO, n)
+    size = (n.bit_length / 8).ceil.to_u64
+    encode_number io, size, 1
+    encode_number io, n, size.to_u8
+  end
+
+  def self.decode_number_with_size(io : IO) : UInt64?
+    size = decode_number(io, 1).not_nil! rescue return nil
+    decode_number io, size.to_u8
+  end
+
+  def self.encode_bytes(io : IO, b : Bytes)
+    io.write b
   end
 
   def self.decode_bytes(io : IO, size : UInt64)
@@ -91,8 +94,13 @@ module Lawn
     r
   end
 
-  def self.encode_bytes(io : IO, b : Bytes)
-    io.write b
+  def self.encode_bytes_with_size(io : IO, b : Bytes?, size_size : UInt8)
+    case b
+    when nil then encode_bytes io, Bytes.new size_size.to_i32, 255_u8
+    else
+      encode_number io, b.size, size_size
+      encode_bytes io, b
+    end
   end
 
   def self.decode_bytes_with_size(io : IO, size_size : UInt8) : Bytes?
@@ -102,12 +110,15 @@ module Lawn
     end
   end
 
-  def self.encode_bytes_with_size(io : IO, b : Bytes?, size_size : UInt8)
-    case b
-    when nil then encode_bytes io, Bytes.new size_size.to_i32, 255_u8
-    else
-      encode_number io, b.size, size_size
-      encode_bytes io, b
+  def self.encode_bytes_with_size_size(io : IO, b : Bytes?)
+    encode_number_with_size io, b.size
+    encode_bytes io, b
+  end
+
+  def self.decode_bytes_with_size_size(io : IO) : Bytes?
+    case size = decode_number_with_size io
+    when nil then nil
+    else          decode_bytes io, size
     end
   end
 end

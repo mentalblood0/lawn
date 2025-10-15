@@ -8,7 +8,6 @@ module Lawn
   class RoundDataStorage
     Lawn.mserializable
 
-    getter data_size_size : UInt8
     getter pointer_size : UInt8
     getter data_dir : String
     getter logarithmically_divided_sizes_scale : {max: Int32, points: Int32}
@@ -40,7 +39,7 @@ module Lawn
       rs
     }
 
-    def initialize(@data_size_size, @pointer_size, @data_dir, @logarithmically_divided_sizes_scale)
+    def initialize(@pointer_size, @data_dir, @logarithmically_divided_sizes_scale)
     end
 
     alias Id = {UInt8, UInt64}
@@ -52,18 +51,11 @@ module Lawn
 
       add_data_by_rounded_size_index = Array(Array(Add)?).new(sizes.size) { nil }
       add.each_with_index do |data, data_index|
-        di = round_index data.size
-        size_and_data_encoded = if sizes[di] == data.size
-                                  i = di
-                                  data
-                                else
-                                  io = IO::Memory.new
-                                  Lawn.encode_bytes_with_size io, data, @data_size_size
-                                  i = round_index io.size
-                                  io.to_slice
-                                end
+        size_and_data_encoded = IO::Memory.new
+        Lawn.encode_bytes_with_size_size size_and_data_encoded, data
+        i = round_index size_and_data_encoded.size
         add_data_by_rounded_size_index[i] = Array(Add).new unless add_data_by_rounded_size_index[i]
-        add_data_by_rounded_size_index[i].not_nil! << {data: size_and_data_encoded, data_index: data_index}
+        add_data_by_rounded_size_index[i].not_nil! << {data: size_and_data_encoded.to_slice, data_index: data_index}
       end
 
       delete_pointers_by_rounded_size_index = Array(Array(UInt64)?).new(sizes.size) { nil }
@@ -93,12 +85,8 @@ module Lawn
       al = @data_aligned_lists_by_rounded_size_index[id[0]]
       return unless al
 
-      size_and_data_encoded = al.get id[1]
-      if sizes[id[0]] == size_and_data_encoded.size
-        size_and_data_encoded
-      else
-        Lawn.decode_bytes_with_size IO::Memory.new(size_and_data_encoded), @data_size_size
-      end
+      size_and_data_encoded = IO::Memory.new al.get id[1]
+      Lawn.decode_bytes_with_size_size size_and_data_encoded
     end
 
     def round_index(size : Int32) : Int32

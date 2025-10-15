@@ -7,20 +7,18 @@ module Lawn
   class Log
     Lawn.mserializable
 
-    getter data_size_size : UInt8
-
     @[YAML::Field(converter: Lawn::IOConverter)]
     getter io : IO::Memory | File
 
-    def initialize(@io, @data_size_size)
+    def initialize(@io)
     end
 
     def read(&)
       @io.pos = 0
       loop do
         begin
-          key = (Lawn.decode_bytes_with_size @io, @data_size_size).not_nil!
-          value = Lawn.decode_bytes_with_size @io, @data_size_size
+          key = (Lawn.decode_bytes_with_size_size @io).not_nil! rescue break
+          value = Lawn.decode_bytes_with_size_size @io
           yield({key, value})
         rescue IO::EOFError
           break
@@ -32,8 +30,8 @@ module Lawn
       return if batch.empty?
       buf = IO::Memory.new
       batch.each do |k, v|
-        Lawn.encode_bytes_with_size @io, k, @data_size_size
-        Lawn.encode_bytes_with_size @io, v, @data_size_size
+        Lawn.encode_bytes_with_size_size @io, k
+        Lawn.encode_bytes_with_size_size @io, v
       end
       @io.write buf.to_slice
     end

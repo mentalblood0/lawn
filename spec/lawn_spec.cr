@@ -105,7 +105,7 @@ describe ds.class do
     it "generative test", focus: true do
       added = Hash(Lawn::RoundDataStorage::Id, Bytes).new
       100.times do
-        add = Array(Bytes).new(rnd.rand 1..16) { rnd.random_bytes rnd.rand 1..2**5 }
+        add = Array(Bytes).new(rnd.rand 1..16) { rnd.random_bytes rnd.rand 1..2**10 }
         delete = added.keys.sample rnd.rand(1..16), rnd
         delete = [] of {UInt8, UInt64}
         r = ds.update add, delete
