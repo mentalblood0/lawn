@@ -74,13 +74,20 @@ module Lawn
   end
 
   def self.encode_number_with_size(io : IO, n)
-    size = (n.bit_length / 8).ceil.to_u64
-    encode_number io, size, 1
-    encode_number io, n, size.to_u8
+    if 0 <= n <= 255 - 8
+      encode_number io, n, 1
+    else
+      size = (n.bit_length / 8).ceil.to_u64
+      header = 255 - size
+      encode_number io, header, 1
+      encode_number io, n, size.to_u8
+    end
   end
 
   def self.decode_number_with_size(io : IO) : UInt64?
-    size = decode_number(io, 1).not_nil! rescue return nil
+    header = decode_number(io, 1).not_nil! rescue return nil
+    return header if 0 <= header <= 255 - 8
+    size = 255 - header
     decode_number io, size.to_u8
   end
 
