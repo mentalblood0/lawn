@@ -31,12 +31,12 @@ module Lawn
       return if batch.empty?
       buf = IO::Memory.new
       batch.each do |key, value|
-        Lawn.encode_bytes_with_size_size file, key
+        Lawn.encode_bytes_with_size_size buf, key
         if value
-          Lawn.encode_bytes file, Bytes.new 1 { 1_u8 }
+          Lawn.encode_bytes buf, Bytes.new 1 { 1_u8 }
           Lawn.encode_bytes_with_size_size file, value
         else
-          Lawn.encode_bytes file, Bytes.new 1 { 0_u8 }
+          Lawn.encode_bytes buf, Bytes.new 1 { 0_u8 }
         end
       end
       file.write buf.to_slice
