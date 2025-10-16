@@ -24,6 +24,13 @@ module Lawn
       @log.read { |kv| @memtable[kv[0]] = kv[1] }
     end
 
+    def clear
+      log.clear
+      data_storage.clear
+      index.clear
+      after_initialize
+    end
+
     protected def get_data(data_id : RoundDataStorage::Id)
       data = IO::Memory.new @data_storage.get(data_id).not_nil!
       value = Lawn.decode_bytes_with_size_size data

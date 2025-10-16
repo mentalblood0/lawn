@@ -33,6 +33,12 @@ module Lawn
       @size = file.size // id_size
     end
 
+    def clear
+      file.delete
+      @file = nil
+      after_initialize
+    end
+
     protected def read
       rounded_size_index = Lawn.decode_number(file, 1).not_nil!.to_u8
       pointer = Lawn.decode_number(file, @pointer_size).not_nil!

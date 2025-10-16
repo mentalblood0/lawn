@@ -39,6 +39,10 @@ module Lawn
     def initialize(@data_dir, @logarithmically_divided_sizes_scale)
     end
 
+    def clear
+      @data_aligned_lists_by_rounded_size_index.each { |al| al.clear if al }
+    end
+
     alias Id = {rounded_size_index: UInt8, pointer: UInt64}
 
     alias Add = {data: Bytes, data_index: Int32}

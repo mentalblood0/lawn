@@ -37,8 +37,12 @@ module Lawn
 
     def after_initialize
       write_head
-
       file.seek 0, IO::Seek::End
+    end
+
+    def clear
+      file.truncate
+      after_initialize
     end
 
     protected def read
