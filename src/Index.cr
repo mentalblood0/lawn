@@ -40,7 +40,7 @@ module Lawn
     end
 
     protected def read
-      rounded_size_index = Lawn.decode_number(file, 1).not_nil!.to_u8
+      rounded_size_index = file.read_byte.not_nil!
       pointer = Lawn.decode_number(file, @pointer_size).not_nil!
       {rounded_size_index: rounded_size_index, pointer: pointer}
     end

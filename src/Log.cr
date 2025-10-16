@@ -47,7 +47,7 @@ module Lawn
       loop do
         begin
           key = Lawn.decode_bytes_with_size_size file
-          value = case file.read_byte
+          value = case file.read_byte.not_nil!
                   when 1_u8 then Lawn.decode_bytes_with_size_size file
                   when 0_u8 then nil
                   end

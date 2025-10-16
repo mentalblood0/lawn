@@ -94,16 +94,16 @@ module Lawn
                 new_index_keyvalue[0] <= old_index_keyvalue[0]
               end
           new_index_id = new_index_ids[new_i]
-          Lawn.encode_number new_index_file, new_index_id[:rounded_size_index], 1
+          new_index_file.write_byte new_index_id[:rounded_size_index]
           Lawn.encode_number new_index_file, new_index_id[:pointer], @index.pointer_size
           new_i += 1
         end
-        Lawn.encode_number new_index_file, old_index_id[:rounded_size_index], 1
+        new_index_file.write_byte old_index_id[:rounded_size_index]
         Lawn.encode_number new_index_file, old_index_id[:pointer], @index.pointer_size
       end
       while new_i < new_index_ids.size
         new_index_id = new_index_ids[new_i]
-        Lawn.encode_number new_index_file, new_index_id[:rounded_size_index], 1
+        new_index_file.write_byte new_index_id[:rounded_size_index]
         Lawn.encode_number new_index_file, new_index_id[:pointer], @index.pointer_size
         new_i += 1
       end
