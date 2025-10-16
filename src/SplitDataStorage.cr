@@ -14,17 +14,17 @@ module Lawn
     @[YAML::Field(converter: Lawn::IOConverter)]
     getter headers_io : IO::Memory | File
 
-    @[YAML::Field(ignore: true)]
+    Lawn.mignore
     getter headers : AlignedList { AlignedList.new headers_io, @data_size_size.to_u32 + @pointer_size }
 
     getter segments_pointers_dir : String
 
-    @[YAML::Field(ignore: true)]
+    Lawn.mignore
     getter segments_pointers_by_number : Array(AlignedList?) = Array(AlignedList?).new 32 { nil }
 
     getter segments_dir : String
 
-    @[YAML::Field(ignore: true)]
+    Lawn.mignore
     getter segments_by_size_exponent : Array(AlignedList?) = Array(AlignedList?).new 32 { nil }
 
     def segments_pointers(n : UInt8)

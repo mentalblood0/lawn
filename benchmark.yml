@@ -1,26 +1,15 @@
 env:
   log:
-    file:
-      filename: /tmp/lawn/log.dat
-      mode: a+
-      perm:
-      - OwnerAll
-      - GroupRead
-      sync: true
+    path: /tmp/lawn/log.dat
   data_storage:
     data_dir: /tmp/lawn
     logarithmically_divided_sizes_scale:
       max: 65534
       points: 327
   index:
-    file:
-      filename: /tmp/lawn/index.id
-      mode: w+
-      perm:
-      - OwnerAll
-      - GroupRead
-      sync: true
+    path: /tmp/lawn/index.idx
     pointer_size: 5
+seed: 0
 amount: 300_000
 size:
   key:
@@ -29,4 +18,3 @@ size:
   value:
     min: 1
     max: 1024
-seed: 0

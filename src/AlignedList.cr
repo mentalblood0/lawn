@@ -8,33 +8,42 @@ module Lawn
     Lawn.mserializable
 
     getter element_size : UInt32
+    getter path : Path
 
-    @[YAML::Field(converter: Lawn::IOConverter)]
-    getter io : IO::Memory | File
+    Lawn.mignore
+    getter file : File do
+      unless File.exists? @path
+        Dir.mkdir_p @path.parent
+        File.touch @path
+      end
+      r = File.new @path, "w+"
+      r.sync = true
+      r
+    end
 
-    @[YAML::Field(ignore: true)]
+    Lawn.mignore
     getter head : Bytes = Bytes.new 0
 
-    def initialize(@io, @element_size)
+    def initialize(@path, @element_size)
       after_initialize
     end
 
     protected def write_head
-      @io.pos = 0
+      file.pos = 0
       return unless (@head = read).all? { |b| b == 255 } rescue nil
       @head = Bytes.new @element_size.to_i32, 255
-      io.write head
+      file.write head
     end
 
     def after_initialize
       write_head
 
-      @io.seek 0, IO::Seek::End
+      file.seek 0, IO::Seek::End
     end
 
     protected def read
       r = Bytes.new @element_size
-      @io.read_fully r
+      file.read_fully r
       r
     end
 
@@ -52,14 +61,14 @@ module Lawn
 
     def get(i : UInt64)
       ::Log.debug { "AlignedList.get #{i}" }
-      @io.pos = i * @element_size
+      file.pos = i * @element_size
       read
     end
 
     protected def set(i : UInt64, b : Bytes) : UInt64
       @head = b if i == 0
-      @io.pos = i * @element_size
-      @io.write b
+      file.pos = i * @element_size
+      file.write b
       i
     end
 
@@ -85,10 +94,10 @@ module Lawn
 
       (replaced..add.size - 1).each do |i|
         if @head.all? { |b| b == 255 }
-          @io.seek 0, IO::Seek::End
-          rn = @io.pos.to_u64 // @element_size
+          file.seek 0, IO::Seek::End
+          rn = file.pos.to_u64 // @element_size
           (rn..rn + add.size - i - 1).each { |r| rs << r }
-          @io.write Bytes.join add[i..].map { |d| @element_size > d.size ? d + Bytes.new(@element_size - d.size) : d }
+          file.write Bytes.join add[i..].map { |d| @element_size > d.size ? d + Bytes.new(@element_size - d.size) : d }
           break
         else
           r = as_p @head

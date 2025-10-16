@@ -47,7 +47,7 @@ end
 describe Lawn::AlignedList do
   [2, 3, 5, 9].map { |s| s.to_u8! }.each do |s|
     it "generative test: supports #{s} bytes elements" do
-      al = Lawn::AlignedList.new IO::Memory.new, s
+      al = Lawn::AlignedList.new config[:env].log.path.parent / "aligned_list.dat", s
       added = Hash(UInt64, Bytes).new
 
       1000.times do
@@ -140,7 +140,7 @@ describe Lawn::Env do
     env.get("key".to_slice).should eq "value".to_slice
   end
 
-  it "generative test", focus: true do
+  it "generative test" do
     added = Hash(Lawn::Key, Lawn::Value).new
     100.times do
       rnd.rand(1..16).times do

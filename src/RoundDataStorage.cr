@@ -11,15 +11,13 @@ module Lawn
     getter data_dir : String
     getter logarithmically_divided_sizes_scale : {max: Int32, points: Int32}
 
-    @[YAML::Field(ignore: true)]
+    Lawn.mignore
     getter data_aligned_lists_by_rounded_size_index : Array(AlignedList?) = Array(AlignedList?).new 256 { nil }
 
     def data_aligned_list(round_index : UInt8)
       unless data_aligned_lists_by_rounded_size_index[round_index]
         size = sizes[round_index]
-        io = File.new (Path.new @data_dir) / "size_and_data_of_rounded_size_#{size.to_s.rjust 10, '0'}.dat", "w+"
-        io.sync = true
-        data_aligned_lists_by_rounded_size_index[round_index] = AlignedList.new io, size.to_u32
+        data_aligned_lists_by_rounded_size_index[round_index] = AlignedList.new Path.new(@data_dir) / "size_and_data_of_rounded_size_#{size.to_s.rjust 10, '0'}.dat", size.to_u32
       end
       data_aligned_lists_by_rounded_size_index[round_index].not_nil!
     end

@@ -5,46 +5,9 @@ require "./Transaction"
 require "./Log"
 require "./SplitDataStorage"
 require "./RoundDataStorage"
+require "./Index"
 
 module Lawn
-  class Index
-    Lawn.mserializable
-
-    @[YAML::Field(converter: Lawn::FileConverter)]
-    getter file : File
-
-    getter pointer_size : UInt8
-
-    @[YAML::Field(ignore: true)]
-    getter size : Int64 = 0_i64
-
-    getter id_size : UInt8 { @pointer_size + 1 }
-
-    def initialize(@file, @pointer_size)
-      after_initialize
-    end
-
-    def after_initialize
-      @size = @file.size // id_size
-    end
-
-    protected def read
-      rounded_size_index = Lawn.decode_number(@file, 1).not_nil!.to_u8
-      pointer = Lawn.decode_number(@file, @pointer_size).not_nil!
-      {rounded_size_index: rounded_size_index, pointer: pointer}
-    end
-
-    def [](i : Int64) : RoundDataStorage::Id
-      @file.pos = i * id_size
-      read
-    end
-
-    def each(&)
-      @file.pos = 0
-      @size.times { yield read }
-    end
-  end
-
   class Env
     Lawn.mserializable
 
@@ -105,9 +68,8 @@ module Lawn
         @data_storage.update add: to_add, delete: to_delete
       end
 
-      new_index_file = File.new "#{@index.file.path}.new", "w+"
+      new_index_file = File.new "#{@index.file.path}.new", "w"
       new_index_file.sync = true
-      buf = IO::Memory.new
       new_i = 0
       @index.each do |old_index_id|
         old_index_keyvalue = get_data(old_index_id)
@@ -116,22 +78,22 @@ module Lawn
                 new_index_keyvalue[0] <= old_index_keyvalue[0]
               end
           new_index_id = new_index_ids[new_i]
-          Lawn.encode_number buf, new_index_id[:rounded_size_index], 1
-          Lawn.encode_number buf, new_index_id[:pointer], @index.pointer_size
+          Lawn.encode_number new_index_file, new_index_id[:rounded_size_index], 1
+          Lawn.encode_number new_index_file, new_index_id[:pointer], @index.pointer_size
           new_i += 1
         end
-        Lawn.encode_number buf, old_index_id[:rounded_size_index], 1
-        Lawn.encode_number buf, old_index_id[:pointer], @index.pointer_size
+        Lawn.encode_number new_index_file, old_index_id[:rounded_size_index], 1
+        Lawn.encode_number new_index_file, old_index_id[:pointer], @index.pointer_size
       end
       while new_i < new_index_ids.size
         new_index_id = new_index_ids[new_i]
-        Lawn.encode_number buf, new_index_id[:rounded_size_index], 1
-        Lawn.encode_number buf, new_index_id[:pointer], @index.pointer_size
+        Lawn.encode_number new_index_file, new_index_id[:rounded_size_index], 1
+        Lawn.encode_number new_index_file, new_index_id[:pointer], @index.pointer_size
         new_i += 1
       end
-      new_index_file.write buf.to_slice
       new_index_file.rename @index.file.path
-      @index = Index.new new_index_file, @index.pointer_size
+      new_index_file.close
+      @index = Index.new Path.new(new_index_file.path), @index.pointer_size
 
       @log.clear
       @memtable.clear

@@ -10,60 +10,14 @@ module Lawn
     include JSON::Serializable::Strict
   end
 
+  macro mignore
+    @[YAML::Field(ignore: true)]
+    @[JSON::Field(ignore: true)]
+  end
+
   alias Key = Bytes
   alias Value = Bytes?
   alias KeyValue = {Key, Value}
-
-  module FileConverter
-    alias Args = NamedTuple(
-      filename: Path | String,
-      mode: String,
-      perm: File::Permissions,
-      sync: Bool)
-
-    def self.from_yaml(ctx : YAML::ParseContext, node : YAML::Nodes::Node) : File
-      args = Args.new ctx, node
-      Dir.mkdir_p (Path.new args[:filename]).parent
-      r = File.new filename: args[:filename], mode: args[:mode], perm: args[:perm]
-      r.sync = args[:sync]
-      r
-    end
-
-    def self.to_yaml(value : IO | File, builder : YAML::Nodes::Builder)
-      {filename: value.path, perm: value.info.permissions, sync: value.sync?}.to_yaml builder
-    end
-  end
-
-  module IOConverter
-    alias Args = NamedTuple(
-      file: NamedTuple(
-        filename: Path | String,
-        mode: String,
-        perm: File::Permissions),
-      sync: Bool)
-
-    def self.from_yaml(ctx : YAML::ParseContext, node : YAML::Nodes::Node) : IO::Memory | File
-      begin
-        args = Args.new ctx, node
-        Dir.mkdir_p (Path.new args[:file][:filename]).parent
-        r = File.new **args[:file]
-        r.sync = args[:sync]
-        r
-      rescue YAML::ParseException
-        node.raise "Expected #{Args} or String of value \"memory\", not #{node.kind}" unless ((String.new ctx, node) == "memory" rescue false)
-        IO::Memory.new
-      end
-    end
-
-    def self.to_yaml(value : IO | File, builder : YAML::Nodes::Builder)
-      case value
-      when IO::Memory then "memory".to_yaml builder
-      when File       then {file: {filename: value.path, perm: value.info.permissions}, sync: value.sync?}.to_yaml builder
-      else
-        raise "Unsupported IO type: #{value.class}"
-      end
-    end
-  end
 
   def self.encode_number(io : IO, n, size : UInt8)
     b = Bytes.new size

@@ -7,18 +7,28 @@ module Lawn
   class Log
     Lawn.mserializable
 
-    @[YAML::Field(converter: Lawn::FileConverter)]
-    getter file : File
+    getter path : Path
 
-    def initialize(@file)
+    Lawn.mignore
+    getter file : File do
+      unless File.exists? @path
+        Dir.mkdir_p @path.parent
+        File.touch @path
+      end
+      r = File.new @path, "a"
+      r.sync = true
+      r
+    end
+
+    def initialize(@path)
     end
 
     def read(&)
-      @file.pos = 0
+      file.pos = 0
       loop do
         begin
-          key = (Lawn.decode_bytes_with_size_size @file).not_nil! rescue break
-          value = Lawn.decode_bytes_with_size_size @file
+          key = (Lawn.decode_bytes_with_size_size file).not_nil! rescue break
+          value = Lawn.decode_bytes_with_size_size file
           yield({key, value})
         rescue IO::EOFError
           break
@@ -30,14 +40,14 @@ module Lawn
       return if batch.empty?
       buf = IO::Memory.new
       batch.each do |key, value|
-        Lawn.encode_bytes_with_size_size @file, key
-        Lawn.encode_bytes_with_size_size @file, value
+        Lawn.encode_bytes_with_size_size file, key
+        Lawn.encode_bytes_with_size_size file, value
       end
-      @file.write buf.to_slice
+      file.write buf.to_slice
     end
 
     def clear
-      @file.truncate
+      file.truncate
     end
   end
 end
