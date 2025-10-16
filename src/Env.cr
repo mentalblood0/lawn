@@ -77,7 +77,7 @@ module Lawn
         sorted_keyvalues.each do |key, value|
           value_key_encoded = IO::Memory.new
           Lawn.encode_bytes_with_size_size value_key_encoded, value
-          Lawn.encode_bytes value_key_encoded, key
+          value_key_encoded.write key
           to_add << value_key_encoded.to_slice
         end
         @data_storage.update add: to_add, delete: to_delete.to_a
