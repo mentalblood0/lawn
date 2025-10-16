@@ -17,7 +17,7 @@ module Lawn
     def data_aligned_list(round_index : UInt8)
       unless data_aligned_lists_by_rounded_size_index[round_index]
         size = sizes[round_index]
-        data_aligned_lists_by_rounded_size_index[round_index] = AlignedList.new Path.new(@data_dir) / "size_and_data_of_rounded_size_#{size.to_s.rjust 10, '0'}.dat", size.to_u32
+        data_aligned_lists_by_rounded_size_index[round_index] = AlignedList.new Path.new(@data_dir) / "size_and_data_of_rounded_size_#{size.to_s.rjust 10, '0'}.dat", size
       end
       data_aligned_lists_by_rounded_size_index[round_index].not_nil!
     end

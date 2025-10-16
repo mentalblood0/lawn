@@ -7,7 +7,7 @@ module Lawn
   class AlignedList
     Lawn.mserializable
 
-    getter element_size : UInt32
+    getter element_size : Int32
     getter path : Path
 
     Lawn.mignore
@@ -45,28 +45,28 @@ module Lawn
       after_initialize
     end
 
-    protected def read
-      r = Bytes.new @element_size
+    protected def read(max_count : Int32 = @element_size)
+      r = Bytes.new Math.min @element_size, max_count
       file.read_fully r
       r
     end
 
     protected def as_p(b : Bytes)
       r = 0_u64
-      b.each { |b| r = (r << 8) + b }
+      b[..Math.min 7, b.size - 1].each { |b| r = (r << 8) + b }
       r
     end
 
-    protected def as_b(f : UInt64)
-      r = Bytes.new Math.max 8, @element_size
-      IO::ByteFormat::BigEndian.encode f, r[(Math.max 8, @element_size) - 8..]
+    protected def as_b(i : UInt64)
+      r = Bytes.new 8
+      IO::ByteFormat::BigEndian.encode i, r
       (@element_size >= 8) ? r : r[8 - @element_size..]
     end
 
-    def get(i : UInt64)
+    def get(i : UInt64, count : Int32 = @element_size)
       ::Log.debug { "AlignedList{#{path}}.get #{i}" }
       file.pos = i * @element_size
-      read
+      read count
     end
 
     protected def set(i : UInt64, b : Bytes) : UInt64
@@ -105,7 +105,7 @@ module Lawn
           break
         else
           r = as_p @head
-          n1 = get r
+          n1 = get r, 8
 
           rs << set r, add[i]
           set 0, n1
