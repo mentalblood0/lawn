@@ -39,10 +39,6 @@ describe Lawn do
     Lawn.encode_bytes_with_size io, "lalala".to_slice, 3_u8
     io.rewind
     (Lawn.decode_bytes_with_size io, 3_u8).should eq "lalala".to_slice
-    io.rewind
-    Lawn.encode_bytes_with_size io, nil, 3_u8
-    io.rewind
-    (Lawn.decode_bytes_with_size io, 3_u8).should eq nil
   end
 end
 
@@ -104,12 +100,11 @@ describe ds.class do
       (ds.update add, [] of Lawn::RoundDataStorage::Id).each_with_index { |id, data_index| ds.get(id).should eq add[data_index] }
     end
 
-    it "generative test", focus: true do
+    it "generative test" do
       added = Hash(Lawn::RoundDataStorage::Id, Bytes).new
-      10.times do
-        add = Array(Bytes).new(rnd.rand 1..16) { rnd.random_bytes rnd.rand 250..500 }
+      1000.times do
+        add = Array(Bytes).new(rnd.rand 1..16) { rnd.random_bytes rnd.rand 1..1024 }
         delete = added.keys.sample rnd.rand(1..16), rnd
-        delete = [] of Lawn::RoundDataStorage::Id
         r = ds.update add, delete
         r.each_with_index { |pointer, data_index| added[pointer] = add[data_index] }
         delete.each { |pointer| added.delete pointer }
@@ -144,20 +139,20 @@ describe Lawn::Env do
 
   it "generative test" do
     added = Hash(Lawn::Key, Lawn::Value).new
-    100.times do
+    1000.times do
       rnd.rand(1..16).times do
         case rnd.rand 0..1
         when 0
-          key = rnd.random_bytes rnd.rand 250..500
-          value = rnd.random_bytes rnd.rand 250..500
-          # Log.debug { "add\n\tkey:   #{key.hexstring}\n\tvalue: #{value.hexstring}" }
+          key = rnd.random_bytes rnd.rand 1..1024
+          value = rnd.random_bytes rnd.rand 1..1024
+          Log.debug { "add\n\tkey:   #{key.hexstring}\n\tvalue: #{value.hexstring}" }
 
           env.transaction.set(key, value).commit
 
           added[key] = value
         when 1
           key = added.keys.sample rnd rescue next
-          # Log.debug { "delete\n\tkey:   #{key.hexstring}" }
+          Log.debug { "delete\n\tkey:   #{key.hexstring}" }
 
           env.transaction.delete(key).commit
 

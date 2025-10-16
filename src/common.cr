@@ -16,7 +16,7 @@ module Lawn
   end
 
   alias Key = Bytes
-  alias Value = Bytes?
+  alias Value = Bytes
   alias KeyValue = {Key, Value}
 
   def self.encode_number(io : IO, n, size : UInt8)
@@ -34,16 +34,16 @@ module Lawn
     io.to_slice
   end
 
-  def self.decode_number(io : IO, size : UInt8) : UInt64?
+  def self.decode_number(io : IO, size : UInt8) : UInt64
     raise Exception.new "Size must be from 1 to 8, not #{size}" unless 1 <= size <= 8
     rb = Bytes.new 8
     io.read_fully rb[0 - size..]
-    return nil if rb[0 - size..].all? { |b| b == 255_u8 }
     case size
     when 1          then (IO::ByteFormat::BigEndian.decode UInt8, rb[-1..]).to_u64!
     when 2          then (IO::ByteFormat::BigEndian.decode UInt16, rb[-2..]).to_u64!
     when 3, 4       then (IO::ByteFormat::BigEndian.decode UInt32, rb[-4..]).to_u64!
     when 5, 6, 7, 8 then IO::ByteFormat::BigEndian.decode UInt64, rb
+    else                 raise Exception.new "Unsupported number size #{size}"
     end
   end
 
@@ -58,8 +58,8 @@ module Lawn
     end
   end
 
-  def self.decode_number_with_size(io : IO) : UInt64?
-    header = decode_number(io, 1).not_nil! rescue return nil
+  def self.decode_number_with_size(io : IO) : UInt64
+    header = decode_number io, 1
     return header if 0 <= header <= 255 - 8
     size = 255 - header
     decode_number io, size.to_u8
@@ -75,35 +75,23 @@ module Lawn
     r
   end
 
-  def self.encode_bytes_with_size(io : IO, b : Bytes?, size_size : UInt8)
-    case b
-    when nil then encode_bytes io, Bytes.new size_size.to_i32, 255_u8
-    else
-      encode_number io, b.size, size_size
-      encode_bytes io, b
-    end
+  def self.encode_bytes_with_size(io : IO, b : Bytes, size_size : UInt8)
+    encode_number io, b.size, size_size
+    encode_bytes io, b
   end
 
   def self.decode_bytes_with_size(io : IO, size_size : UInt8) : Bytes?
-    case size = decode_number io, size_size
-    when nil then nil
-    else          decode_bytes io, size
-    end
+    size = decode_number io, size_size
+    decode_bytes io, size
   end
 
   def self.encode_bytes_with_size_size(io : IO, b : Bytes?)
-    case b
-    when nil then encode_number io, 255, 1
-    else
-      encode_number_with_size io, b.size
-      encode_bytes io, b
-    end
+    encode_number_with_size io, b.size
+    encode_bytes io, b
   end
 
   def self.decode_bytes_with_size_size(io : IO) : Bytes?
-    case size = decode_number_with_size io
-    when nil then nil
-    else          decode_bytes io, size
-    end
+    size = decode_number_with_size io
+    decode_bytes io, size
   end
 end

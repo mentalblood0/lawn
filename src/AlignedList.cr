@@ -64,7 +64,7 @@ module Lawn
     end
 
     def get(i : UInt64)
-      # ::Log.debug { "AlignedList{#{path}}.get #{i}" }
+      ::Log.debug { "AlignedList{#{path}}.get #{i}" }
       file.pos = i * @element_size
       read
     end
@@ -77,7 +77,7 @@ module Lawn
     end
 
     def update(add : Array(Bytes), delete : Array(UInt64)? = nil) : Array(UInt64)
-      # ::Log.debug { "AlignedList{#{path}}.update add: #{add.map &.hexstring}, delete: #{delete}" }
+      ::Log.debug { "AlignedList{#{path}}.update add: #{add.map &.hexstring}, delete: #{delete}" }
 
       rs = [] of UInt64
 
@@ -112,7 +112,7 @@ module Lawn
         end
       end
 
-      # ::Log.debug { "AlignedList{#{path}}.update => #{rs}" }
+      ::Log.debug { "AlignedList{#{path}}.update => #{rs}" }
       rs
     end
   end

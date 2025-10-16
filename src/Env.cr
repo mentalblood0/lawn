@@ -15,7 +15,7 @@ module Lawn
     getter data_storage : RoundDataStorage
     getter index : Index
 
-    getter memtable : Hash(Bytes, Bytes?) = Hash(Bytes, Bytes?).new
+    getter memtable : Hash(Key, Value?) = Hash(Key, Value?).new
 
     def initialize(@log, @data_storage, @index)
     end
@@ -76,11 +76,11 @@ module Lawn
 
       sorted_keyvalues = [] of KeyValue
       to_delete = Set(RoundDataStorage::Id).new
-      @memtable.each do |keyvalue|
-        if keyvalue[1]
-          sorted_keyvalues << keyvalue
+      @memtable.each do |key, value|
+        if value
+          sorted_keyvalues << {key, value}
         else
-          to_delete << get_from_checkpointed(keyvalue[0]).not_nil![:data_id] rescue nil
+          to_delete << get_from_checkpointed(key).not_nil![:data_id] rescue nil
         end
       end
       sorted_keyvalues.sort_by! { |key, _| key }
@@ -135,7 +135,7 @@ module Lawn
     end
 
     def transaction
-      # ::Log.debug { "Env.transaction" }
+      ::Log.debug { "Env.transaction" }
       Transaction.new self
     end
 
