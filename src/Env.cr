@@ -38,15 +38,6 @@ module Lawn
       {key, value}
     end
 
-    def dump
-      String.build do |s|
-        @index.each_with_index do |id, i|
-          data = get_data id
-          s << "Env.dump #{i.to_s.rjust 3, '0'} #{id} => #{data[0].hexstring} : #{(d = data[1]) ? d.hexstring : nil}\n"
-        end
-      end
-    end
-
     def get_from_checkpointed(key : Bytes)
       ::Log.debug { "Env.get_from_checkpointed (0..#{@index.size - 1}).bsearch" }
 
@@ -56,17 +47,13 @@ module Lawn
         data_id = @index[i]
         current_keyvalue = get_data data_id
         cache[i] = {data_id: data_id, keyvalue: current_keyvalue}
-        r = (current_keyvalue[0] >= key)
-        ::Log.debug { "Env.get_from_checkpointed (#{current_keyvalue[0].hexstring} >= #{key.hexstring}) == #{r}" }
-        r
+        current_keyvalue[0] >= key
       end
 
       if result_index
         result = cache[result_index]
         return nil unless result[:keyvalue][0] == key
-        r = {data_id: result[:data_id].not_nil!, value: result[:keyvalue] ? result[:keyvalue][1] : nil}
-        ::Log.debug { "Env.get_from_checkpointed => #{r}" }
-        r
+        {data_id: result[:data_id].not_nil!, value: result[:keyvalue] ? result[:keyvalue][1] : nil}
       end
     end
 
@@ -107,19 +94,15 @@ module Lawn
                 new_index_keyvalue[0] <= old_index_keyvalue[0]
               end
           new_index_id = new_index_ids[new_i]
-          ::Log.debug { "Env.checkpoint write #{new_index_id} #{sorted_keyvalues[new_i][0].hexstring}" }
           Lawn.encode_number new_index_file, new_index_id[:rounded_size_index], 1
           Lawn.encode_number new_index_file, new_index_id[:pointer], @index.pointer_size
           new_i += 1
         end
-        ::Log.debug { "Env.checkpoint write #{old_index_id} #{old_index_keyvalue[0].hexstring}" }
         Lawn.encode_number new_index_file, old_index_id[:rounded_size_index], 1
         Lawn.encode_number new_index_file, old_index_id[:pointer], @index.pointer_size
       end
       while new_i < new_index_ids.size
-        new_index_keyvalue = sorted_keyvalues[new_i]
         new_index_id = new_index_ids[new_i]
-        ::Log.debug { "Env.checkpoint write #{new_index_id} #{new_index_keyvalue[0].hexstring}" }
         Lawn.encode_number new_index_file, new_index_id[:rounded_size_index], 1
         Lawn.encode_number new_index_file, new_index_id[:pointer], @index.pointer_size
         new_i += 1
@@ -130,7 +113,6 @@ module Lawn
 
       @log.clear
       @memtable.clear
-      ::Log.debug { "\n\n#{dump}" }
       self
     end
 
