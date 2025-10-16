@@ -1,12 +1,11 @@
 env:
   log:
-    io:
-      file:
-        filename: /tmp/lawn/log.dat
-        mode: a+
-        perm:
-        - OwnerAll
-        - GroupRead
+    file:
+      filename: /tmp/lawn/log.dat
+      mode: a+
+      perm:
+      - OwnerAll
+      - GroupRead
       sync: true
   data_storage:
     data_dir: /tmp/lawn

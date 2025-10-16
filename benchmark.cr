@@ -68,8 +68,8 @@ end
 
 benchmarks = Benchmarks.from_yaml File.read ENV["BENCHMARK_CONFIG_PATH"]
 benchmarks.benchmark_write
-benchmarks.benchmark_checkpointing
-benchmarks.benchmark_get
+# benchmarks.benchmark_checkpointing
+# benchmarks.benchmark_get
 # benchmarks.benchmark_data_storage
 
 puts benchmarks.results.to_yaml

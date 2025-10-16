@@ -131,8 +131,8 @@ describe Lawn::Env do
   end
 
   it "handles deletes correctly" do
-    env.transaction.set({"key_to_delete".to_slice => "value".to_slice,
-                         "key".to_slice           => "value".to_slice}).commit
+    env.transaction.set([{"key_to_delete".to_slice, "value".to_slice},
+                         {"key".to_slice, "value".to_slice}]).commit
     env.checkpoint
     env.transaction.delete("key_to_delete".to_slice).commit
     env.checkpoint
@@ -141,7 +141,7 @@ describe Lawn::Env do
   end
 
   it "generative test", focus: true do
-    added = Hash(Lawn::K, Lawn::V).new
+    added = Hash(Lawn::Key, Lawn::Value).new
     3.times do
       rnd.rand(1..16).times do
         case rnd.rand 0..1

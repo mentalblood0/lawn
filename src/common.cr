@@ -10,9 +10,9 @@ module Lawn
     include JSON::Serializable::Strict
   end
 
-  alias K = Bytes
-  alias V = Bytes?
-  alias KV = {K, V}
+  alias Key = Bytes
+  alias Value = Bytes?
+  alias KeyValue = {Key, Value}
 
   module FileConverter
     alias Args = NamedTuple(

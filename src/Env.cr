@@ -104,7 +104,7 @@ module Lawn
       new_index_file.rename @index.file.path
       @index = Index.new new_index_file, @index.id_size
 
-      @log.truncate
+      @log.clear
       @memtable.clear
       self
     end
