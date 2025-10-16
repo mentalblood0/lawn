@@ -15,6 +15,7 @@ module Lawn
 
     def set(keyvalue : {Key, Value?})
       ::Log.debug { "Transaction.set #{keyvalue}" }
+      @batch << keyvalue
       self
     end
 
