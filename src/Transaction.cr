@@ -27,7 +27,7 @@ module Lawn
 
     def delete(keys : Array(Key))
       ::Log.debug { "Transaction.delete #{keys.map &.hexstring}" }
-      ks.each { |key| @batch << {key, nil} }
+      keys.each { |key| @batch << {key, nil} }
       self
     end
 
