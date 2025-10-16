@@ -8,36 +8,36 @@ module Lawn
     end
 
     def set(keyvalues : Array(KeyValue))
-      ::Log.debug { "Transaction.set #{keyvalues.map { |key, value| {key.hexstring, value.hexstring} }}" }
+      # ::Log.debug { "Transaction.set #{keyvalues.map { |key, value| {key.hexstring, value.hexstring} }}" }
       @batch.concat keyvalues
       self
     end
 
     def set(keyvalue : KeyValue)
-      ::Log.debug { "Transaction.set #{keyvalue}" }
+      # ::Log.debug { "Transaction.set #{keyvalue}" }
       self
     end
 
     def set(key : Key, value : Value)
-      ::Log.debug { "Transaction.set #{{key, value}}" }
+      # ::Log.debug { "Transaction.set #{{key, value}}" }
       @batch << {key, value}
       self
     end
 
     def delete(keys : Array(Key))
-      ::Log.debug { "Transaction.delete #{keys.map &.hexstring}" }
+      # ::Log.debug { "Transaction.delete #{keys.map &.hexstring}" }
       ks.each { |key| @batch << {key, nil} }
       self
     end
 
     def delete(key : Key)
-      ::Log.debug { "Transaction.delete #{key.hexstring}" }
+      # ::Log.debug { "Transaction.delete #{key.hexstring}" }
       @batch << {key, nil}
       self
     end
 
     def commit
-      ::Log.debug { "Transaction.commit" }
+      # ::Log.debug { "Transaction.commit" }
       @env.log.write @batch
       @batch.each { |key, value| @env.memtable[key] = value }
       @env

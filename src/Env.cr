@@ -63,6 +63,7 @@ module Lawn
 
       if result_index
         result = cache[result_index]
+        return nil unless result[:keyvalue][0] == key
         r = {data_id: result[:data_id].not_nil!, value: result[:keyvalue] ? result[:keyvalue][1] : nil}
         ::Log.debug { "Env.get_from_checkpointed => #{r}" }
         r

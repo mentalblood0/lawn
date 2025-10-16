@@ -54,5 +54,13 @@ module Lawn
       file.pos = 0
       @size.times { yield read }
     end
+
+    def each_with_index(&)
+      i = 0
+      each do |id|
+        yield({id, i})
+        i += 1
+      end
+    end
   end
 end
