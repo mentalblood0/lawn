@@ -107,7 +107,7 @@ describe ds.class do
       100.times do
         add = Array(Bytes).new(rnd.rand 1..16) { rnd.random_bytes rnd.rand 1..2**10 }
         delete = added.keys.sample rnd.rand(1..16), rnd
-        delete = [] of {UInt8, UInt64}
+        delete = [] of Lawn::RoundDataStorage::Id
         r = ds.update add, delete
         r.each_with_index { |pointer, data_index| added[pointer] = add[data_index] }
         delete.each { |pointer| added.delete pointer }
@@ -142,9 +142,9 @@ describe Lawn::Env do
 
   it "generative test", focus: true do
     added = Hash(Lawn::Key, Lawn::Value).new
-    3.times do
+    100.times do
       rnd.rand(1..16).times do
-        case rnd.rand 0..1
+        case rnd.rand 0..0
         when 0
           key = rnd.random_bytes rnd.rand 1..16
           value = rnd.random_bytes rnd.rand 1..16

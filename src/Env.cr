@@ -28,11 +28,20 @@ module Lawn
       @size = @file.size // id_size
     end
 
+    protected def read
+      rounded_size_index = Lawn.decode_number(@file, 1).not_nil!.to_u8
+      pointer = Lawn.decode_number(@file, @pointer_size).not_nil!
+      {rounded_size_index: rounded_size_index, pointer: pointer}
+    end
+
     def [](i : Int64) : RoundDataStorage::Id
       @file.pos = i * id_size
-      rounded_size_index = Lawn.decode_number(@file, 1).not_nil!.to_u8
-      pointer = Lawn.decode_number(@file, id_size).not_nil!
-      {rounded_size_index, pointer}
+      read
+    end
+
+    def each(&)
+      @file.pos = 0
+      @size.times { yield read }
     end
   end
 
@@ -43,7 +52,6 @@ module Lawn
     getter data_storage : RoundDataStorage
     getter index : Index
 
-    @[YAML::Field(ignore: true)]
     getter memtable : Hash(Bytes, Bytes?) = Hash(Bytes, Bytes?).new
 
     def initialize(@log, @data_storage, @index)
@@ -53,23 +61,27 @@ module Lawn
       @log.read { |kv| @memtable[kv[0]] = kv[1] }
     end
 
+    protected def get_data(data_id : RoundDataStorage::Id)
+      data = IO::Memory.new @data_storage.get(data_id).not_nil!
+      value = Lawn.decode_bytes_with_size_size data
+      key = data.getb_to_end
+      {key, value}
+    end
+
     def get_from_checkpointed(key : Bytes)
-      data_id : RoundDataStorage::Id? = nil
-      current_value : Bytes? = nil
+      ::Log.debug { "Env.get_from_checkpointed (0..#{@index.size - 1}).bsearch" }
+
+      cache = {} of Int64 => {data_id: RoundDataStorage::Id, keyvalue: KeyValue}
       result_index = (0_i64..@index.size - 1).bsearch do |i|
         data_id = @index[i]
-
-        data = IO::Memory.new @data_storage.get(data_id).not_nil! rescue next
-        current_value = Lawn.decode_bytes_with_size_size data
-        current_key = data.getb_to_end
-
-        key >= current_key
+        current_keyvalue = get_data data_id
+        cache[i] = {data_id: data_id, keyvalue: current_keyvalue}
+        current_keyvalue[0] >= key
       end
 
       if result_index
-        r = {data_id: data_id.not_nil!, value: current_value}
-        ::Log.debug { "Env.get_from_checkpointed #{key} => #{r}" }
-        r
+        result = cache[result_index]
+        {data_id: result[:data_id].not_nil!, value: result[:keyvalue] ? result[:keyvalue][1] : nil}
       end
     end
 
@@ -80,7 +92,7 @@ module Lawn
       sorted_keyvalues = @memtable.to_a
       sorted_keyvalues.sort_by! { |key, _| key }
 
-      new_pointers = begin
+      new_index_ids = begin
         to_add = [] of Bytes
         to_delete = [] of RoundDataStorage::Id
         sorted_keyvalues.each do |key, value|
@@ -96,13 +108,30 @@ module Lawn
       new_index_file = File.new "#{@index.file.path}.new", "w+"
       new_index_file.sync = true
       buf = IO::Memory.new
-      new_pointers.each do |rounded_size_index, pointer|
-        Lawn.encode_number buf, rounded_size_index, 1
-        Lawn.encode_number buf, pointer, @index.pointer_size
+      new_i = 0
+      @index.each do |old_index_id|
+        old_index_keyvalue = get_data(old_index_id)
+        while (new_i < new_index_ids.size) && begin
+                new_index_keyvalue = sorted_keyvalues[new_i]
+                new_index_keyvalue[0] <= old_index_keyvalue[0]
+              end
+          new_index_id = new_index_ids[new_i]
+          Lawn.encode_number buf, new_index_id[:rounded_size_index], 1
+          Lawn.encode_number buf, new_index_id[:pointer], @index.pointer_size
+          new_i += 1
+        end
+        Lawn.encode_number buf, old_index_id[:rounded_size_index], 1
+        Lawn.encode_number buf, old_index_id[:pointer], @index.pointer_size
+      end
+      while new_i < new_index_ids.size
+        new_index_id = new_index_ids[new_i]
+        Lawn.encode_number buf, new_index_id[:rounded_size_index], 1
+        Lawn.encode_number buf, new_index_id[:pointer], @index.pointer_size
+        new_i += 1
       end
       new_index_file.write buf.to_slice
       new_index_file.rename @index.file.path
-      @index = Index.new new_index_file, @index.id_size
+      @index = Index.new new_index_file, @index.pointer_size
 
       @log.clear
       @memtable.clear

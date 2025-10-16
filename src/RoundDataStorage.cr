@@ -41,7 +41,7 @@ module Lawn
     def initialize(@data_dir, @logarithmically_divided_sizes_scale)
     end
 
-    alias Id = {UInt8, UInt64}
+    alias Id = {rounded_size_index: UInt8, pointer: UInt64}
 
     alias Add = {data: Bytes, data_index: Int32}
 
@@ -58,19 +58,19 @@ module Lawn
       end
 
       delete_pointers_by_rounded_size_index = Array(Array(UInt64)?).new(sizes.size) { nil }
-      delete.each do |i, pointer|
-        delete_pointers_by_rounded_size_index[i] = Array(UInt64).new unless delete_pointers_by_rounded_size_index[i]
-        delete_pointers_by_rounded_size_index[i].not_nil! << pointer
+      delete.each do |id|
+        delete_pointers_by_rounded_size_index[id[:rounded_size_index]] = Array(UInt64).new unless delete_pointers_by_rounded_size_index[id[:rounded_size_index]]
+        delete_pointers_by_rounded_size_index[id[:rounded_size_index]].not_nil! << id[:pointer]
       end
 
-      r = Array(Id).new(add.size) { {0_u8, 0_u64} }
+      r = Array(Id).new(add.size) { {rounded_size_index: 0_u8, pointer: 0_u64} }
       (0_u8..sizes.size - 1).each do |i|
         i_add = add_data_by_rounded_size_index[i]
         i_delete = delete_pointers_by_rounded_size_index[i]
         if i_add || i_delete
           data_aligned_list(i)
             .update(add: (i_add ? i_add.map &.[:data] : [] of Bytes), delete: i_delete)
-            .each_with_index { |pointer, add_index| r[i_add.not_nil![add_index][:data_index]] = {i, pointer} }
+            .each_with_index { |pointer, add_index| r[i_add.not_nil![add_index][:data_index]] = {rounded_size_index: i, pointer: pointer} }
         end
       end
 
@@ -81,10 +81,10 @@ module Lawn
     def get(id : Id)
       ::Log.debug { "RoundDataStorage.get #{id}" }
 
-      al = @data_aligned_lists_by_rounded_size_index[id[0]]
+      al = @data_aligned_lists_by_rounded_size_index[id[:rounded_size_index]]
       return unless al
 
-      size_and_data_encoded = IO::Memory.new al.get id[1]
+      size_and_data_encoded = IO::Memory.new al.get id[:pointer]
       Lawn.decode_bytes_with_size_size size_and_data_encoded
     end
 
