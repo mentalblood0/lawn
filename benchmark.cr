@@ -21,8 +21,6 @@ class Benchmarks
   @[YAML::Field(ignore: true)]
   getter rnd : Random { Random.new @seed }
 
-  getter keyvalues
-
   def add(name : String, time : Time::Span, bytes_written : UInt64, amount : UInt64? = nil)
     amount = @amount unless amount
     @results[name] = {data_speed:    "#{(bytes_written / time.total_seconds).to_u64.humanize_bytes}/s",
@@ -69,7 +67,7 @@ end
 benchmarks = Benchmarks.from_yaml File.read ENV["BENCHMARK_CONFIG_PATH"]
 benchmarks.benchmark_write
 benchmarks.benchmark_checkpointing
-# benchmarks.benchmark_get
+benchmarks.benchmark_get
 # benchmarks.benchmark_data_storage
 
 puts benchmarks.results.to_yaml

@@ -33,10 +33,10 @@ module Lawn
       batch.each do |key, value|
         Lawn.encode_bytes_with_size_size buf, key
         if value
-          Lawn.encode_bytes buf, Bytes.new 1 { 1_u8 }
+          buf.write_byte 1_u8
           Lawn.encode_bytes_with_size_size file, value
         else
-          Lawn.encode_bytes buf, Bytes.new 1 { 0_u8 }
+          buf.write_byte 0_u8
         end
       end
       file.write buf.to_slice
@@ -47,7 +47,7 @@ module Lawn
       loop do
         begin
           key = (Lawn.decode_bytes_with_size_size file).not_nil! rescue break
-          value = case has_value_byte = Lawn.decode_bytes(file, 1)[0]
+          value = case file.read_byte
                   when 1_u8 then Lawn.decode_bytes_with_size_size file
                   when 0_u8 then nil
                   end
