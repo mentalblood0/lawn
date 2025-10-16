@@ -15,7 +15,7 @@ module Lawn
         Dir.mkdir_p @path.parent
         File.touch @path
       end
-      r = File.new @path, "a"
+      r = File.new @path, "a+"
       r.sync = true
       r
     end
@@ -46,7 +46,7 @@ module Lawn
       file.pos = 0
       loop do
         begin
-          key = (Lawn.decode_bytes_with_size_size file).not_nil! rescue break
+          key = Lawn.decode_bytes_with_size_size file
           value = case file.read_byte
                   when 1_u8 then Lawn.decode_bytes_with_size_size file
                   when 0_u8 then nil
