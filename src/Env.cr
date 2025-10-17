@@ -41,17 +41,17 @@ module Lawn
     def get_from_checkpointed(key : Bytes)
       ::Log.debug { "Env.get_from_checkpointed (0..#{@index.size - 1}).bsearch" }
 
-      cache = {} of Int64 => {data_id: RoundDataStorage::Id, keyvalue: KeyValue}
+      cache = [] of {i: Int64, result: {data_id: RoundDataStorage::Id, keyvalue: KeyValue}}
       result_index = (0_i64..@index.size - 1).bsearch do |i|
         ::Log.debug { "Env.get_from_checkpointed i = #{i}" }
         data_id = @index[i]
         current_keyvalue = get_data data_id
-        cache[i] = {data_id: data_id, keyvalue: current_keyvalue}
+        cache << {i: i, result: {data_id: data_id, keyvalue: current_keyvalue}}
         current_keyvalue[0] >= key
       end
 
       if result_index
-        result = cache[result_index]
+        result = cache.find! { |c| c[:i] == result_index }[:result]
         return nil unless result[:keyvalue][0] == key
         {data_id: result[:data_id].not_nil!, value: result[:keyvalue] ? result[:keyvalue][1] : nil}
       end
@@ -109,7 +109,7 @@ module Lawn
       end
       new_index_file.rename @index.file.path
       new_index_file.close
-      @index = Index.new Path.new(new_index_file.path), @index.pointer_size, @index.read_chunk_size, @index.max_cache_size
+      @index = Index.new Path.new(new_index_file.path), @index.pointer_size
 
       @log.clear
       @memtable.clear

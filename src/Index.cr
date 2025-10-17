@@ -8,8 +8,6 @@ module Lawn
     Lawn.mserializable
 
     getter path : Path
-    getter read_chunk_size : Int64
-    getter max_cache_size : Int64
 
     Lawn.mignore
     getter cache = {} of Int64 => RoundDataStorage::Id
@@ -30,7 +28,7 @@ module Lawn
 
     getter id_size : UInt8 { @pointer_size + 1 }
 
-    def initialize(@path, @pointer_size, @read_chunk_size, @max_cache_size)
+    def initialize(@path, @pointer_size)
       after_initialize
     end
 
@@ -50,21 +48,9 @@ module Lawn
       {rounded_size_index: rounded_size_index, pointer: pointer}
     end
 
-    protected def read(&)
-      n = @read_chunk_size // id_size
-      buf = IO::Memory.new n * id_size
-      IO.copy file, buf, buf.size
-      buf.rewind
-      (0..n - 1).each { |shift| yield({read(buf), shift}) rescue return }
-    end
-
     def [](i : Int64) : RoundDataStorage::Id
-      unless cache.has_key? i
-        cache.clear if (cache.size + @read_chunk_size // id_size) * (8 + 1 + 8) >= @max_cache_size
-        file.pos = i * id_size
-        read { |id, shift| cache[i + shift] = id }
-      end
-      cache[i]
+      file.pos = i * id_size
+      read
     end
 
     def each(&)

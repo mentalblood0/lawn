@@ -9,6 +9,4 @@ env:
   index:
     path: /tmp/lawn/index.idx
     pointer_size: 5
-    read_chunk_size: 1024
-    max_cache_size: 8388608
 seed: 0
