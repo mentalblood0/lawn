@@ -34,20 +34,33 @@ module Lawn
       end
     end
 
-    def each(&)
-      return unless @root
+    class Cursor
+      getter stack = [] of Node
+      getter current : Node?
+      getter from : Key? = nil
 
-      stack = [] of Node
-      current = @root
+      def initialize(@current, @from = nil)
+      end
 
-      while current || !stack.empty?
-        while current
-          stack << current
-          current = current.left
+      def next
+        while @current || !@stack.empty?
+          while @current
+            @stack << @current.not_nil!
+            break if @from && (@current.not_nil!.key < @from.not_nil!)
+            @current = @current.not_nil!.left
+          end
+          @current = @stack.pop
+          r = {@current.not_nil!.key, @current.not_nil!.value}
+          @current = @current.not_nil!.right
+          return r unless @from && (r[0] < @from.not_nil!)
         end
-        current = stack.pop
-        yield({current.key, current.value})
-        current = current.right
+      end
+    end
+
+    def each(&)
+      cursor = Cursor.new @root
+      while r = cursor.next
+        yield r
       end
     end
 
@@ -58,20 +71,9 @@ module Lawn
     end
 
     def from(key : Key, &)
-      return unless @root
-
-      stack = [] of Node
-      current = @root
-
-      while current || !stack.empty?
-        while current
-          stack << current
-          break unless current.key >= key
-          current = current.left
-        end
-        current = stack.pop
-        yield({current.key, current.value}) if current.key >= key
-        current = current.right
+      cursor = Cursor.new @root, key
+      while r = cursor.next
+        yield r
       end
     end
 
