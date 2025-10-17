@@ -34,6 +34,53 @@ module Lawn
       end
     end
 
+    def each(&)
+      return unless @root
+
+      stack = [] of Node
+      current = @root
+
+      while current || !stack.empty?
+        while current
+          stack << current
+          current = current.left
+        end
+        current = stack.pop
+        yield({current.key, current.value})
+        current = current.right
+      end
+    end
+
+    def each
+      r = [] of {Key, Value?}
+      each { |keyvalue| r << keyvalue }
+      r
+    end
+
+    def from(key : Key, &)
+      return unless @root
+
+      stack = [] of Node
+      current = @root
+
+      while current || !stack.empty?
+        while current
+          stack << current
+          break unless current.key >= key
+          current = current.left
+        end
+        current = stack.pop
+        yield({current.key, current.value}) if current.key >= key
+        current = current.right
+      end
+    end
+
+    def from(key : Key)
+      r = [] of {Key, Value?}
+      from(key) { |keyvalue| r << keyvalue }
+      r
+    end
+
     def delete(key : Key)
       @root = delete key, @root
     end
@@ -107,29 +154,6 @@ module Lawn
       end
 
       node
-    end
-
-    def each(&)
-      return unless @root
-
-      stack = [] of Node
-      current = @root
-
-      while current || !stack.empty?
-        while current
-          stack << current
-          current = current.left
-        end
-        current = stack.pop
-        yield({current.key, current.value})
-        current = current.right
-      end
-    end
-
-    def each
-      r = [] of {Key, Value?}
-      each { |keyvalue| r << keyvalue }
-      r
     end
 
     protected def height(node : Node?)

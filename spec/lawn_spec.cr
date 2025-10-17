@@ -122,21 +122,23 @@ describe Lawn::AVLTree do
     tree = Lawn::AVLTree.new
     added = Hash(Bytes, Bytes).new
     1000.times do
-      case rnd.rand 0..1
-      when 0
+      case rnd.rand 0..2
+      when 0, 1
         key = rnd.random_bytes rnd.rand 1..1024
         value = rnd.random_bytes rnd.rand 1..1024
         ::Log.debug { "add #{key.hexstring} : #{value.hexstring}" }
         tree[key] = value
         added[key] = value
-      when 1
+      when 2
         key = added.keys.sample rnd rescue next
         ::Log.debug { "delete #{key.hexstring}" }
         tree.delete key
         added.delete key
       end
       added.each { |key, value| tree[key]?.should eq value }
-      tree.each.should eq added.to_a.sort_by { |key, _| key }
+      sorted = added.to_a.sort_by { |key, _| key }
+      tree.each.should eq sorted
+      tree.each { |key, value| tree.from(key).should eq sorted[sorted.index({key, value})..] }
     end
   end
 end
