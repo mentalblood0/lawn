@@ -109,7 +109,7 @@ module Lawn
       end
       new_index_file.rename @index.file.path
       new_index_file.close
-      @index = Index.new Path.new(new_index_file.path), @index.pointer_size
+      @index = Index.new Path.new(new_index_file.path), @index.pointer_size, @index.read_chunk_size, @index.max_cache_size
 
       @log.clear
       @memtable.clear
