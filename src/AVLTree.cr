@@ -46,7 +46,7 @@ module Lawn
       @root == nil
     end
 
-    def get_balance(node : Node?)
+    protected def get_balance(node : Node?)
       node ? height(node.left) - height(node.right) : 0
     end
 
@@ -130,14 +130,6 @@ module Lawn
       r = [] of {Key, Value?}
       each { |keyvalue| r << keyvalue }
       r
-    end
-
-    def scan(node : Node? = @root)
-      return unless node
-
-      scan node.left
-      ::Log.debug { "scan: #{node.key.hexstring} : #{node.value.hexstring}" }
-      scan node.right
     end
 
     protected def height(node : Node?)
