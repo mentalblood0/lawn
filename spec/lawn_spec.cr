@@ -135,7 +135,7 @@ describe Lawn::AVLTree do
         tree.delete key
         added.delete key
       end
-      added.each { |key, value| tree[key].should eq value }
+      added.each { |key, value| tree[key]?.should eq value }
       tree.each.should eq added.to_a.sort_by { |key, _| key }
     end
   end

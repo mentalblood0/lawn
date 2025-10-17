@@ -4,7 +4,7 @@ module Lawn
 
     class Node
       property key : Key
-      property value : Value
+      property value : Value?
 
       property left : Node?
       property right : Node?
@@ -18,24 +18,32 @@ module Lawn
       end
     end
 
-    def []=(key : Key, value : Value)
+    def []=(key : Key, value : Value?)
       @root = insert @root, key, value
     end
 
-    def [](key : Key, node : Node? = @root) : Value?
+    def []?(key : Key, node : Node? = @root) : Value?
       return unless node
 
       if key == node.key
         node.value
       elsif key < node.key
-        self[key, node.left]
+        self[key, node.left]?
       else
-        self[key, node.right]
+        self[key, node.right]?
       end
     end
 
     def delete(key : Key)
       @root = delete key, @root
+    end
+
+    def clear
+      @root = nil
+    end
+
+    def empty?
+      @root == nil
     end
 
     def get_balance(node : Node?)
@@ -119,7 +127,7 @@ module Lawn
     end
 
     def each
-      r = [] of KeyValue
+      r = [] of {Key, Value?}
       each { |keyvalue| r << keyvalue }
       r
     end
@@ -140,7 +148,7 @@ module Lawn
       node.height = 1_i8 + Math.max height(node.left), height(node.right)
     end
 
-    protected def insert(node : Node?, key : Key, value : Value) : Node
+    protected def insert(node : Node?, key : Key, value : Value?) : Node
       return Node.new key, value unless node
 
       if key < node.key

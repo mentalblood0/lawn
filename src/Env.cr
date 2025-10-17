@@ -6,6 +6,7 @@ require "./Log"
 require "./SplitDataStorage"
 require "./RoundDataStorage"
 require "./Index"
+require "./AVLTree"
 
 module Lawn
   class Env
@@ -15,7 +16,8 @@ module Lawn
     getter data_storage : RoundDataStorage
     getter index : Index
 
-    getter memtable : Hash(Key, Value?) = Hash(Key, Value?).new
+    Lawn.mignore
+    getter memtable = AVLTree.new
 
     def initialize(@log, @data_storage, @index)
     end
@@ -61,24 +63,20 @@ module Lawn
       ::Log.debug { "Env.checkpoint" }
       return self if @memtable.empty?
 
-      sorted_keyvalues = [] of KeyValue
+      keys = [] of Key
       to_delete = Set(RoundDataStorage::Id).new
-      @memtable.each do |key, value|
-        if value
-          sorted_keyvalues << {key, value}
-        else
-          to_delete << get_from_checkpointed(key).not_nil![:data_id] rescue nil
-        end
-      end
-      sorted_keyvalues.sort_by! { |key, _| key }
-
       new_index_ids = begin
         to_add = [] of Bytes
-        sorted_keyvalues.each do |key, value|
-          value_key_encoded = IO::Memory.new
-          Lawn.encode_bytes_with_size_size value_key_encoded, value
-          value_key_encoded.write key
-          to_add << value_key_encoded.to_slice
+        @memtable.each do |key, value|
+          if value
+            keys << key
+            value_key_encoded = IO::Memory.new
+            Lawn.encode_bytes_with_size_size value_key_encoded, value
+            value_key_encoded.write key
+            to_add << value_key_encoded.to_slice
+          else
+            to_delete << get_from_checkpointed(key).not_nil![:data_id] rescue nil
+          end
         end
         @data_storage.update add: to_add, delete: to_delete.to_a
       end
@@ -88,10 +86,9 @@ module Lawn
       new_i = 0
       @index.each do |old_index_id|
         next if to_delete.includes? old_index_id
-        old_index_keyvalue = get_data old_index_id
         while (new_i < new_index_ids.size) && begin
-                new_index_keyvalue = sorted_keyvalues[new_i]
-                new_index_keyvalue[0] <= old_index_keyvalue[0]
+                old_index_key = get_data(old_index_id)[0]
+                keys[new_i] <= old_index_key
               end
           new_index_id = new_index_ids[new_i]
           new_index_file.write_byte new_index_id[:rounded_size_index]
