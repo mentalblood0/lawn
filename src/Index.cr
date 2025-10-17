@@ -11,7 +11,7 @@ module Lawn
     getter read_chunk_size : Int64
     getter max_cache_size : Int64
 
-    @[YAML::Field(ignore: true)]
+    Lawn.mignore
     getter cache = {} of Int64 => RoundDataStorage::Id
 
     Lawn.mignore
@@ -60,7 +60,7 @@ module Lawn
 
     def [](i : Int64) : RoundDataStorage::Id
       unless cache.has_key? i
-        cache.clear if (cache.size + @read_chunk_size // id_size) * (1 + 8) >= @max_cache_size
+        cache.clear if (cache.size + @read_chunk_size // id_size) * (8 + 1 + 8) >= @max_cache_size
         file.pos = i * id_size
         read { |id, shift| cache[i + shift] = id }
       end
