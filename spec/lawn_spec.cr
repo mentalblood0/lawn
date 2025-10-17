@@ -4,6 +4,7 @@ require "spec"
 require "../src/Env"
 require "../src/SplitDataStorage"
 require "../src/RoundDataStorage"
+require "../src/AVLTree"
 
 struct Slice(T)
   def pretty_print(pp : PrettyPrint)
@@ -112,6 +113,29 @@ describe ds.class do
       added.each do |pointer, data|
         (ds.get pointer).should eq data
       end
+    end
+  end
+end
+
+describe Lawn::AVLTree do
+  it "generative test" do
+    tree = Lawn::AVLTree.new
+    added = Hash(Bytes, Bytes).new
+    1000.times do
+      case rnd.rand 0..1
+      when 0
+        key = rnd.random_bytes rnd.rand 1..1024
+        value = rnd.random_bytes rnd.rand 1..1024
+        ::Log.debug { "add #{key.hexstring} : #{value.hexstring}" }
+        tree[key] = value
+        added[key] = value
+      when 1
+        key = added.keys.sample rnd rescue next
+        ::Log.debug { "delete #{key.hexstring}" }
+        tree.delete key
+        added.delete key
+      end
+      added.each { |key, value| tree[key].should eq value }
     end
   end
 end

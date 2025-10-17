@@ -53,7 +53,7 @@ module Lawn
       if result_index
         result = cache.find! { |c| c[:i] == result_index }[:result]
         return nil unless result[:keyvalue][0] == key
-        {data_id: result[:data_id].not_nil!, value: result[:keyvalue] ? result[:keyvalue][1] : nil}
+        {data_id: result[:data_id], value: result[:keyvalue][1]}
       end
     end
 

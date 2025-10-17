@@ -1,6 +1,6 @@
 # 🌄 lawn
 
-Key-value store with mutable data files but without trees
+Key-value store with mutable data files without trees
 
 ## Installation
 
