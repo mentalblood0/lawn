@@ -9,7 +9,7 @@ module Lawn
       property left : Node?
       property right : Node?
 
-      property height : Int64
+      property height : Int8
 
       def initialize(@key, @value)
         @left = nil
@@ -101,6 +101,29 @@ module Lawn
       node
     end
 
+    def each(&)
+      return unless @root
+
+      stack = [] of Node
+      current = @root
+
+      while current || !stack.empty?
+        while current
+          stack << current
+          current = current.left
+        end
+        current = stack.pop
+        yield({current.key, current.value})
+        current = current.right
+      end
+    end
+
+    def each
+      r = [] of KeyValue
+      each { |keyvalue| r << keyvalue }
+      r
+    end
+
     def scan(node : Node? = @root)
       return unless node
 
@@ -114,7 +137,7 @@ module Lawn
     end
 
     protected def update_height(node : Node)
-      node.height = 1 + Math.max height(node.left), height(node.right)
+      node.height = 1_i8 + Math.max height(node.left), height(node.right)
     end
 
     protected def insert(node : Node?, key : Key, value : Value) : Node
