@@ -86,10 +86,12 @@ module Lawn
       new_i = 0
       @index.each do |old_index_id|
         next if to_delete.includes? old_index_id
-        while (new_i < new_index_ids.size) && begin
-                old_index_key = get_data(old_index_id)[0]
-                keys[new_i] <= old_index_key
-              end
+        old_index_key = nil
+        loop do
+          break unless new_i < new_index_ids.size
+          old_index_key = get_data(old_index_id)[0] unless old_index_key
+          break unless keys[new_i] <= old_index_key.not_nil!
+
           new_index_id = new_index_ids[new_i]
           new_index_file.write_byte new_index_id[:rounded_size_index]
           Lawn.encode_number new_index_file, new_index_id[:pointer], @index.pointer_size
