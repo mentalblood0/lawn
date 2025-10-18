@@ -24,20 +24,21 @@ module Lawn
     Lawn.mignore
     getter head : Bytes = Bytes.new 0
 
+    getter head_size : Int32 { Math.min(@element_size, 8) }
+
     def initialize(@path, @element_size)
       after_initialize
     end
 
-    protected def write_head
+    protected def init_head
       file.pos = 0
       return unless (@head = read).all? { |b| b == 255 } rescue nil
-      @head = Bytes.new @element_size.to_i32, 255
+      @head = Bytes.new head_size, 255
       file.write head
     end
 
     def after_initialize
-      write_head
-      file.seek 0, IO::Seek::End
+      init_head
     end
 
     def clear
@@ -45,8 +46,8 @@ module Lawn
       after_initialize
     end
 
-    protected def read(max_count : Int32 = @element_size)
-      r = Bytes.new Math.min @element_size, max_count
+    protected def read(max_size : Int32 = @element_size)
+      r = Bytes.new Math.min @element_size, max_size
       file.read_fully r
       r
     end
@@ -63,17 +64,26 @@ module Lawn
       (@element_size >= 8) ? r : r[8 - @element_size..]
     end
 
-    def get(i : Int64, count : Int32 = @element_size)
+    def go_to(i : Int64)
+      file.pos = head_size + i * @element_size
+    end
+
+    def get(i : Int64, size : Int32 = @element_size)
       ::Log.debug { "AlignedList{#{path}}.get #{i}" }
-      file.pos = i * @element_size
-      read count
+      go_to i
+      read size
     end
 
     protected def set(i : Int64, b : Bytes) : Int64
-      @head = b if i == 0
-      file.pos = i * @element_size
+      go_to i
       file.write b
       i
+    end
+
+    protected def set_head(b : Bytes)
+      @head = b
+      file.pos = 0
+      file.write b
     end
 
     def update(add : Array(Bytes), delete : Array(Int64)? = nil) : Array(Int64)
@@ -92,23 +102,23 @@ module Lawn
           (replaced + 1..delete.size - 1).each do |i|
             set delete[i], as_b delete[i - 1]
           end
-          set 0, as_b delete.last
+          set_head as_b delete.last
         end
       end
 
       (replaced..add.size - 1).each do |i|
         if @head.all? { |b| b == 255 }
           file.seek 0, IO::Seek::End
-          rn = file.pos.to_i64 // @element_size
-          (rn..rn + add.size - i - 1).each { |r| rs << r }
+          elements_count = (file.pos - head_size) // @element_size
+          (elements_count..elements_count + add.size - i - 1).each { |r| rs << r }
           file.write Bytes.join add[i..].map { |d| @element_size > d.size ? d + Bytes.new(@element_size - d.size) : d }
           break
         else
           r = as_p @head
-          n1 = get r, 8
+          n1 = get r, head_size
 
           rs << set r, add[i]
-          set 0, n1
+          set_head n1
         end
       end
 

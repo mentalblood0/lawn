@@ -44,7 +44,7 @@ describe Lawn do
 end
 
 describe Lawn::AlignedList do
-  it "correctly deletes all the elements", focus: true do
+  it "correctly deletes all the elements" do
     amount = 16
     element_size = 16
     aligned_list = Lawn::AlignedList.new config[:env].log.path.parent / "aligned_list.dat", element_size
