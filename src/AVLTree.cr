@@ -19,7 +19,7 @@ module Lawn
     end
 
     def []=(key : Key, value : Value?)
-      @root = insert @root, key, value
+      @root = upsert @root, key, value
     end
 
     def []?(key : Key, node : Node? = @root) : Value?
@@ -166,14 +166,15 @@ module Lawn
       node.height = 1_i8 + Math.max height(node.left), height(node.right)
     end
 
-    protected def insert(node : Node?, key : Key, value : Value?) : Node
+    protected def upsert(node : Node?, key : Key, value : Value?) : Node
       return Node.new key, value unless node
 
       if key < node.key
-        node.left = insert node.left, key, value
+        node.left = upsert node.left, key, value
       elsif key > node.key
-        node.right = insert node.right, key, value
+        node.right = upsert node.right, key, value
       else
+        node.value = value
         return node
       end
 
