@@ -169,7 +169,7 @@ describe Lawn::Env do
     env.get("key".to_slice).should eq "value".to_slice
   end
 
-  it "generative test", focus: true do
+  it "generative test" do
     added = Hash(Lawn::Key, Lawn::Value).new
     200.times do
       rnd.rand(1..16).times do

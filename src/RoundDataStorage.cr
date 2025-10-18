@@ -8,7 +8,7 @@ module Lawn
   class RoundDataStorage
     Lawn.mserializable
 
-    getter data_dir : String
+    getter dir : Path
     getter logarithmically_divided_sizes_scale : {max: Int32, points: Int32}
 
     Lawn.mignore
@@ -17,7 +17,7 @@ module Lawn
     def data_aligned_list(round_index : UInt8)
       unless data_aligned_lists_by_rounded_size_index[round_index]
         size = sizes[round_index]
-        data_aligned_lists_by_rounded_size_index[round_index] = AlignedList.new Path.new(@data_dir) / "size_and_data_of_rounded_size_#{size.to_s.rjust 10, '0'}.dat", size
+        data_aligned_lists_by_rounded_size_index[round_index] = AlignedList.new @dir / "size_and_data_of_rounded_size_#{size.to_s.rjust 10, '0'}.dat", size
       end
       data_aligned_lists_by_rounded_size_index[round_index].not_nil!
     end
@@ -36,7 +36,7 @@ module Lawn
       rs
     }
 
-    def initialize(@data_dir, @logarithmically_divided_sizes_scale)
+    def initialize(@dir, @logarithmically_divided_sizes_scale)
     end
 
     def clear

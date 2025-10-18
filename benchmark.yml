@@ -2,7 +2,7 @@ env:
   log:
     path: /tmp/lawn/log.dat
   data_storage:
-    data_dir: /tmp/lawn
+    dir: /tmp/lawn
     logarithmically_divided_sizes_scale:
       max: 65534
       points: 327
@@ -22,3 +22,5 @@ benchmarks:
 - env add
 - env checkpoint
 - env random get
+- data storage add
+- data storage random get

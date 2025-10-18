@@ -4,7 +4,7 @@ require "./src/RoundDataStorage"
 
 macro write_speeds
   puts "\tdata speed: #{(total_size / time.total_seconds).to_u64.humanize_bytes}/s"
-  puts "\ttransactions speed: #{(config[:amount] / time.total_seconds).to_u64.humanize}r/s"
+  puts "\trecords speed: #{(config[:amount] / time.total_seconds).to_u64.humanize}r/s"
 end
 
 macro random_key
@@ -48,7 +48,7 @@ if config[:benchmarks].any? { |benchmark_name| benchmark_name.starts_with? "env 
 end
 
 if config[:benchmarks].any? { |benchmark_name| benchmark_name.starts_with? "data storage" }
-  data_storage = config[:env].data_storage
+  data_storage = Lawn::RoundDataStorage.new config[:env].data_storage.dir / "benchmark_data_storage", {max: 65534, points: 327}
   amount = config[:amount] * 2
   add = Array.new(amount) { random_key }
   ids = [] of Lawn::RoundDataStorage::Id
