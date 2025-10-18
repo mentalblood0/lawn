@@ -53,14 +53,16 @@ module Lawn
       read
     end
 
-    def each(&)
-      file.pos = 0
-      @size.times { yield read }
+    def each(from : Int64 = 0, &)
+      file.pos = from * id_size
+      (@size - from).times do |i|
+        yield read
+      end
     end
 
-    def each_with_index(&)
+    def each_with_index(from : Int64 = 0, &)
       i = 0
-      each do |id|
+      each(from) do |id|
         yield({id, i})
         i += 1
       end

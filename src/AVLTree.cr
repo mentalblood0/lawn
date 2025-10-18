@@ -57,29 +57,16 @@ module Lawn
       end
     end
 
-    def each(&)
-      cursor = Cursor.new @root
+    def each(from : Key? = nil, &)
+      cursor = Cursor.new @root, from
       while r = cursor.next
         yield r
       end
     end
 
-    def each
+    def each(from : Key? = nil)
       r = [] of {Key, Value?}
-      each { |keyvalue| r << keyvalue }
-      r
-    end
-
-    def from(key : Key, &)
-      cursor = Cursor.new @root, key
-      while r = cursor.next
-        yield r
-      end
-    end
-
-    def from(key : Key)
-      r = [] of {Key, Value?}
-      from(key) { |keyvalue| r << keyvalue }
+      each(from) { |keyvalue| r << keyvalue }
       r
     end
 

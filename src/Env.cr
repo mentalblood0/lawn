@@ -40,7 +40,7 @@ module Lawn
       {key, value}
     end
 
-    def get_from_checkpointed(key : Bytes) : {data_id: RoundDataStorage::Id, value: Value}?
+    def get_from_checkpointed(key : Bytes, strict : Bool = true) : {index_i: Int64, data_id: RoundDataStorage::Id, value: Value}?
       ::Log.debug { "Env.get_from_checkpointed (0..#{@index.size - 1}).bsearch" }
 
       cache = [] of {i: Int64, result: {data_id: RoundDataStorage::Id, keyvalue: KeyValue}}
@@ -53,9 +53,9 @@ module Lawn
       end
 
       if result_index
-        result = cache.find! { |c| c[:i] == result_index }[:result]
-        return nil unless result[:keyvalue][0] == key
-        {data_id: result[:data_id], value: result[:keyvalue][1]}
+        cached = cache.find! { |c| c[:i] == result_index }
+        return nil if strict && (cached[:result][:keyvalue][0] != key)
+        {index_i: cached[:i], data_id: cached[:result][:data_id], value: cached[:result][:keyvalue][1]}
       end
     end
 
@@ -119,12 +119,15 @@ module Lawn
       self
     end
 
-    def each(& : KeyValue ->)
+    def each(from : Key? = nil, & : KeyValue ->)
       memtable_cursor = AVLTree::Cursor.new @memtable.root
       index_current = nil
       memtable_current = nil
       last_key_yielded_from_memtable = nil
-      @index.each do |index_id|
+
+      index_from = from ? (get_from_checkpointed(from, strict: false).not_nil![:index_i] rescue 0_i64) : 0_i64
+
+      @index.each(index_from) do |index_id|
         index_current = get_data(index_id).not_nil!
         while (memtable_current = memtable_cursor.next) && (memtable_current[0] <= index_current[0])
           if memtable_current.is_a? KeyValue
@@ -140,9 +143,9 @@ module Lawn
       end
     end
 
-    def each
+    def each(from : Key? = nil)
       r = [] of KeyValue
-      each do |keyvalue|
+      each(from) do |keyvalue|
         r << keyvalue
       end
       r

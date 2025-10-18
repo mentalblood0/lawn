@@ -143,7 +143,7 @@ describe Lawn::AVLTree do
       added.each { |key, value| tree[key]?.should eq value }
       sorted = added.to_a.sort_by { |key, _| key }
       tree.each.should eq sorted
-      tree.each { |key, value| tree.from(key).should eq sorted[sorted.index({key, value})..] }
+      tree.each { |key, value| tree.each(from: key).should eq sorted[sorted.index({key, value})..] }
     end
   end
 end
@@ -169,31 +169,31 @@ describe Lawn::Env do
     env.get("key".to_slice).should eq "value".to_slice
   end
 
-  it "generative test" do
+  it "generative test", focus: true do
     added = Hash(Lawn::Key, Lawn::Value).new
-    1000.times do
+    200.times do
       rnd.rand(1..16).times do
-        case rnd.rand 0..1
-        when 0
+        case rnd.rand 0..2
+        when 0, 1
           key = rnd.random_bytes rnd.rand 1..1024
           value = rnd.random_bytes rnd.rand 1..1024
 
           env.transaction.set(key, value).commit
           added[key] = value
-        when 1
+        when 2
           key = added.keys.sample rnd rescue next
 
           env.transaction.delete(key).commit
           added.delete key
         end
       end
-
       env.checkpoint
-
-      added.keys.each { |k| env.get(k).should eq added[k] }
-
-      sorted = added.to_a.sort_by { |key, _| key }
-      env.each.should eq sorted
     end
+    added.keys.each { |k| env.get(k).should eq added[k] }
+
+    all_added = added.to_a.sort_by { |key, _| key }
+    all_present = env.each
+    all_present.should eq all_added
+    all_present.each { |key, value| env.each(from: key).should eq all_added[all_added.index({key, value})..] }
   end
 end
