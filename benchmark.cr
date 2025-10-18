@@ -54,22 +54,35 @@ end
 
 if config[:benchmarks].any? { |benchmark_name| benchmark_name.starts_with? "aligned list" }
   rnd = Random.new config[:seed]
+  element_size = 256
   aligned_list = Lawn::AlignedList.new config[:env].data_storage.dir / "benchmark_aligned_list.dat", 256
   amount = config[:amount]
-  add = Array.new(amount) { random_data }
+  add = Array.new(amount) { rnd.random_bytes element_size }
   ids = [] of Int64
   total_size = (add.map &.size.to_u64).sum
 
-  if config[:benchmarks].includes? "aligned list add"
+  if config[:benchmarks].includes? "aligned list add/delete"
     puts "aligned list add #{amount} data of total size #{total_size.humanize_bytes}"
+    time = Time.measure { ids = aligned_list.update add }
+    write_speeds
+
+    puts "aligned list delete #{amount} data of total size #{total_size.humanize_bytes}"
+    rnd = Random.new config[:seed]
+    shuffled_ids = ids.shuffle rnd
+    time = Time.measure { ids = aligned_list.update [] of Bytes, shuffled_ids }
+    write_speeds
+
+    puts "aligned list add after delete #{amount} data of total size #{total_size.humanize_bytes}"
     time = Time.measure { ids = aligned_list.update add }
     write_speeds
   end
 
   if config[:benchmarks].includes? "aligned list random get"
     puts "aligned list random get #{amount} data of total size #{total_size.humanize_bytes}"
-    ids.shuffle! rnd
-    time = Time.measure { ids.each { |id| aligned_list.get id } }
+    aligned_list.update add
+    rnd = Random.new config[:seed]
+    shuffled_ids = ids.shuffle rnd
+    time = Time.measure { shuffled_ids.each { |id| aligned_list.get id } }
     write_speeds
   end
 end

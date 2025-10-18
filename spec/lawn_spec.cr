@@ -44,6 +44,21 @@ describe Lawn do
 end
 
 describe Lawn::AlignedList do
+  it "correctly deletes all the elements", focus: true do
+    amount = 16
+    element_size = 16
+    aligned_list = Lawn::AlignedList.new config[:env].log.path.parent / "aligned_list.dat", element_size
+    data = Array(Bytes).new(amount) { rnd.random_bytes element_size }
+
+    ids = aligned_list.update data
+    ids.each_with_index { |id, data_index| aligned_list.get(id).should eq data[data_index] }
+
+    aligned_list.update [] of Bytes, ids
+
+    ids = aligned_list.update data
+    ids.each_with_index { |id, data_index| aligned_list.get(id).should eq data[data_index] }
+  end
+
   [2, 3, 5, 9].map { |s| s.to_u8! }.each do |s|
     it "generative test: supports #{s} bytes elements" do
       al = Lawn::AlignedList.new config[:env].log.path.parent / "aligned_list.dat", s
