@@ -74,9 +74,8 @@ module Lawn
             Lawn.encode_bytes_with_size_size value_key_encoded, value
             value_key_encoded.write key
             to_add << value_key_encoded.to_slice
-          else
-            to_delete << get_from_checkpointed(key).not_nil![:data_id] rescue nil
           end
+          to_delete << get_from_checkpointed(key).not_nil![:data_id] rescue nil
         end
         @data_storage.update add: to_add, delete: to_delete.to_a
       end
@@ -93,14 +92,11 @@ module Lawn
           old_index_key = get_data(old_index_id)[0] unless old_index_key
           break unless keys[new_i] <= old_index_key.not_nil!
 
-          overwrite_old_index_record = overwrite_old_index_record || (keys[new_i] == old_index_key.not_nil!)
-
           new_index_id = new_index_ids[new_i]
           new_index_file.write_byte new_index_id[:rounded_size_index]
           Lawn.encode_number new_index_file, new_index_id[:pointer], @index.pointer_size
           new_i += 1
         end
-        next if overwrite_old_index_record
         new_index_file.write_byte old_index_id[:rounded_size_index]
         Lawn.encode_number new_index_file, old_index_id[:pointer], @index.pointer_size
       end

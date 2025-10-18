@@ -190,8 +190,8 @@ describe Lawn::Env do
       rnd.rand(1..16).times do
         case rnd.rand 0..2
         when 0, 1
-          key = rnd.random_bytes rnd.rand 1..1024
-          value = rnd.random_bytes rnd.rand 1..1024
+          key = rnd.random_bytes rnd.rand 1..16
+          value = rnd.random_bytes rnd.rand 1..16
 
           env.transaction.set(key, value).commit
           added[key] = value
