@@ -14,13 +14,13 @@ module Lawn
     end
 
     def set(keyvalue : {Key, Value?})
-      ::Log.debug { "Transaction.set #{keyvalue}" }
+      ::Log.debug { "Transaction.set #{{keyvalue[0].hexstring, keyvalue[1] ? keyvalue[1].hexstring : nil}}" }
       @batch << keyvalue
       self
     end
 
     def set(key : Key, value : Value)
-      ::Log.debug { "Transaction.set #{{key, value}}" }
+      ::Log.debug { "Transaction.set #{{key.hexstring, value.hexstring}}" }
       @batch << {key, value}
       self
     end

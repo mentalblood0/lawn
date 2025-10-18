@@ -120,20 +120,25 @@ end
 describe Lawn::AVLTree do
   it "generative test" do
     tree = Lawn::AVLTree.new
-    added = Hash(Bytes, Bytes).new
+    added = Hash(Bytes, Bytes?).new
     1000.times do
-      case rnd.rand 0..2
-      when 0, 1
+      case rnd.rand 0..4
+      when 0, 1, 2
         key = rnd.random_bytes rnd.rand 1..1024
         value = rnd.random_bytes rnd.rand 1..1024
         ::Log.debug { "add #{key.hexstring} : #{value.hexstring}" }
         tree[key] = value
         added[key] = value
-      when 2
+      when 3
         key = added.keys.sample rnd rescue next
         ::Log.debug { "delete #{key.hexstring}" }
         tree.delete key
         added.delete key
+      when 4
+        key = added.keys.sample rnd rescue next
+        ::Log.debug { "set value = nil #{key.hexstring}" }
+        tree[key] = nil
+        added[key] = nil
       end
       added.each { |key, value| tree[key]?.should eq value }
       sorted = added.to_a.sort_by { |key, _| key }
@@ -164,7 +169,7 @@ describe Lawn::Env do
     env.get("key".to_slice).should eq "value".to_slice
   end
 
-  it "generative test", focus: true do
+  it "generative test" do
     added = Hash(Lawn::Key, Lawn::Value).new
     1000.times do
       rnd.rand(1..16).times do
@@ -172,22 +177,23 @@ describe Lawn::Env do
         when 0
           key = rnd.random_bytes rnd.rand 1..1024
           value = rnd.random_bytes rnd.rand 1..1024
-          Log.debug { "add\n\tkey:   #{key.hexstring}\n\tvalue: #{value.hexstring}" }
 
           env.transaction.set(key, value).commit
-
           added[key] = value
         when 1
           key = added.keys.sample rnd rescue next
-          Log.debug { "delete\n\tkey:   #{key.hexstring}" }
 
           env.transaction.delete(key).commit
-
           added.delete key
         end
       end
+
       env.checkpoint
-      added.keys.sort.each { |k| env.get(k).should eq added[k] }
+
+      added.keys.each { |k| env.get(k).should eq added[k] }
+
+      sorted = added.to_a.sort_by { |key, _| key }
+      env.each.should eq sorted
     end
   end
 end

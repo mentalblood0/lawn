@@ -33,14 +33,14 @@ module Lawn
       after_initialize
     end
 
-    protected def get_data(data_id : RoundDataStorage::Id)
+    protected def get_data(data_id : RoundDataStorage::Id) : KeyValue
       data = IO::Memory.new @data_storage.get(data_id).not_nil!
       value = Lawn.decode_bytes_with_size_size data
       key = data.getb_to_end
       {key, value}
     end
 
-    def get_from_checkpointed(key : Bytes)
+    def get_from_checkpointed(key : Bytes) : {data_id: RoundDataStorage::Id, value: Value}?
       ::Log.debug { "Env.get_from_checkpointed (0..#{@index.size - 1}).bsearch" }
 
       cache = [] of {i: Int64, result: {data_id: RoundDataStorage::Id, keyvalue: KeyValue}}
@@ -87,16 +87,20 @@ module Lawn
       @index.each do |old_index_id|
         next if to_delete.includes? old_index_id
         old_index_key = nil
+        overwrite_old_index_record = false
         loop do
           break unless new_i < new_index_ids.size
           old_index_key = get_data(old_index_id)[0] unless old_index_key
           break unless keys[new_i] <= old_index_key.not_nil!
+
+          overwrite_old_index_record = overwrite_old_index_record || (keys[new_i] == old_index_key.not_nil!)
 
           new_index_id = new_index_ids[new_i]
           new_index_file.write_byte new_index_id[:rounded_size_index]
           Lawn.encode_number new_index_file, new_index_id[:pointer], @index.pointer_size
           new_i += 1
         end
+        next if overwrite_old_index_record
         new_index_file.write_byte old_index_id[:rounded_size_index]
         Lawn.encode_number new_index_file, old_index_id[:pointer], @index.pointer_size
       end
@@ -115,12 +119,41 @@ module Lawn
       self
     end
 
+    def each(& : KeyValue ->)
+      memtable_cursor = AVLTree::Cursor.new @memtable.root
+      index_current = nil
+      memtable_current = nil
+      last_key_yielded_from_memtable = nil
+      @index.each do |index_id|
+        index_current = get_data(index_id).not_nil!
+        while (memtable_current = memtable_cursor.next) && (memtable_current[0] <= index_current[0])
+          if memtable_current.is_a? KeyValue
+            last_key_yielded_from_memtable = memtable_current[0]
+            yield memtable_current
+          end
+        end
+        yield index_current unless index_current[0] == last_key_yielded_from_memtable
+      end
+      while memtable_current
+        yield memtable_current if memtable_current.is_a? KeyValue
+        memtable_current = memtable_cursor.next
+      end
+    end
+
+    def each
+      r = [] of KeyValue
+      each do |keyvalue|
+        r << keyvalue
+      end
+      r
+    end
+
     def transaction
       ::Log.debug { "Env.transaction" }
       Transaction.new self
     end
 
-    def get(key : Bytes)
+    def get(key : Bytes) : Value?
       ::Log.debug { "Env.get #{key.hexstring}" }
 
       r = @memtable[key]?
