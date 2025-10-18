@@ -43,7 +43,7 @@ module Lawn
       @data_aligned_lists_by_rounded_size_index.each { |al| al.clear if al }
     end
 
-    alias Id = {rounded_size_index: UInt8, pointer: UInt64}
+    alias Id = {rounded_size_index: UInt8, pointer: Int64}
 
     alias Add = {data: Bytes, data_index: Int32}
 
@@ -59,13 +59,13 @@ module Lawn
         add_data_by_rounded_size_index[i].not_nil! << {data: size_and_data_encoded.to_slice, data_index: data_index}
       end
 
-      delete_pointers_by_rounded_size_index = Array(Array(UInt64)?).new(sizes.size) { nil }
+      delete_pointers_by_rounded_size_index = Array(Array(Int64)?).new(sizes.size) { nil }
       delete.each do |id|
-        delete_pointers_by_rounded_size_index[id[:rounded_size_index]] = Array(UInt64).new unless delete_pointers_by_rounded_size_index[id[:rounded_size_index]]
+        delete_pointers_by_rounded_size_index[id[:rounded_size_index]] = Array(Int64).new unless delete_pointers_by_rounded_size_index[id[:rounded_size_index]]
         delete_pointers_by_rounded_size_index[id[:rounded_size_index]].not_nil! << id[:pointer]
       end
 
-      r = Array(Id).new(add.size) { {rounded_size_index: 0_u8, pointer: 0_u64} }
+      r = Array(Id).new(add.size) { {rounded_size_index: 0_u8, pointer: 0_i64} }
       (0_u8..sizes.size - 1).each do |i|
         i_add = add_data_by_rounded_size_index[i]
         i_delete = delete_pointers_by_rounded_size_index[i]

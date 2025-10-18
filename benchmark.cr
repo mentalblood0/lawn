@@ -15,12 +15,17 @@ macro random_value
   rnd.random_bytes rnd.rand config[:size][:value][:min]..config[:size][:value][:max]
 end
 
+macro random_data
+  rnd.random_bytes rnd.rand (config[:size][:key][:min] + config[:size][:value][:min])..(config[:size][:key][:max] + config[:size][:value][:max])
+end
+
 alias Config = {benchmarks: Array(String), env: Lawn::Env, seed: Int32, amount: Int64, size: {key: {min: UInt64, max: UInt64}, value: {min: UInt64, max: UInt64}}}
 
 config = Config.from_yaml File.read ENV["BENCHMARK_CONFIG_PATH"]
 rnd = Random.new config[:seed]
 
 if config[:benchmarks].any? { |benchmark_name| benchmark_name.starts_with? "env " }
+  rnd = Random.new config[:seed]
   keyvalues = {} of Bytes => Bytes
   config[:amount].times { keyvalues[random_key] = random_value }
   total_size = keyvalues.map { |key, value| key.size.to_i64 + value.size }.sum
@@ -47,16 +52,38 @@ if config[:benchmarks].any? { |benchmark_name| benchmark_name.starts_with? "env 
   end
 end
 
+if config[:benchmarks].any? { |benchmark_name| benchmark_name.starts_with? "aligned list" }
+  rnd = Random.new config[:seed]
+  aligned_list = Lawn::AlignedList.new config[:env].data_storage.dir / "benchmark_aligned_list.dat", 256
+  amount = config[:amount]
+  add = Array.new(amount) { random_data }
+  ids = [] of Int64
+  total_size = (add.map &.size.to_u64).sum
+
+  if config[:benchmarks].includes? "aligned list add"
+    puts "aligned list add #{amount} data of total size #{total_size.humanize_bytes}"
+    time = Time.measure { ids = aligned_list.update add }
+    write_speeds
+  end
+
+  if config[:benchmarks].includes? "aligned list random get"
+    puts "aligned list random get #{amount} data of total size #{total_size.humanize_bytes}"
+    ids.shuffle! rnd
+    time = Time.measure { ids.each { |id| aligned_list.get id } }
+    write_speeds
+  end
+end
+
 if config[:benchmarks].any? { |benchmark_name| benchmark_name.starts_with? "data storage" }
+  rnd = Random.new config[:seed]
   data_storage = Lawn::RoundDataStorage.new config[:env].data_storage.dir / "benchmark_data_storage", {max: 65534, points: 327}
-  amount = config[:amount] * 2
-  add = Array.new(amount) { random_key }
+  amount = config[:amount]
+  add = Array.new(amount) { random_data }
   ids = [] of Lawn::RoundDataStorage::Id
   total_size = (add.map &.size.to_u64).sum
 
   if config[:benchmarks].includes? "data storage add"
     puts "data storage add #{amount} data of total size #{total_size.humanize_bytes}"
-    rnd = Random.new config[:seed]
     time = Time.measure { ids = data_storage.update add, [] of Lawn::RoundDataStorage::Id }
     write_speeds
   end

@@ -47,7 +47,7 @@ describe Lawn::AlignedList do
   [2, 3, 5, 9].map { |s| s.to_u8! }.each do |s|
     it "generative test: supports #{s} bytes elements" do
       al = Lawn::AlignedList.new config[:env].log.path.parent / "aligned_list.dat", s
-      added = Hash(UInt64, Bytes).new
+      added = Hash(Int64, Bytes).new
 
       1000.times do
         add = Array.new(rnd.rand 1..16) { rnd.random_bytes s }
@@ -83,7 +83,7 @@ describe ds.class do
     end
 
     it "generative test" do
-      added = Hash(UInt64, Bytes).new
+      added = Hash(Int64, Bytes).new
       100.times do
         add = Array(Bytes).new(rnd.rand 1..16) { rnd.random_bytes rnd.rand 1..2**5 }
         delete = added.keys.sample rnd.rand(1..16), rnd

@@ -52,34 +52,34 @@ module Lawn
     end
 
     protected def as_p(b : Bytes)
-      r = 0_u64
+      r = 0_i64
       b[..Math.min 7, b.size - 1].each { |b| r = (r << 8) + b }
       r
     end
 
-    protected def as_b(i : UInt64)
+    protected def as_b(i : Int64)
       r = Bytes.new 8
       IO::ByteFormat::BigEndian.encode i, r
       (@element_size >= 8) ? r : r[8 - @element_size..]
     end
 
-    def get(i : UInt64, count : Int32 = @element_size)
+    def get(i : Int64, count : Int32 = @element_size)
       ::Log.debug { "AlignedList{#{path}}.get #{i}" }
       file.pos = i * @element_size
       read count
     end
 
-    protected def set(i : UInt64, b : Bytes) : UInt64
+    protected def set(i : Int64, b : Bytes) : Int64
       @head = b if i == 0
       file.pos = i * @element_size
       file.write b
       i
     end
 
-    def update(add : Array(Bytes), delete : Array(UInt64)? = nil) : Array(UInt64)
+    def update(add : Array(Bytes), delete : Array(Int64)? = nil) : Array(Int64)
       ::Log.debug { "AlignedList{#{path}}.update add: #{add.map &.hexstring}, delete: #{delete}" }
 
-      rs = [] of UInt64
+      rs = [] of Int64
 
       replaced = 0
       if delete
@@ -99,7 +99,7 @@ module Lawn
       (replaced..add.size - 1).each do |i|
         if @head.all? { |b| b == 255 }
           file.seek 0, IO::Seek::End
-          rn = file.pos.to_u64 // @element_size
+          rn = file.pos.to_i64 // @element_size
           (rn..rn + add.size - i - 1).each { |r| rs << r }
           file.write Bytes.join add[i..].map { |d| @element_size > d.size ? d + Bytes.new(@element_size - d.size) : d }
           break

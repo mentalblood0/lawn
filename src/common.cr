@@ -21,14 +21,14 @@ module Lawn
 
   def self.encode_number(io : IO, n, size : UInt8)
     r = Bytes.new 8
-    IO::ByteFormat::BigEndian.encode n.to_u64, r
+    IO::ByteFormat::BigEndian.encode n.to_i64, r
     io.write r[8 - size..]
   end
 
-  def self.decode_number(io : IO, size : UInt8) : UInt64
+  def self.decode_number(io : IO, size : UInt8) : Int64
     rb = Bytes.new 8
     io.read_fully rb[0 - size..]
-    IO::ByteFormat::BigEndian.decode UInt64, rb
+    IO::ByteFormat::BigEndian.decode Int64, rb
   end
 
   def self.encode_number_with_size(io : IO, n)
@@ -42,14 +42,14 @@ module Lawn
     end
   end
 
-  def self.decode_number_with_size(io : IO) : UInt64
+  def self.decode_number_with_size(io : IO) : Int64
     header = IO::ByteFormat::BigEndian.decode UInt8, io
-    return header.to_u64 if header <= 255 - 8
+    return header.to_i64 if header <= 255 - 8
     size = 255_u8 - header
     decode_number io, size
   end
 
-  def self.decode_bytes(io : IO, size : UInt64)
+  def self.decode_bytes(io : IO, size : Int64)
     r = Bytes.new size
     io.read_fully r
     r
