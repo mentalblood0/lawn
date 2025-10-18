@@ -2,72 +2,70 @@ require "./src/Env"
 require "./src/common"
 require "./src/RoundDataStorage"
 
-alias Result = {data_speed: String, records_speed: String, time: String}
+macro write_speeds
+  puts "\tdata speed: #{(total_size / time.total_seconds).to_u64.humanize_bytes}/s"
+  puts "\ttransactions speed: #{(config[:amount] / time.total_seconds).to_u64.humanize}r/s"
+end
 
-class Benchmarks
-  Lawn.mserializable
+macro random_key
+  rnd.random_bytes rnd.rand config[:size][:key][:min]..config[:size][:key][:max]
+end
 
-  getter env : Lawn::Env
-  getter seed : Int32
-  getter amount : UInt64
-  getter size : {key: {min: UInt64, max: UInt64}, value: {min: UInt64, max: UInt64}}
+macro random_value
+  rnd.random_bytes rnd.rand config[:size][:value][:min]..config[:size][:value][:max]
+end
 
-  @[YAML::Field(ignore: true)]
-  getter results : Hash(String, Result) = {} of String => Result
+alias Config = {benchmarks: Array(String), env: Lawn::Env, seed: Int32, amount: Int64, size: {key: {min: UInt64, max: UInt64}, value: {min: UInt64, max: UInt64}}}
 
-  @[YAML::Field(ignore: true)]
-  getter kv : Hash(Bytes, Bytes) = {} of Bytes => Bytes
+config = Config.from_yaml File.read ENV["BENCHMARK_CONFIG_PATH"]
+rnd = Random.new config[:seed]
 
-  @[YAML::Field(ignore: true)]
-  getter rnd : Random { Random.new @seed }
+if config[:benchmarks].any? { |benchmark_name| benchmark_name.starts_with? "env " }
+  keyvalues = {} of Bytes => Bytes
+  config[:amount].times { keyvalues[random_key] = random_value }
+  total_size = keyvalues.map { |key, value| key.size.to_i64 + value.size }.sum
 
-  def add(name : String, time : Time::Span, bytes_written : UInt64, amount : UInt64? = nil)
-    amount = @amount unless amount
-    @results[name] = {data_speed:    "#{(bytes_written / time.total_seconds).to_u64.humanize_bytes}/s",
-                      records_speed: "#{(amount / time.total_seconds).to_u64.humanize}r/s",
-                      time:          "#{time.total_seconds.humanize}s passed"}
+  if config[:benchmarks].includes? "env add"
+    puts "env write #{keyvalues.size} key-value pairs of total size #{total_size.humanize_bytes}"
+    time = Time.measure { keyvalues.each { |key, value| config[:env].transaction.set(key, value).commit } }
+    write_speeds
   end
 
-  def random_key
-    rnd.random_bytes rnd.rand @size[:key][:min]..@size[:key][:max]
+  if config[:benchmarks].includes? "env checkpoint"
+    puts "env checkpoint #{keyvalues.size} key-value pairs of total size #{total_size.humanize_bytes}"
+    time = Time.measure { config[:env].checkpoint }
+    write_speeds
   end
 
-  def random_value
-    rnd.random_bytes rnd.rand @size[:value][:min]..@size[:value][:max]
-  end
-
-  def benchmark_write
-    @kv.clear
-    @amount.times { kv[random_key] = random_value }
-    add "Env.write #{kv.size} key-value pairs of total size #{kv.map { |k, v| k.size + v.size }.sum.humanize_bytes}", Time.measure { kv.each { |k, v| @env.transaction.set(k, v).commit } }, @kv.map { |key, value| key.size.to_u64 + value.size }.sum
-  end
-
-  def benchmark_checkpointing
-    add "Env.checkpoint #{kv.size} key-value pairs of total size #{kv.map { |k, v| k.size + v.size }.sum.humanize_bytes}", Time.measure { @env.checkpoint }, @kv.map { |key, value| key.size.to_u64 + value.size }.sum
-  end
-
-  def benchmark_get
-    ks = @kv.keys
-    ks.shuffle! rnd
-    add "Env.get #{kv.size} key-value pairs of total size #{kv.map { |k, v| k.size + v.size }.sum.humanize_bytes}", Time.measure { ks.each { |k| env.get k } }, @kv.map { |_, value| value.size.to_u64 }.sum
-  end
-
-  def benchmark_data_storage
-    ds = @env.data_storage
-    amount = @amount * 2
-    add = Array.new(amount) { random_key }
-    ids = [] of Lawn::RoundDataStorage::Id
-    total_size = (add.map &.size.to_u64).sum
-    add "#{ds.class}: add #{amount} data of total size #{total_size.humanize_bytes}", Time.measure { ids = ds.update add, [] of Lawn::RoundDataStorage::Id }, total_size, amount
-
-    add "#{ds.class}: get #{amount} data of total size #{total_size.humanize_bytes}", Time.measure { ids.each { |id| ds.get id } }, total_size, amount
+  if config[:benchmarks].includes? "env random get"
+    puts "env random get #{keyvalues.size} key-value pairs of total size #{total_size.humanize_bytes}"
+    rnd = Random.new config[:seed]
+    keys = keyvalues.keys
+    keys.shuffle! rnd
+    time = Time.measure { keys.each { |key| config[:env].get key } }
+    write_speeds
   end
 end
 
-benchmarks = Benchmarks.from_yaml File.read ENV["BENCHMARK_CONFIG_PATH"]
-benchmarks.benchmark_write
-benchmarks.benchmark_checkpointing
-benchmarks.benchmark_get
-# benchmarks.benchmark_data_storage
+if config[:benchmarks].any? { |benchmark_name| benchmark_name.starts_with? "data storage" }
+  data_storage = config[:env].data_storage
+  amount = config[:amount] * 2
+  add = Array.new(amount) { random_key }
+  ids = [] of Lawn::RoundDataStorage::Id
+  total_size = (add.map &.size.to_u64).sum
 
-puts benchmarks.results.to_yaml
+  if config[:benchmarks].includes? "data storage add"
+    puts "data storage add #{amount} data of total size #{total_size.humanize_bytes}"
+    rnd = Random.new config[:seed]
+    time = Time.measure { ids = data_storage.update add, [] of Lawn::RoundDataStorage::Id }
+    write_speeds
+  end
+
+  if config[:benchmarks].includes? "data storage random get"
+    puts "data storage random get #{amount} data of total size #{total_size.humanize_bytes}"
+    rnd = Random.new config[:seed]
+    ids.shuffle! rnd
+    time = Time.measure { ids.each { |id| data_storage.get id } }
+    write_speeds
+  end
+end
