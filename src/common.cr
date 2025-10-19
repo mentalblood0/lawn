@@ -31,11 +31,15 @@ module Lawn
     IO::ByteFormat::BigEndian.decode Int64, rb
   end
 
+  def self.number_size(n)
+    (n.bit_length + 7).to_u8 >> 3
+  end
+
   def self.encode_number_with_size(io : IO, n)
     if n <= 255 - 8
       IO::ByteFormat::BigEndian.encode n.to_u8, io
     else
-      size = (n.bit_length + 7).to_u8 >> 3
+      size = number_size n
       header = 255_u8 - size
       IO::ByteFormat::BigEndian.encode header, io
       encode_number io, n, size

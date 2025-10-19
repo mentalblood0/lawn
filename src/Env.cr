@@ -72,6 +72,7 @@ module Lawn
 
       global_i = 0_i64
       new_index_positions = [] of Int64
+      new_index_pointer_size = 1_u8
 
       data_to_add = Array(Bytes).new
       ids_to_delete = Set(RoundDataStorage::Id).new
@@ -96,6 +97,8 @@ module Lawn
         if index_current[0] == last_key_yielded_from_memtable
           ids_to_delete << index_id
         else
+          index_id_pointer_size = Lawn.number_size index_id[:pointer]
+          new_index_pointer_size = Math.max new_index_pointer_size, index_id_pointer_size
           global_i += 1
         end
       end
@@ -110,6 +113,9 @@ module Lawn
       end
 
       new_index_ids = @data_storage.update add: data_to_add, delete: ids_to_delete.to_a
+      unless new_index_ids.empty?
+        new_index_pointer_size = Math.max new_index_pointer_size, new_index_ids.max_of { |index_id| Lawn.number_size index_id[:pointer] }
+      end
 
       new_index_file = File.new "#{@index.file.path}.new", "w"
       new_index_file.sync = true
@@ -121,26 +127,26 @@ module Lawn
           old_index_id = @index.read
           unless ids_to_delete.includes? old_index_id
             new_index_file.write_byte old_index_id[:rounded_size_index]
-            Lawn.encode_number new_index_file, old_index_id[:pointer], @index.pointer_size
+            Lawn.encode_number new_index_file, old_index_id[:pointer], new_index_pointer_size
             global_i += 1
           end
         end
         new_index_id = new_index_ids[new_index_ids_i]
         new_index_file.write_byte new_index_id[:rounded_size_index]
-        Lawn.encode_number new_index_file, new_index_id[:pointer], @index.pointer_size
+        Lawn.encode_number new_index_file, new_index_id[:pointer], new_index_pointer_size
         new_index_ids_i += 1
         global_i += 1
       end
       while ((old_index_id = @index.read) rescue nil)
         unless ids_to_delete.includes? old_index_id
           new_index_file.write_byte old_index_id[:rounded_size_index]
-          Lawn.encode_number new_index_file, old_index_id[:pointer], @index.pointer_size
+          Lawn.encode_number new_index_file, old_index_id[:pointer], new_index_pointer_size
         end
       end
 
       new_index_file.rename @index.file.path
       new_index_file.close
-      @index = Index.new Path.new(new_index_file.path), @index.pointer_size
+      @index = Index.new Path.new(new_index_file.path), new_index_pointer_size
 
       @log.clear
       @memtable.clear
