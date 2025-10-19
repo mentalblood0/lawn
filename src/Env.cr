@@ -41,11 +41,11 @@ module Lawn
     end
 
     def get_from_checkpointed(key : Bytes, strict : Bool = true) : {index_i: Int64, data_id: RoundDataStorage::Id, value: Value}?
-      ::Log.debug { "Env.get_from_checkpointed (0..#{@index.size - 1}).bsearch" }
+      ::Log.debug { "Env.get_from_checkpointed #{key.hexstring} while @index.size = #{@index.size}" }
+      return unless @index.size > 0
 
       cache = [] of {i: Int64, result: {data_id: RoundDataStorage::Id, keyvalue: KeyValue}}
       result_index = (0_i64..@index.size - 1).bsearch do |i|
-        ::Log.debug { "Env.get_from_checkpointed i = #{i}" }
         data_id = @index[i]
         current_keyvalue = get_data data_id
         cache << {i: i, result: {data_id: data_id, keyvalue: current_keyvalue}}
@@ -59,53 +59,85 @@ module Lawn
       end
     end
 
+    protected def encode(keyvalue : KeyValue) : Bytes
+      value_key_encoded = IO::Memory.new
+      Lawn.encode_bytes_with_size_size value_key_encoded, keyvalue[1]
+      value_key_encoded.write keyvalue[0]
+      value_key_encoded.to_slice
+    end
+
     def checkpoint
       ::Log.debug { "Env.checkpoint" }
       return self if @memtable.empty?
 
-      keys = [] of Key
-      to_delete = Set(RoundDataStorage::Id).new
-      new_index_ids = begin
-        to_add = [] of Bytes
-        @memtable.each do |key, value|
-          if value
-            keys << key
-            value_key_encoded = IO::Memory.new
-            Lawn.encode_bytes_with_size_size value_key_encoded, value
-            value_key_encoded.write key
-            to_add << value_key_encoded.to_slice
+      global_i = 0_i64
+      new_index_positions = [] of Int64
+
+      data_to_add = Array(Bytes).new
+      ids_to_delete = Set(RoundDataStorage::Id).new
+
+      index_current = nil
+      memtable_cursor = AVLTree::Cursor.new @memtable.root
+      memtable_current = memtable_cursor.next
+      last_key_yielded_from_memtable = nil
+
+      @index.each do |index_id|
+        index_current = get_data(index_id).not_nil!
+        while memtable_current && (memtable_current[0] <= index_current[0])
+          last_key_yielded_from_memtable = memtable_current[0]
+          if memtable_current[1]
+            data_to_add << encode({memtable_current[0], memtable_current[1].not_nil!})
+            new_index_positions << global_i
+            global_i += 1
+          else
           end
-          to_delete << get_from_checkpointed(key).not_nil![:data_id] rescue nil
+          memtable_current = memtable_cursor.next
         end
-        @data_storage.update add: to_add, delete: to_delete.to_a
+        if index_current[0] == last_key_yielded_from_memtable
+          ids_to_delete << index_id
+        else
+          global_i += 1
+        end
       end
+      while memtable_current
+        if memtable_current[1]
+          data_to_add << encode({memtable_current[0], memtable_current[1].not_nil!})
+          new_index_positions << global_i
+          global_i += 1
+        else
+        end
+        memtable_current = memtable_cursor.next
+      end
+
+      new_index_ids = @data_storage.update add: data_to_add, delete: ids_to_delete.to_a
 
       new_index_file = File.new "#{@index.file.path}.new", "w"
       new_index_file.sync = true
-      new_i = 0
-      @index.each do |old_index_id|
-        next if to_delete.includes? old_index_id
-        old_index_key = nil
-        overwrite_old_index_record = false
-        loop do
-          break unless new_i < new_index_ids.size
-          old_index_key = get_data(old_index_id)[0] unless old_index_key
-          break unless keys[new_i] <= old_index_key.not_nil!
-
-          new_index_id = new_index_ids[new_i]
-          new_index_file.write_byte new_index_id[:rounded_size_index]
-          Lawn.encode_number new_index_file, new_index_id[:pointer], @index.pointer_size
-          new_i += 1
+      global_i = 0_i64
+      new_index_ids_i = 0
+      @index.file.pos = 0
+      new_index_positions.each do |new_index_position|
+        while global_i < new_index_position
+          old_index_id = @index.read
+          unless ids_to_delete.includes? old_index_id
+            new_index_file.write_byte old_index_id[:rounded_size_index]
+            Lawn.encode_number new_index_file, old_index_id[:pointer], @index.pointer_size
+            global_i += 1
+          end
         end
-        new_index_file.write_byte old_index_id[:rounded_size_index]
-        Lawn.encode_number new_index_file, old_index_id[:pointer], @index.pointer_size
-      end
-      while new_i < new_index_ids.size
-        new_index_id = new_index_ids[new_i]
+        new_index_id = new_index_ids[new_index_ids_i]
         new_index_file.write_byte new_index_id[:rounded_size_index]
         Lawn.encode_number new_index_file, new_index_id[:pointer], @index.pointer_size
-        new_i += 1
+        new_index_ids_i += 1
+        global_i += 1
       end
+      while ((old_index_id = @index.read) rescue nil)
+        unless ids_to_delete.includes? old_index_id
+          new_index_file.write_byte old_index_id[:rounded_size_index]
+          Lawn.encode_number new_index_file, old_index_id[:pointer], @index.pointer_size
+        end
+      end
+
       new_index_file.rename @index.file.path
       new_index_file.close
       @index = Index.new Path.new(new_index_file.path), @index.pointer_size

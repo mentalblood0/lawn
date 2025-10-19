@@ -167,8 +167,8 @@ describe Lawn::Env do
   env = config[:env]
 
   it "checkpoints" do
-    key = "lalala".to_slice
-    value = "lololo".to_slice
+    key = "key".to_slice
+    value = "value".to_slice
     env.transaction.set(key, value).commit
     env.checkpoint
     env.get(key).should eq value
@@ -178,10 +178,27 @@ describe Lawn::Env do
     env.transaction.set([{"key_to_delete".to_slice, "value".to_slice},
                          {"key".to_slice, "value".to_slice}]).commit
     env.checkpoint
+    env.get("key_to_delete".to_slice).should eq "value".to_slice
+    env.get("key".to_slice).should eq "value".to_slice
+
     env.transaction.delete("key_to_delete".to_slice).commit
     env.checkpoint
     env.get("key_to_delete".to_slice).should eq nil
     env.get("key".to_slice).should eq "value".to_slice
+  end
+
+  it "handles updates correctly" do
+    key = "key".to_slice
+    value = "value".to_slice
+    new_value = "new_value".to_slice
+
+    env.transaction.set(key, value).commit
+    env.checkpoint
+    env.get(key).should eq value
+
+    env.transaction.set(key, new_value).commit
+    env.checkpoint
+    env.get(key).should eq new_value
   end
 
   it "generative test" do
@@ -203,9 +220,8 @@ describe Lawn::Env do
         end
       end
       env.checkpoint
+      added.keys.each { |k| env.get(k).should eq added[k] }
     end
-    added.keys.each { |k| env.get(k).should eq added[k] }
-
     all_added = added.to_a.sort_by { |key, _| key }
     all_present = env.each
     all_present.should eq all_added
