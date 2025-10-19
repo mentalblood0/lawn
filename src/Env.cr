@@ -83,7 +83,7 @@ module Lawn
       last_key_yielded_from_memtable = nil
 
       @index.each do |index_id|
-        index_current = get_data(index_id).not_nil!
+        index_current = get_data index_id
         while memtable_current && (memtable_current[0] <= index_current[0])
           last_key_yielded_from_memtable = memtable_current[0]
           if memtable_current[1]
@@ -119,9 +119,10 @@ module Lawn
 
       new_index_file = File.new "#{@index.file.path}.new", "w"
       new_index_file.sync = true
+      new_index_file.write_byte new_index_pointer_size
       global_i = 0_i64
       new_index_ids_i = 0
-      @index.file.pos = 0
+      @index.file.pos = 1
       new_index_positions.each do |new_index_position|
         while global_i < new_index_position
           old_index_id = @index.read
@@ -146,7 +147,7 @@ module Lawn
 
       new_index_file.rename @index.file.path
       new_index_file.close
-      @index = Index.new Path.new(new_index_file.path), new_index_pointer_size
+      @index = Index.new Path.new(new_index_file.path)
 
       @log.clear
       @memtable.clear

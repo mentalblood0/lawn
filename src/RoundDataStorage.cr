@@ -83,7 +83,7 @@ module Lawn
     def get(id : Id)
       ::Log.debug { "RoundDataStorage.get #{id}" }
 
-      al = @data_aligned_lists_by_rounded_size_index[id[:rounded_size_index]]
+      al = data_aligned_list id[:rounded_size_index]
       return unless al
 
       size_and_data_encoded = IO::Memory.new al.get id[:pointer]

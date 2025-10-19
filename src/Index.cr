@@ -16,24 +16,27 @@ module Lawn
     getter file : File do
       unless File.exists? @path
         Dir.mkdir_p @path.parent
-        File.touch @path
+        File.write @path, Bytes.new 1, 1_u8
       end
       File.new @path, "r"
     end
 
-    getter pointer_size : UInt8
+    getter pointer_size : UInt8 do
+      file.pos = 0
+      file.read_byte.not_nil!
+    end
 
     Lawn.mignore
     getter size : Int64 = 0_i64
 
-    getter id_size : UInt8 { @pointer_size + 1 }
+    getter id_size : UInt8 { pointer_size + 1 }
 
-    def initialize(@path, @pointer_size)
+    def initialize(@path)
       after_initialize
     end
 
     def after_initialize
-      @size = file.size // id_size
+      @size = (file.size - 1) // id_size
     end
 
     def clear
@@ -44,17 +47,17 @@ module Lawn
 
     def read(source : IO = file)
       rounded_size_index = file.read_byte.not_nil!
-      pointer = Lawn.decode_number(file, @pointer_size).not_nil!
+      pointer = Lawn.decode_number(file, pointer_size).not_nil!
       {rounded_size_index: rounded_size_index, pointer: pointer}
     end
 
     def [](i : Int64) : RoundDataStorage::Id
-      file.pos = i * id_size
+      file.pos = 1 + i * id_size
       read
     end
 
     def each(from : Int64 = 0, &)
-      file.pos = from * id_size
+      file.pos = 1 + from * id_size
       (@size - from).times do |i|
         yield read
       end

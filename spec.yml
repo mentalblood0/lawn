@@ -8,5 +8,4 @@ env:
       points: 327
   index:
     path: /tmp/lawn/index.idx
-    pointer_size: 5
 seed: 0
