@@ -27,34 +27,57 @@ module Lawn
       file.truncate
     end
 
-    def write(table_id : UInt8, batch : Array({Key, Value?}))
+    def write(table_id : UInt8, fixed : Bool, batch : Array({Key, Value?}))
       buf = IO::Memory.new
       buf.write_byte table_id
       Lawn.encode_number_with_size buf, batch.size
-      batch.each do |key, value|
-        Lawn.encode_bytes_with_size_size buf, key
-        if value
-          buf.write_byte 1_u8
-          Lawn.encode_bytes_with_size_size file, value
-        else
-          buf.write_byte 0_u8
+      if fixed
+        batch.each do |key, value|
+          buf.write key
+          if value
+            buf.write_byte 1_u8
+            buf.write value
+          else
+            buf.write_byte 0_u8
+          end
+        end
+      else
+        batch.each do |key, value|
+          Lawn.encode_bytes_with_size_size buf, key
+          if value
+            buf.write_byte 1_u8
+            Lawn.encode_bytes_with_size_size file, value
+          else
+            buf.write_byte 0_u8
+          end
         end
       end
       file.write buf.to_slice
     end
 
-    def read(&)
+    def read(tables : Array(Table | FixedTable), &)
       file.pos = 0
       loop do
         table_id = file.read_byte.not_nil! rescue break
         batch_size = Lawn.decode_number_with_size file
-        batch_size.times do
-          key = Lawn.decode_bytes_with_size_size file
-          value = case file.read_byte.not_nil!
-                  when 1_u8 then Lawn.decode_bytes_with_size_size file
-                  when 0_u8 then nil
-                  end
-          yield({table_id: table_id, keyvalue: {key, value}})
+        if (table = tables[table_id]).is_a?(FixedTable)
+          batch_size.times do
+            key = Lawn.decode_bytes file, table.key_size
+            value = case file.read_byte.not_nil!
+                    when 1_u8 then Lawn.decode_bytes file, table.value_size
+                    when 0_u8 then nil
+                    end
+            yield({table_id: table_id, keyvalue: {key, value}})
+          end
+        else
+          batch_size.times do
+            key = Lawn.decode_bytes_with_size_size file
+            value = case file.read_byte.not_nil!
+                    when 1_u8 then Lawn.decode_bytes_with_size_size file
+                    when 0_u8 then nil
+                    end
+            yield({table_id: table_id, keyvalue: {key, value}})
+          end
         end
       end
     end

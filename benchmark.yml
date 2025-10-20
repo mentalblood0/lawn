@@ -27,7 +27,7 @@ benchmarks:
 # - database table random get
 - database fixed table add
 - database fixed table checkpoint
-- database fixed table random get
+# - database fixed table random get
 # - data storage add
 # - data storage random get
 # - aligned list add/delete

@@ -17,7 +17,7 @@ module Lawn
     end
 
     def after_initialize
-      @log.read { |entry| tables[entry[:table_id]].memtable[entry[:keyvalue][0]] = entry[:keyvalue][1] }
+      @log.read(@tables) { |entry| tables[entry[:table_id]].memtable[entry[:keyvalue][0]] = entry[:keyvalue][1] }
       ::Log.debug { "Initialized database #{self.to_json}" }
     end
 

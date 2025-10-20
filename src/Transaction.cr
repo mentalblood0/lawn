@@ -46,7 +46,7 @@ module Lawn
       ::Log.debug { "Transaction.commit" }
       @batches.each_with_index do |batch, table_id|
         next unless batch
-        @database.log.write table_id.to_u8, batch
+        @database.log.write table_id.to_u8, @database.tables[table_id].is_a?(FixedTable), batch
         table = @database.tables[table_id]
         batch.each { |key, value| table.memtable[key] = value }
         @database.tables[table_id]
