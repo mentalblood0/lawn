@@ -1,8 +1,7 @@
 require "log"
 require "spec"
 
-require "../src/Env"
-require "../src/SplitDataStorage"
+require "../src/Database"
 require "../src/RoundDataStorage"
 require "../src/AVLTree"
 
@@ -12,12 +11,12 @@ struct Slice(T)
   end
 end
 
-alias Config = {env: Lawn::Env, seed: Int32}
+alias Config = {database: Lawn::Database, seed: Int32}
 
 config = Config.from_yaml File.read ENV["SPEC_CONFIG_PATH"]
 rnd = Random.new config[:seed]
 
-Spec.before_each { config[:env].clear }
+Spec.before_each { config[:database].clear }
 
 describe Lawn do
   it "encodes/decodes numbers encoded in arbitrary number of bytes" do
@@ -47,7 +46,7 @@ describe Lawn::AlignedList do
   it "correctly deletes all the elements" do
     amount = 16
     element_size = 16
-    aligned_list = Lawn::AlignedList.new config[:env].log.path.parent / "aligned_list.dat", element_size
+    aligned_list = Lawn::AlignedList.new config[:database].log.path.parent / "aligned_list.dat", element_size
     data = Array(Bytes).new(amount) { rnd.random_bytes element_size }
 
     ids = aligned_list.update data
@@ -61,7 +60,7 @@ describe Lawn::AlignedList do
 
   [2, 3, 5, 9].map { |s| s.to_u8! }.each do |s|
     it "generative test: supports #{s} bytes elements" do
-      al = Lawn::AlignedList.new config[:env].log.path.parent / "aligned_list.dat", s
+      al = Lawn::AlignedList.new config[:database].log.path.parent / "aligned_list.dat", s
       added = Hash(Int64, Bytes).new
 
       1000.times do
@@ -78,66 +77,35 @@ describe Lawn::AlignedList do
   end
 end
 
-ds = config[:env].data_storage
+describe Lawn::RoundDataStorage do
+  data_storage = config[:database].tables.first.data_storage
 
-describe ds.class do
-  case ds
-  when Lawn::SplitDataStorage
-    it "splits correctly" do
-      (1..2**20).each do |n|
-        ((ds.split n).sum >= n).should eq true
-      end
-      (UInt32::MAX // 2 - 1024 * 10..UInt32::MAX // 2).each do |n|
-        ((ds.split n).sum >= n).should eq true
-      end
+  it "correctly splits sizes scale" do
+    points = 256
+    (256..2**(8 * 2)).step(19).each do |max|
+      r = Lawn::RoundDataStorage.get_sizes max, points
+      r.sort.should eq r
+      r.last.should eq max
+      r.size.should eq points
     end
+  end
 
-    it "simple test" do
-      add = Array(Bytes).new(100) { rnd.random_bytes rnd.rand 1..1024 }
-      (ds.update add, [] of UInt64).each_with_index { |pointer, data_index| ds.get(pointer).should eq add[data_index] }
-    end
+  it "simple test" do
+    add = Array(Bytes).new(2) { rnd.random_bytes rnd.rand 1..16 }
+    (data_storage.update add, [] of Lawn::RoundDataStorage::Id).each_with_index { |id, data_index| data_storage.get(id).should eq add[data_index] }
+  end
 
-    it "generative test" do
-      added = Hash(Int64, Bytes).new
-      100.times do
-        add = Array(Bytes).new(rnd.rand 1..16) { rnd.random_bytes rnd.rand 1..2**5 }
-        delete = added.keys.sample rnd.rand(1..16), rnd
-        r = ds.update add, delete
-        r.each_with_index { |pointer, data_index| added[pointer] = add[data_index] }
-        delete.each { |pointer| added.delete pointer }
-      end
-      added.each do |pointer, data|
-        (ds.get pointer).should eq data
-      end
+  it "generative test" do
+    added = Hash(Lawn::RoundDataStorage::Id, Bytes).new
+    1000.times do
+      add = Array(Bytes).new(rnd.rand 1..16) { rnd.random_bytes rnd.rand 1..1024 }
+      delete = added.keys.sample rnd.rand(1..16), rnd
+      r = data_storage.update add, delete
+      r.each_with_index { |pointer, data_index| added[pointer] = add[data_index] }
+      delete.each { |pointer| added.delete pointer }
     end
-  when Lawn::RoundDataStorage
-    it "correctly splits sizes scale" do
-      points = 256
-      (256..2**(8 * 2)).step(19).each do |max|
-        r = Lawn::RoundDataStorage.get_sizes max, points
-        r.sort.should eq r
-        r.last.should eq max
-        r.size.should eq points
-      end
-    end
-
-    it "simple test" do
-      add = Array(Bytes).new(2) { rnd.random_bytes rnd.rand 1..16 }
-      (ds.update add, [] of Lawn::RoundDataStorage::Id).each_with_index { |id, data_index| ds.get(id).should eq add[data_index] }
-    end
-
-    it "generative test" do
-      added = Hash(Lawn::RoundDataStorage::Id, Bytes).new
-      1000.times do
-        add = Array(Bytes).new(rnd.rand 1..16) { rnd.random_bytes rnd.rand 1..1024 }
-        delete = added.keys.sample rnd.rand(1..16), rnd
-        r = ds.update add, delete
-        r.each_with_index { |pointer, data_index| added[pointer] = add[data_index] }
-        delete.each { |pointer| added.delete pointer }
-      end
-      added.each do |pointer, data|
-        (ds.get pointer).should eq data
-      end
+    added.each do |pointer, data|
+      (data_storage.get pointer).should eq data
     end
   end
 end
@@ -173,28 +141,28 @@ describe Lawn::AVLTree do
   end
 end
 
-describe Lawn::Env do
-  env = config[:env]
+describe Lawn::Database do
+  database = config[:database]
 
   it "checkpoints" do
     key = "key".to_slice
     value = "value".to_slice
-    env.transaction.set(key, value).commit
-    env.checkpoint
-    env.get(key).should eq value
+    database.transaction.set(0_u8, key, value).commit
+    database.checkpoint
+    database.tables.first.get(key).should eq value
   end
 
   it "handles deletes correctly" do
-    env.transaction.set([{"key_to_delete".to_slice, "value".to_slice},
-                         {"key".to_slice, "value".to_slice}]).commit
-    env.checkpoint
-    env.get("key_to_delete".to_slice).should eq "value".to_slice
-    env.get("key".to_slice).should eq "value".to_slice
+    database.transaction.set(0_u8, [{"key_to_delete".to_slice, "value".to_slice},
+                                    {"key".to_slice, "value".to_slice}]).commit
+    database.checkpoint
+    database.tables.first.get("key_to_delete".to_slice).should eq "value".to_slice
+    database.tables.first.get("key".to_slice).should eq "value".to_slice
 
-    env.transaction.delete("key_to_delete".to_slice).commit
-    env.checkpoint
-    env.get("key_to_delete".to_slice).should eq nil
-    env.get("key".to_slice).should eq "value".to_slice
+    database.transaction.delete(0_u8, "key_to_delete".to_slice).commit
+    database.checkpoint
+    database.tables.first.get("key_to_delete".to_slice).should eq nil
+    database.tables.first.get("key".to_slice).should eq "value".to_slice
   end
 
   it "handles updates correctly" do
@@ -202,13 +170,13 @@ describe Lawn::Env do
     value = "value".to_slice
     new_value = "new_value".to_slice
 
-    env.transaction.set(key, value).commit
-    env.checkpoint
-    env.get(key).should eq value
+    database.transaction.set(0_u8, key, value).commit
+    database.checkpoint
+    database.tables.first.get(key).should eq value
 
-    env.transaction.set(key, new_value).commit
-    env.checkpoint
-    env.get(key).should eq new_value
+    database.transaction.set(0_u8, key, new_value).commit
+    database.checkpoint
+    database.tables.first.get(key).should eq new_value
   end
 
   it "generative test" do
@@ -220,21 +188,21 @@ describe Lawn::Env do
           key = rnd.random_bytes rnd.rand 1..16
           value = rnd.random_bytes rnd.rand 1..16
 
-          env.transaction.set(key, value).commit
+          database.transaction.set(0_u8, key, value).commit
           added[key] = value
         when 2
           key = added.keys.sample rnd rescue next
 
-          env.transaction.delete(key).commit
+          database.transaction.delete(0_u8, key).commit
           added.delete key
         end
       end
-      env.checkpoint
-      added.keys.each { |k| env.get(k).should eq added[k] }
+      database.checkpoint
+      added.keys.each { |k| database.tables.first.get(k).should eq added[k] }
     end
     all_added = added.to_a.sort_by { |key, _| key }
-    all_present = env.each
+    all_present = database.tables.first.each
     all_present.should eq all_added
-    all_present.each { |key, value| env.each(from: key).should eq all_added[all_added.index({key, value})..] }
+    all_present.each { |key, value| database.tables.first.each(from: key).should eq all_added[all_added.index({key, value})..] }
   end
 end

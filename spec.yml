@@ -1,9 +1,10 @@
-env:
+database:
   log:
     path: /tmp/lawn/log.dat
-  data_storage:
-    dir: /tmp/lawn
-    max_element_size: 65536
-  index:
-    path: /tmp/lawn/index.idx
+  tables:
+  - data_storage:
+      dir: /tmp/lawn/test
+      max_element_size: 65536
+    index:
+      path: /tmp/lawn/index.idx
 seed: 0

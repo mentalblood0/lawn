@@ -27,9 +27,10 @@ module Lawn
       file.truncate
     end
 
-    def write(batch : Array({Key, Value?}))
-      return if batch.empty?
+    def write(table_id : UInt8, batch : Array({Key, Value?}))
       buf = IO::Memory.new
+      buf.write_byte table_id
+      Lawn.encode_number_with_size buf, batch.size
       batch.each do |key, value|
         Lawn.encode_bytes_with_size_size buf, key
         if value
@@ -45,15 +46,15 @@ module Lawn
     def read(&)
       file.pos = 0
       loop do
-        begin
+        table_id = file.read_byte.not_nil! rescue break
+        batch_size = Lawn.decode_number_with_size file
+        batch_size.times do
           key = Lawn.decode_bytes_with_size_size file
           value = case file.read_byte.not_nil!
                   when 1_u8 then Lawn.decode_bytes_with_size_size file
                   when 0_u8 then nil
                   end
-          yield({key, value})
-        rescue IO::EOFError
-          break
+          yield({table_id: table_id, keyvalue: {key, value}})
         end
       end
     end

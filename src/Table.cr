@@ -3,34 +3,26 @@ require "yaml"
 require "./common"
 require "./Transaction"
 require "./Log"
-require "./SplitDataStorage"
 require "./RoundDataStorage"
 require "./Index"
 require "./AVLTree"
 
 module Lawn
-  class Env
+  class Table
     Lawn.mserializable
 
-    getter log : Log
     getter data_storage : RoundDataStorage
     getter index : Index
 
     Lawn.mignore
     getter memtable = AVLTree.new
 
-    def initialize(@log, @data_storage, @index)
-    end
-
-    def after_initialize
-      @log.read { |kv| @memtable[kv[0]] = kv[1] }
+    def initialize(@data_storage, @index)
     end
 
     def clear
-      log.clear
       data_storage.clear
       index.clear
-      after_initialize
     end
 
     protected def get_data(data_id : RoundDataStorage::Id) : KeyValue
@@ -149,7 +141,6 @@ module Lawn
       new_index_file.close
       @index = Index.new Path.new(new_index_file.path)
 
-      @log.clear
       @memtable.clear
       self
     end
