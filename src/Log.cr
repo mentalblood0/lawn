@@ -33,8 +33,10 @@ module Lawn
         next unless batch
         buf.write_byte table_id.to_u8
         Lawn.encode_number_with_size buf, batch.size
-        if tables[table_id].is_a?(FixedTable)
+        if (table = tables[table_id]).is_a?(FixedTable)
           batch.each do |key, value|
+            raise Exception.new "Key size must be #{table.key_size}, not #{key.size}" unless key.size == table.key_size
+            raise Exception.new "Value size must be #{table.value_size}, not #{value.size}" unless !value || (value.size == table.value_size)
             buf.write key
             if value
               buf.write_byte 1_u8
