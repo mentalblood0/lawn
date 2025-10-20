@@ -13,7 +13,8 @@ database:
     index:
       path: /tmp/lawn/benchmark_fixed/index.idx
 seed: 0
-amount: 300_000
+records: 300_000
+records_per_transaction: 5
 size:
   key:
     min: 1

@@ -4,7 +4,7 @@ require "./src/RoundDataStorage"
 
 macro write_speeds
   puts "\tdata speed: #{(total_size / time.total_seconds).to_u64.humanize_bytes}/s"
-  puts "\trecords speed: #{(config[:amount] / time.total_seconds).to_u64.humanize}r/s"
+  puts "\trecords speed: #{(config[:records] / time.total_seconds).to_u64.humanize}r/s"
 end
 
 macro random_fixed_key
@@ -27,7 +27,7 @@ macro random_data
   rnd.random_bytes rnd.rand (config[:size][:key][:min] + config[:size][:value][:min])..(config[:size][:key][:max] + config[:size][:value][:max])
 end
 
-alias Config = {benchmarks: Array(String), database: Lawn::Database, seed: Int32, amount: Int64, size: {key: {min: UInt64, max: UInt64}, value: {min: UInt64, max: UInt64}}}
+alias Config = {benchmarks: Array(String), database: Lawn::Database, seed: Int32, records: Int64, records_per_transaction: Int64, size: {key: {min: UInt64, max: UInt64}, value: {min: UInt64, max: UInt64}}}
 
 config = Config.from_yaml File.read ENV["BENCHMARK_CONFIG_PATH"]
 rnd = Random.new config[:seed]
@@ -39,12 +39,12 @@ if config[:benchmarks].any? { |benchmark_name| benchmark_name.starts_with? "data
 
   table_id = 0_u8
   table = config[:database].tables[table_id].as Lawn::Table
-  config[:amount].times { keyvalues[random_key] = random_value }
+  config[:records].times { keyvalues[random_key] = random_value }
   total_size = keyvalues.map { |key, value| key.size.to_i64 + value.size }.sum
 
   if config[:benchmarks].includes? "database table add"
     puts "database table write #{keyvalues.size} key-value pairs of total size #{total_size.humanize_bytes}"
-    time = Time.measure { keyvalues.each { |key, value| config[:database].transaction.set(table_id, key, value).commit } }
+    time = Time.measure { keyvalues.each_slice(config[:records_per_transaction]) { |slice| config[:database].transaction.set(table_id, slice).commit } }
     write_speeds
   end
 
@@ -71,12 +71,12 @@ if config[:benchmarks].any? { |benchmark_name| benchmark_name.starts_with? "data
 
   table_id = 1_u8
   table = config[:database].tables[table_id].as Lawn::FixedTable
-  config[:amount].times { keyvalues[rnd.random_bytes table.key_size] = rnd.random_bytes table.value_size }
+  config[:records].times { keyvalues[rnd.random_bytes table.key_size] = rnd.random_bytes table.value_size }
   total_size = keyvalues.size * (table.key_size + table.value_size)
 
   if config[:benchmarks].includes? "database fixed table add"
     puts "database fixed table write #{keyvalues.size} key-value pairs of total size #{total_size.humanize_bytes}"
-    time = Time.measure { keyvalues.each { |key, value| config[:database].transaction.set(table_id, key, value).commit } }
+    time = Time.measure { keyvalues.each_slice(config[:records_per_transaction]) { |slice| config[:database].transaction.set(table_id, slice).commit } }
     write_speeds
   end
 
@@ -100,7 +100,7 @@ if config[:benchmarks].any? { |benchmark_name| benchmark_name.starts_with? "alig
   rnd = Random.new config[:seed]
   element_size = 256
   aligned_list = Lawn::AlignedList.new config[:database].tables.first.as(Lawn::Table).data_storage.dir / "benchmark_aligned_list.dat", 256
-  amount = config[:amount]
+  amount = config[:records]
   add = Array.new(amount) { rnd.random_bytes element_size }
   ids = [] of Int64
   total_size = (add.map &.size.to_u64).sum
@@ -134,7 +134,7 @@ end
 if config[:benchmarks].any? { |benchmark_name| benchmark_name.starts_with? "data storage" }
   rnd = Random.new config[:seed]
   data_storage = Lawn::RoundDataStorage.new config[:database].tables.first.as(Lawn::Table).data_storage.dir / "benchmark_data_storage", max_element_size: 65536
-  amount = config[:amount]
+  amount = config[:records]
   add = Array.new(amount) { random_data }
   ids = [] of Lawn::RoundDataStorage::Id
   total_size = (add.map &.size.to_u64).sum
