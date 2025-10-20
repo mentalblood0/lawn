@@ -3,11 +3,11 @@ require "yaml"
 require "./common"
 require "./Transaction"
 require "./Log"
-require "./RoundDataStorage"
+require "./AlignedList"
 require "./AVLTree"
 
 module Lawn
-  class Table
+  class FixedTable
     Lawn.mserializable
 
     class Index
@@ -32,14 +32,12 @@ module Lawn
       Lawn.mignore
       getter size : Int64 = 0_i64
 
-      getter id_size : UInt8 { pointer_size + 1 }
-
       def initialize(@path)
         after_initialize
       end
 
       def after_initialize
-        @size = (file.size - 1) // id_size
+        @size = (file.size - 1) // pointer_size
       end
 
       def clear
@@ -49,18 +47,16 @@ module Lawn
       end
 
       def read
-        rounded_size_index = file.read_byte.not_nil!
-        pointer = Lawn.decode_number(file, pointer_size).not_nil!
-        {rounded_size_index: rounded_size_index, pointer: pointer}
+        Lawn.decode_number(file, pointer_size).not_nil!
       end
 
-      def [](i : Int64) : RoundDataStorage::Id
-        file.pos = 1 + i * id_size
+      def [](i : Int64) : Int64
+        file.pos = 1 + i * pointer_size
         read
       end
 
       def each(from : Int64 = 0, &)
-        file.pos = 1 + from * id_size
+        file.pos = 1 + from * pointer_size
         (@size - from).times do |i|
           yield read
         end
@@ -75,13 +71,18 @@ module Lawn
       end
     end
 
-    getter data_storage : RoundDataStorage
+    getter data_storage_path : Path
+    getter key_size : Int32
+    getter value_size : Int32
     getter index : Index
+
+    Lawn.mignore
+    getter data_storage : AlignedList { AlignedList.new data_storage_path, @key_size + @value_size }
 
     Lawn.mignore
     getter memtable = AVLTree.new
 
-    def initialize(@data_storage, @index)
+    def initialize(@data_storage_path, @key_size, @value_size, @index)
     end
 
     def clear
@@ -89,18 +90,18 @@ module Lawn
       index.clear
     end
 
-    protected def get_data(data_id : RoundDataStorage::Id) : KeyValue
-      data = IO::Memory.new @data_storage.get(data_id).not_nil!
-      value = Lawn.decode_bytes_with_size_size data
-      key = data.getb_to_end
+    protected def get_data(data_id : Int64) : KeyValue
+      data = data_storage.get(data_id).not_nil!
+      key = data[..@key_size - 1]
+      value = data[@key_size..]
       {key, value}
     end
 
-    def get_from_checkpointed(key : Bytes, strict : Bool = true) : {index_i: Int64, data_id: RoundDataStorage::Id, value: Value}?
+    def get_from_checkpointed(key : Bytes, strict : Bool = true) : {index_i: Int64, data_id: Int64, value: Value}?
       ::Log.debug { "Env.get_from_checkpointed #{key.hexstring} while @index.size = #{@index.size}" }
       return unless @index.size > 0
 
-      cache = [] of {i: Int64, result: {data_id: RoundDataStorage::Id, keyvalue: KeyValue}}
+      cache = [] of {i: Int64, result: {data_id: Int64, keyvalue: KeyValue}}
       result_index = (0_i64..@index.size - 1).bsearch do |i|
         data_id = @index[i]
         current_keyvalue = get_data data_id
@@ -116,10 +117,7 @@ module Lawn
     end
 
     protected def encode(keyvalue : KeyValue) : Bytes
-      value_key_encoded = IO::Memory.new
-      Lawn.encode_bytes_with_size_size value_key_encoded, keyvalue[1]
-      value_key_encoded.write keyvalue[0]
-      value_key_encoded.to_slice
+      keyvalue[0] + keyvalue[1]
     end
 
     def checkpoint
@@ -131,7 +129,7 @@ module Lawn
       new_index_pointer_size = 1_u8
 
       data_to_add = Array(Bytes).new
-      ids_to_delete = Set(RoundDataStorage::Id).new
+      ids_to_delete = Set(Int64).new
 
       index_current = nil
       memtable_cursor = AVLTree::Cursor.new @memtable.root
@@ -153,7 +151,7 @@ module Lawn
         if index_current[0] == last_key_yielded_from_memtable
           ids_to_delete << index_id
         else
-          index_id_pointer_size = Lawn.number_size index_id[:pointer]
+          index_id_pointer_size = Lawn.number_size index_id
           new_index_pointer_size = Math.max new_index_pointer_size, index_id_pointer_size
           global_i += 1
         end
@@ -168,9 +166,9 @@ module Lawn
         memtable_current = memtable_cursor.next
       end
 
-      new_index_ids = @data_storage.update add: data_to_add, delete: ids_to_delete.to_a
+      new_index_ids = data_storage.update add: data_to_add, delete: ids_to_delete.to_a
       unless new_index_ids.empty?
-        new_index_pointer_size = Math.max new_index_pointer_size, new_index_ids.max_of { |index_id| Lawn.number_size index_id[:pointer] }
+        new_index_pointer_size = Math.max new_index_pointer_size, new_index_ids.max_of { |index_id| Lawn.number_size index_id }
       end
 
       new_index_file = File.new "#{@index.file.path}.new", "w"
@@ -183,21 +181,18 @@ module Lawn
         while global_i < new_index_position
           old_index_id = @index.read
           unless ids_to_delete.includes? old_index_id
-            new_index_file.write_byte old_index_id[:rounded_size_index]
-            Lawn.encode_number new_index_file, old_index_id[:pointer], new_index_pointer_size
+            Lawn.encode_number new_index_file, old_index_id, new_index_pointer_size
             global_i += 1
           end
         end
         new_index_id = new_index_ids[new_index_ids_i]
-        new_index_file.write_byte new_index_id[:rounded_size_index]
-        Lawn.encode_number new_index_file, new_index_id[:pointer], new_index_pointer_size
+        Lawn.encode_number new_index_file, new_index_id, new_index_pointer_size
         new_index_ids_i += 1
         global_i += 1
       end
       while ((old_index_id = @index.read) rescue nil)
         unless ids_to_delete.includes? old_index_id
-          new_index_file.write_byte old_index_id[:rounded_size_index]
-          Lawn.encode_number new_index_file, old_index_id[:pointer], new_index_pointer_size
+          Lawn.encode_number new_index_file, old_index_id, new_index_pointer_size
         end
       end
 

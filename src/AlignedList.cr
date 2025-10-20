@@ -92,7 +92,7 @@ module Lawn
       rs = [] of Int64
 
       replaced = 0
-      if delete
+      if delete && !delete.empty?
         while (replaced < add.size) && (replaced < delete.size)
           rs << set delete[replaced], add[replaced]
           replaced += 1

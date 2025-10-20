@@ -4,13 +4,14 @@ require "./common"
 require "./Transaction"
 require "./Log"
 require "./Table"
+require "./FixedTable"
 
 module Lawn
   class Database
     Lawn.mserializable
 
     getter log : Log
-    getter tables : Array(Table)
+    getter tables : Array(Table | FixedTable)
 
     def initialize(@log, @tables)
     end

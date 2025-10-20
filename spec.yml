@@ -6,5 +6,10 @@ database:
       dir: /tmp/lawn/test
       max_element_size: 65536
     index:
-      path: /tmp/lawn/index.idx
+      path: /tmp/lawn/test/index.idx
+  - key_size: 16
+    value_size: 16
+    data_storage_path: /tmp/lawn/test_fixed/data.dat
+    index:
+      path: /tmp/lawn/test_fixed/index.idx
 seed: 0

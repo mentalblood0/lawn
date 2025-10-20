@@ -77,35 +77,37 @@ describe Lawn::AlignedList do
   end
 end
 
-describe Lawn::RoundDataStorage do
-  data_storage = config[:database].tables.first.data_storage
-
-  it "correctly splits sizes scale" do
-    points = 256
-    (256..2**(8 * 2)).step(19).each do |max|
-      r = Lawn::RoundDataStorage.get_sizes max, points
-      r.sort.should eq r
-      r.last.should eq max
-      r.size.should eq points
+data_storage = config[:database].tables.first.data_storage
+case data_storage
+when Lawn::RoundDataStorage
+  describe Lawn::RoundDataStorage do
+    it "correctly splits sizes scale" do
+      points = 256
+      (256..2**(8 * 2)).step(19).each do |max|
+        r = Lawn::RoundDataStorage.get_sizes max, points
+        r.sort.should eq r
+        r.last.should eq max
+        r.size.should eq points
+      end
     end
-  end
 
-  it "simple test" do
-    add = Array(Bytes).new(2) { rnd.random_bytes rnd.rand 1..16 }
-    (data_storage.update add, [] of Lawn::RoundDataStorage::Id).each_with_index { |id, data_index| data_storage.get(id).should eq add[data_index] }
-  end
-
-  it "generative test" do
-    added = Hash(Lawn::RoundDataStorage::Id, Bytes).new
-    1000.times do
-      add = Array(Bytes).new(rnd.rand 1..16) { rnd.random_bytes rnd.rand 1..1024 }
-      delete = added.keys.sample rnd.rand(1..16), rnd
-      r = data_storage.update add, delete
-      r.each_with_index { |pointer, data_index| added[pointer] = add[data_index] }
-      delete.each { |pointer| added.delete pointer }
+    it "simple test" do
+      add = Array(Bytes).new(2) { rnd.random_bytes rnd.rand 1..16 }
+      (data_storage.update add, [] of Lawn::RoundDataStorage::Id).each_with_index { |id, data_index| data_storage.get(id).should eq add[data_index] }
     end
-    added.each do |pointer, data|
-      (data_storage.get pointer).should eq data
+
+    it "generative test" do
+      added = Hash(Lawn::RoundDataStorage::Id, Bytes).new
+      1000.times do
+        add = Array(Bytes).new(rnd.rand 1..16) { rnd.random_bytes rnd.rand 1..1024 }
+        delete = added.keys.sample rnd.rand(1..16), rnd
+        r = data_storage.update add, delete
+        r.each_with_index { |pointer, data_index| added[pointer] = add[data_index] }
+        delete.each { |pointer| added.delete pointer }
+      end
+      added.each do |pointer, data|
+        (data_storage.get pointer).should eq data
+      end
     end
   end
 end
@@ -180,29 +182,48 @@ describe Lawn::Database do
   end
 
   it "generative test" do
-    added = Hash(Lawn::Key, Lawn::Value).new
+    added = Array(Hash(Lawn::Key, Lawn::Value)).new(database.tables.size) { Hash(Lawn::Key, Lawn::Value).new }
     200.times do
       rnd.rand(1..16).times do
+        table_id = rnd.rand(0..(database.tables.size - 1)).to_u8
+
+        case table = database.tables[table_id]
+        when Lawn::Table
+          key_size = rnd.rand 1..16
+          value_size = rnd.rand 1..16
+        when Lawn::FixedTable
+          key_size = table.key_size
+          value_size = table.value_size
+        else
+          raise "unreacheable"
+        end
+
         case rnd.rand 0..2
         when 0, 1
-          key = rnd.random_bytes rnd.rand 1..16
-          value = rnd.random_bytes rnd.rand 1..16
+          key = rnd.random_bytes key_size
+          value = rnd.random_bytes value_size
 
-          database.transaction.set(0_u8, key, value).commit
-          added[key] = value
+          database.transaction.set(table_id, key, value).commit
+          added[table_id][key] = value
         when 2
-          key = added.keys.sample rnd rescue next
+          key = added[table_id].keys.sample rnd rescue next
 
-          database.transaction.delete(0_u8, key).commit
-          added.delete key
+          database.transaction.delete(table_id, key).commit
+          added[table_id].delete key
         end
       end
       database.checkpoint
-      added.keys.each { |k| database.tables.first.get(k).should eq added[k] }
+      added.each_with_index do |added_in_table, table_id|
+        added_in_table.keys.each { |k| database.tables[table_id].get(k).should eq added_in_table[k] }
+      end
     end
-    all_added = added.to_a.sort_by { |key, _| key }
-    all_present = database.tables.first.each
-    all_present.should eq all_added
-    all_present.each { |key, value| database.tables.first.each(from: key).should eq all_added[all_added.index({key, value})..] }
+    added.each_with_index do |added_in_table, table_id|
+      all_added_in_table = added_in_table.to_a.sort_by { |key, _| key }
+      all_present_in_table = database.tables[table_id].each
+      all_present_in_table.should eq all_added_in_table
+      all_present_in_table.each do |key, value|
+        database.tables[table_id].each(from: key).should eq all_added_in_table[all_added_in_table.index({key, value})..]
+      end
+    end
   end
 end
