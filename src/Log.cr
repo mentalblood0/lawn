@@ -27,28 +27,31 @@ module Lawn
       file.truncate
     end
 
-    def write(table_id : UInt8, fixed : Bool, batch : Array({Key, Value?}))
+    def write(tables : Array(Table | FixedTable), batches : Array(Array({Key, Value?})?))
       buf = IO::Memory.new
-      buf.write_byte table_id
-      Lawn.encode_number_with_size buf, batch.size
-      if fixed
-        batch.each do |key, value|
-          buf.write key
-          if value
-            buf.write_byte 1_u8
-            buf.write value
-          else
-            buf.write_byte 0_u8
+      batches.each_with_index do |batch, table_id|
+        next unless batch
+        buf.write_byte table_id.to_u8
+        Lawn.encode_number_with_size buf, batch.size
+        if tables[table_id].is_a?(FixedTable)
+          batch.each do |key, value|
+            buf.write key
+            if value
+              buf.write_byte 1_u8
+              buf.write value
+            else
+              buf.write_byte 0_u8
+            end
           end
-        end
-      else
-        batch.each do |key, value|
-          Lawn.encode_bytes_with_size_size buf, key
-          if value
-            buf.write_byte 1_u8
-            Lawn.encode_bytes_with_size_size file, value
-          else
-            buf.write_byte 0_u8
+        else
+          batch.each do |key, value|
+            Lawn.encode_bytes_with_size_size buf, key
+            if value
+              buf.write_byte 1_u8
+              Lawn.encode_bytes_with_size_size file, value
+            else
+              buf.write_byte 0_u8
+            end
           end
         end
       end
