@@ -89,7 +89,7 @@ end
 
 if config[:benchmarks].any? { |benchmark_name| benchmark_name.starts_with? "data storage" }
   rnd = Random.new config[:seed]
-  data_storage = Lawn::RoundDataStorage.new config[:env].data_storage.dir / "benchmark_data_storage", {max: 65534, points: 327}
+  data_storage = Lawn::RoundDataStorage.new config[:env].data_storage.dir / "benchmark_data_storage", max_element_size: 65536
   amount = config[:amount]
   add = Array.new(amount) { random_data }
   ids = [] of Lawn::RoundDataStorage::Id

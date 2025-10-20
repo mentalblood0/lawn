@@ -3,9 +3,7 @@ env:
     path: /tmp/lawn/log.dat
   data_storage:
     dir: /tmp/lawn
-    logarithmically_divided_sizes_scale:
-      max: 65534
-      points: 327
+    max_element_size: 65536
   index:
     path: /tmp/lawn/index.idx
 seed: 0

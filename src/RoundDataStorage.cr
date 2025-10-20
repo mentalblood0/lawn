@@ -9,34 +9,46 @@ module Lawn
     Lawn.mserializable
 
     getter dir : Path
-    getter logarithmically_divided_sizes_scale : {max: Int32, points: Int32}
+    getter max_element_size : Int32
 
     Lawn.mignore
     getter data_aligned_lists_by_rounded_size_index : Array(AlignedList?) = Array(AlignedList?).new 256 { nil }
 
     def data_aligned_list(round_index : UInt8)
       unless data_aligned_lists_by_rounded_size_index[round_index]
-        size = sizes[round_index]
+        size = @sizes[round_index]
         data_aligned_lists_by_rounded_size_index[round_index] = AlignedList.new @dir / "size_and_data_of_rounded_size_#{size.to_s.rjust 10, '0'}.dat", size
       end
       data_aligned_lists_by_rounded_size_index[round_index].not_nil!
     end
 
-    getter sizes : Array(Int32) {
-      p = @logarithmically_divided_sizes_scale
-      rs = [] of Int32
+    Lawn.mignore
+    getter sizes = [] of Int32
 
-      (0..p[:points] - 1).each do |i|
-        log = Math.log(1) + (Math.log(p[:max]) - Math.log(1)) * i / (p[:points] - 1)
-        r = Math.exp(log).round.to_i32
+    def initialize(@dir, @max_element_size)
+    end
+
+    def self.get_sizes(max : Int32, points : Int32)
+      raise Exception.new "Maximum size should be >= points count, but (max = #{max}) <= (points = #{points})" unless max >= points
+      rs = Set(Int32).new
+
+      (0..points - 2).each do |i|
+        log = Math.log(1) + (Math.log(max) - Math.log(1)) * i / (points - 1)
+        r = Math.exp(log).to_i32
         rs << r
       end
+      rs << max
 
-      rs.uniq!
-      rs
-    }
+      (1..max).each do |i|
+        break if rs.size == points
+        rs << i
+      end
 
-    def initialize(@dir, @logarithmically_divided_sizes_scale)
+      rs.to_a.sort
+    end
+
+    def after_initialize
+      @sizes = RoundDataStorage.get_sizes max: @max_element_size, points: 2 ** 8
     end
 
     def clear
@@ -50,7 +62,7 @@ module Lawn
     def update(add : Array(Bytes), delete : Array(Id)) : Array(Id)
       ::Log.debug { "RoundDataStorage.update add: #{add.map &.hexstring}, delete: #{delete}" }
 
-      add_data_by_rounded_size_index = Array(Array(Add)?).new(sizes.size) { nil }
+      add_data_by_rounded_size_index = Array(Array(Add)?).new(@sizes.size) { nil }
       add.each_with_index do |data, data_index|
         size_and_data_encoded = IO::Memory.new
         Lawn.encode_bytes_with_size_size size_and_data_encoded, data
@@ -59,14 +71,14 @@ module Lawn
         add_data_by_rounded_size_index[i].not_nil! << {data: size_and_data_encoded.to_slice, data_index: data_index}
       end
 
-      delete_pointers_by_rounded_size_index = Array(Array(Int64)?).new(sizes.size) { nil }
+      delete_pointers_by_rounded_size_index = Array(Array(Int64)?).new(@sizes.size) { nil }
       delete.each do |id|
         delete_pointers_by_rounded_size_index[id[:rounded_size_index]] = Array(Int64).new unless delete_pointers_by_rounded_size_index[id[:rounded_size_index]]
         delete_pointers_by_rounded_size_index[id[:rounded_size_index]].not_nil! << id[:pointer]
       end
 
       r = Array(Id).new(add.size) { {rounded_size_index: 0_u8, pointer: 0_i64} }
-      (0_u8..sizes.size - 1).each do |i|
+      (0_u8..@sizes.size - 1).each do |i|
         i_add = add_data_by_rounded_size_index[i]
         i_delete = delete_pointers_by_rounded_size_index[i]
         if i_add || i_delete
@@ -91,7 +103,7 @@ module Lawn
     end
 
     def round_index(size : Int32) : Int32
-      sizes.bsearch_index { |n| n >= size }.not_nil!
+      @sizes.bsearch_index { |n| n >= size }.not_nil!
     end
   end
 end

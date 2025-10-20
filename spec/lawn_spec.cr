@@ -111,6 +111,16 @@ describe ds.class do
       end
     end
   when Lawn::RoundDataStorage
+    it "correctly splits sizes scale" do
+      points = 256
+      (256..2**(8 * 2)).step(19).each do |max|
+        r = Lawn::RoundDataStorage.get_sizes max, points
+        r.sort.should eq r
+        r.last.should eq max
+        r.size.should eq points
+      end
+    end
+
     it "simple test" do
       add = Array(Bytes).new(2) { rnd.random_bytes rnd.rand 1..16 }
       (ds.update add, [] of Lawn::RoundDataStorage::Id).each_with_index { |id, data_index| ds.get(id).should eq add[data_index] }
