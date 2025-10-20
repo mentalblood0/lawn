@@ -1,11 +1,17 @@
-env:
+database:
   log:
     path: /tmp/lawn/log.dat
-  data_storage:
-    dir: /tmp/lawn
-    max_element_size: 65536
-  index:
-    path: /tmp/lawn/index.idx
+  tables:
+  - data_storage:
+      dir: /tmp/lawn/benchmark
+      max_element_size: 65536
+    index:
+      path: /tmp/lawn/benchmark/index.idx
+  - key_size: 16
+    value_size: 16
+    data_storage_path: /tmp/lawn/benchmark_fixed/data.dat
+    index:
+      path: /tmp/lawn/benchmark_fixed/index.idx
 seed: 0
 amount: 300_000
 size:
@@ -16,9 +22,12 @@ size:
     min: 1
     max: 1024
 benchmarks:
-- env add
-- env checkpoint
-- env random get
+# - database table add
+# - database table checkpoint
+# - database table random get
+- database fixed table add
+- database fixed table checkpoint
+- database fixed table random get
 # - data storage add
 # - data storage random get
 # - aligned list add/delete
