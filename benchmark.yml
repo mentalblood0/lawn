@@ -7,13 +7,13 @@ database:
       max_element_size: 65536
     index:
       path: /tmp/lawn/benchmark/index.idx
-      cache_size_megabytes: 128
+      cache_size: 1MB
   - key_size: 16
     value_size: 16
     data_storage_path: /tmp/lawn/benchmark_fixed/data.dat
     index:
       path: /tmp/lawn/benchmark_fixed/index.idx
-      cache_size_megabytes: 128
+      cache_size: 1MB
 seed: 0
 records: 300_000
 records_per_transaction: 5
@@ -25,9 +25,9 @@ size:
     min: 1
     max: 1024
 benchmarks:
-- database table add
-- database table checkpoint
-- database table random get
+# - database table add
+# - database table checkpoint
+# - database table random get
 - database fixed table add
 - database fixed table checkpoint
 - database fixed table random get

@@ -5,81 +5,26 @@ require "./Transaction"
 require "./Log"
 require "./RoundDataStorage"
 require "./AVLTree"
-require "./Cache"
+require "./Index"
 
 module Lawn
   class Table
     Lawn.mserializable
 
-    class Index
+    class Index < Index(RoundDataStorage::Id)
       Lawn.mserializable
 
-      getter path : Path
-      getter cache_size_megabytes : Int64
-
-      Lawn.mignore
-      getter file : File do
-        unless File.exists? @path
-          Dir.mkdir_p @path.parent
-          File.write @path, Bytes.new 1, 1_u8
-        end
-        File.new @path, "r"
+      def initialize(@path, @cache_size)
       end
 
-      Lawn.mignore
-      getter cache : Cache { Cache.new @path, id_size, @cache_size_megabytes * 1024 * 1024 }
-
-      Lawn.mignore
-      getter pointer_size : UInt8 do
-        file.pos = 0
-        file.read_byte.not_nil!
+      def element_size : UInt8
+        pointer_size + 1
       end
 
-      Lawn.mignore
-      getter size : Int64 { (file.size - 1) // id_size }
-
-      Lawn.mignore
-      getter id_size : UInt8 { pointer_size + 1 }
-
-      def initialize(@path, @cache_size_megabytes)
-      end
-
-      def clear
-        file.delete
-        @file = nil
-        @pointer_size = nil
-        @size = nil
-        @id_size = nil
-      end
-
-      def read(source : IO = file)
+      def read(source : IO = file) : RoundDataStorage::Id
         rounded_size_index = source.read_byte.not_nil!
         pointer = Lawn.decode_number(source, pointer_size).not_nil!
         {rounded_size_index: rounded_size_index, pointer: pointer}
-      end
-
-      def [](i : Int64) : RoundDataStorage::Id
-        cache.pos = i
-        return read cache.data
-        # file.pos = 1 + i * id_size
-        # read
-      end
-
-      def each(from : Int64 = 0, &)
-        # file.pos = 1 + from * id_size
-        cache.pos = from
-        (size - from).times do |i|
-          yield read cache.data
-          # yield read
-        end
-      end
-
-      def each_with_index(from : Int64 = 0, &)
-        i = 0
-        each(from) do |id|
-          yield({id, i})
-          i += 1
-        end
       end
     end
 
@@ -211,7 +156,7 @@ module Lawn
 
       new_index_file.rename @index.file.path
       new_index_file.close
-      @index = Index.new Path.new(new_index_file.path), @index.cache_size_megabytes
+      @index = Index.new Path.new(new_index_file.path), @index.cache_size
 
       @memtable.clear
       self
