@@ -37,12 +37,11 @@ module Lawn
     end
 
     Lawn.mignore
-    getter cache : IO::Memory do
+    getter cache : Bytes do
       file_size = file.size
-      bytes = Bytes.new (file_size < @cache_size) ? file_size : @cache_size
-      file.pos = 0
-      file.read_fully bytes
-      IO::Memory.new bytes
+      result = Bytes.new (file_size < @cache_size) ? file_size : @cache_size
+      Crystal::System::FileDescriptor.pread file, result, 0
+      result
     end
 
     Lawn.mignore
@@ -67,25 +66,16 @@ module Lawn
     def [](i : Int64) : T
       pos = 1 + i * element_size
       if pos + element_size <= cache.size
-        cache.pos = pos
-        read cache
+        read IO::Memory.new cache[pos, element_size]
       else
-        file.pos = pos
-        read file
+        buf = Bytes.new element_size
+        Crystal::System::FileDescriptor.pread file, buf, pos
+        read IO::Memory.new buf
       end
     end
 
     def each(from : Int64 = 0, &)
-      pos = 1 + from * element_size
-      if pos + element_size <= cache.size
-        cache.pos = pos
-        loop do
-          yield read cache rescue break
-          pos += element_size
-        end
-      end
-      file.pos = pos
-      loop { yield read file rescue break }
+      (from..size - 1).each { |i| yield self[i] }
     end
 
     def each_with_index(from : Int64 = 0, &)

@@ -7,13 +7,13 @@ database:
       max_element_size: 65536
     index:
       path: /tmp/lawn/benchmark/index.idx
-      cache_size: 1MB
+      cache_size: 0MB
   - key_size: 16
     value_size: 16
     data_storage_path: /tmp/lawn/benchmark_fixed/data.dat
     index:
       path: /tmp/lawn/benchmark_fixed/index.idx
-      cache_size: 1MB
+      cache_size: 0MB
 seed: 0
 records: 300_000
 records_per_transaction: 5
