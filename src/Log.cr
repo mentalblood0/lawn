@@ -61,7 +61,7 @@ module Lawn
     end
 
     def read(tables : Array(Table | FixedTable), &)
-      file.pos = 0
+      file.rewind
       loop do
         table_id = file.read_byte.not_nil! rescue break
         batch_size = Lawn.decode_number_with_size file

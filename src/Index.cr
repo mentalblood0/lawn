@@ -46,8 +46,9 @@ module Lawn
 
     Lawn.mignore
     getter pointer_size : UInt8 do
-      file.pos = 0
-      file.read_byte.not_nil!
+      result = 0_u8
+      LibC.pread file.fd, pointerof(result), 1, 0
+      result
     end
 
     Lawn.mignore
@@ -64,12 +65,12 @@ module Lawn
     end
 
     def [](i : Int64) : T
-      pos = 1 + i * element_size
-      if pos + element_size <= cache.size
-        read IO::Memory.new cache[pos, element_size]
+      offset = 1 + i * element_size
+      if offset + element_size <= cache.size
+        read IO::Memory.new cache[offset, element_size]
       else
         buf = Bytes.new element_size
-        Crystal::System::FileDescriptor.pread file, buf, pos
+        Crystal::System::FileDescriptor.pread file, buf, offset
         read IO::Memory.new buf
       end
     end

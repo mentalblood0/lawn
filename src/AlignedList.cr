@@ -111,13 +111,9 @@ module Lawn
 
       (replaced..add.size - 1).each do |i|
         if @head.all? { |b| b == 255 }
-          file.seek 0, IO::Seek::End
-          elements_count = (file.pos - head_size) // @element_size
-          (elements_count..elements_count + add.size - i - 1).each do |r|
-            rs << r
-          end
-          file.write Bytes.join add[i..].map { |d| @element_size > d.size ? d + Bytes.new(@element_size - d.size) : d }
-          file.rewind
+          elements_count = (file.size - head_size) // @element_size
+          (elements_count..elements_count + add.size - i - 1).each { |r| rs << r }
+          set elements_count, Bytes.join add[i..].map { |d| @element_size > d.size ? d + Bytes.new(@element_size - d.size) : d }
           break
         else
           r = as_p @head
