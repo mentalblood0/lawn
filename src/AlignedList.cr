@@ -1,9 +1,12 @@
+require "syscall"
 require "json"
 require "yaml"
 
 require "./common.cr"
 
 module Lawn
+  Syscall.def_syscall pwrite64, LibC::SSizeT, fd : Int32, buf : UInt8*, count : LibC::SizeT, offset : LibC::OffT
+
   class AlignedList
     Lawn.mserializable
 
@@ -31,10 +34,8 @@ module Lawn
     end
 
     protected def init_head
-      file.pos = 0
-      return unless (@head = read).all? { |b| b == 255 } rescue nil
-      @head = Bytes.new head_size, 255
-      file.write head
+      return unless (@head = get_head).all? { |b| b == 255 } rescue nil
+      set_head Bytes.new head_size, 255
     end
 
     def after_initialize
@@ -44,12 +45,6 @@ module Lawn
     def clear
       file.truncate
       after_initialize
-    end
-
-    protected def read(max_size : Int32 = @element_size)
-      r = Bytes.new Math.min @element_size, max_size
-      file.read_fully r
-      r
     end
 
     protected def as_p(b : Bytes)
@@ -64,26 +59,34 @@ module Lawn
       (@element_size >= 8) ? r : r[8 - @element_size..]
     end
 
-    def go_to(i : Int64)
-      file.pos = head_size + i * @element_size
-    end
-
     def get(i : Int64, size : Int32 = @element_size)
       ::Log.debug { "AlignedList{#{path}}.get #{i}" }
-      go_to i
-      read size
+      result = Bytes.new Math.min @element_size, size
+      read = Crystal::System::FileDescriptor.pread file, result, head_size + i * @element_size
+      raise "pread returned #{read} although size of data to read is #{result.size}" unless read == result.size
+      result
     end
 
     protected def set(i : Int64, b : Bytes) : Int64
-      go_to i
-      file.write b
+      ::Log.debug { "AlignedList{#{path}}.set #{i} #{b.hexstring}" }
+      written = Lawn.pwrite64 file.fd, b.to_unsafe, b.size.to_u64, (head_size + i * @element_size).to_i64
+      raise "pwrite64 returned #{written} although size of data to write is #{b.size}" unless written == b.size
       i
     end
 
+    def get_head
+      ::Log.debug { "AlignedList{#{path}}.get_head" }
+      result = Bytes.new head_size
+      read = Crystal::System::FileDescriptor.pread file, result, 0
+      raise "pread returned #{read} although size of data to read is #{result.size}" unless read == result.size
+      result
+    end
+
     protected def set_head(b : Bytes)
+      ::Log.debug { "AlignedList{#{path}}.set_head #{b.hexstring}" }
       @head = b
-      file.pos = 0
-      file.write b
+      written = Lawn.pwrite64 file.fd, b.to_unsafe, b.size.to_u64, 0_i64
+      raise "pwrite64 returned #{written} although size of data to write is #{b.size}" unless written == b.size
     end
 
     def update(add : Array(Bytes), delete : Array(Int64)? = nil) : Array(Int64)
@@ -110,8 +113,11 @@ module Lawn
         if @head.all? { |b| b == 255 }
           file.seek 0, IO::Seek::End
           elements_count = (file.pos - head_size) // @element_size
-          (elements_count..elements_count + add.size - i - 1).each { |r| rs << r }
+          (elements_count..elements_count + add.size - i - 1).each do |r|
+            rs << r
+          end
           file.write Bytes.join add[i..].map { |d| @element_size > d.size ? d + Bytes.new(@element_size - d.size) : d }
+          file.rewind
           break
         else
           r = as_p @head
