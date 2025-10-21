@@ -181,7 +181,7 @@ describe Lawn::Database do
     database.tables.first.get(key).should eq new_value
   end
 
-  it "generative test" do
+  it "generative test", focus: true do
     added = Array(Hash(Lawn::Key, Lawn::Value)).new(database.tables.size) { Hash(Lawn::Key, Lawn::Value).new }
     200.times do
       rnd.rand(1..16).times do

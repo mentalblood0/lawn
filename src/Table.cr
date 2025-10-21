@@ -5,6 +5,7 @@ require "./Transaction"
 require "./Log"
 require "./RoundDataStorage"
 require "./AVLTree"
+require "./Cache"
 
 module Lawn
   class Table
@@ -14,6 +15,7 @@ module Lawn
       Lawn.mserializable
 
       getter path : Path
+      getter cache_size_megabytes : Int64
 
       Lawn.mignore
       getter file : File do
@@ -24,45 +26,51 @@ module Lawn
         File.new @path, "r"
       end
 
+      Lawn.mignore
+      getter cache : Cache { Cache.new @path, id_size, @cache_size_megabytes * 1024 * 1024 }
+
+      Lawn.mignore
       getter pointer_size : UInt8 do
         file.pos = 0
         file.read_byte.not_nil!
       end
 
       Lawn.mignore
-      getter size : Int64 = 0_i64
+      getter size : Int64 { (file.size - 1) // id_size }
 
+      Lawn.mignore
       getter id_size : UInt8 { pointer_size + 1 }
 
-      def initialize(@path)
-        after_initialize
-      end
-
-      def after_initialize
-        @size = (file.size - 1) // id_size
+      def initialize(@path, @cache_size_megabytes)
       end
 
       def clear
         file.delete
         @file = nil
-        after_initialize
+        @pointer_size = nil
+        @size = nil
+        @id_size = nil
       end
 
-      def read
-        rounded_size_index = file.read_byte.not_nil!
-        pointer = Lawn.decode_number(file, pointer_size).not_nil!
+      def read(source : IO = file)
+        rounded_size_index = source.read_byte.not_nil!
+        pointer = Lawn.decode_number(source, pointer_size).not_nil!
         {rounded_size_index: rounded_size_index, pointer: pointer}
       end
 
       def [](i : Int64) : RoundDataStorage::Id
-        file.pos = 1 + i * id_size
-        read
+        cache.pos = i
+        return read cache.data
+        # file.pos = 1 + i * id_size
+        # read
       end
 
       def each(from : Int64 = 0, &)
-        file.pos = 1 + from * id_size
-        (@size - from).times do |i|
-          yield read
+        # file.pos = 1 + from * id_size
+        cache.pos = from
+        (size - from).times do |i|
+          yield read cache.data
+          # yield read
         end
       end
 
@@ -203,7 +211,7 @@ module Lawn
 
       new_index_file.rename @index.file.path
       new_index_file.close
-      @index = Index.new Path.new(new_index_file.path)
+      @index = Index.new Path.new(new_index_file.path), @index.cache_size_megabytes
 
       @memtable.clear
       self
