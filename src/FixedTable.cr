@@ -153,9 +153,10 @@ module Lawn
 
       new_index_file.rename @index.file.path
       new_index_file.close
-      @index = Index.new Path.new(new_index_file.path), @index.cache_size
 
       @memtable.clear
+      @index = Index.new Path.new(new_index_file.path), @index.cache_size
+
       self
     end
 
