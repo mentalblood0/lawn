@@ -65,11 +65,17 @@ module Lawn
 
       add_data_by_rounded_size_index = Array(Array(Add)?).new(@sizes.size) { nil }
       add.each_with_index do |data, data_index|
-        size_and_data_encoded = IO::Memory.new
-        Lawn.encode_bytes_with_size_size size_and_data_encoded, data
-        i = round_index size_and_data_encoded.size
+        i = round_index data.size
+        if sizes[i] + 1 == sizes[i + 1]
+          size_and_data_encoded = data
+        else
+          size_and_data_encoded_io = IO::Memory.new
+          Lawn.encode_bytes_with_size_size size_and_data_encoded_io, data
+          size_and_data_encoded = size_and_data_encoded_io.to_slice
+          i = round_index size_and_data_encoded.size
+        end
         add_data_by_rounded_size_index[i] = Array(Add).new unless add_data_by_rounded_size_index[i]
-        add_data_by_rounded_size_index[i].not_nil! << {data: size_and_data_encoded.to_slice, data_index: data_index}
+        add_data_by_rounded_size_index[i].not_nil! << {data: size_and_data_encoded, data_index: data_index}
       end
 
       delete_pointers_by_rounded_size_index = Array(Array(Int64)?).new(@sizes.size) { nil }
@@ -101,8 +107,12 @@ module Lawn
       al = data_aligned_list id[:rounded_size_index]
       return unless al
 
-      size_and_data_encoded = IO::Memory.new al.get id[:pointer]
-      Lawn.decode_bytes_with_size_size size_and_data_encoded
+      size_and_data_encoded = al.get id[:pointer]
+      if sizes[id[:rounded_size_index]] + 1 == sizes[id[:rounded_size_index] + 1]
+        size_and_data_encoded
+      else
+        Lawn.decode_bytes_with_size_size IO::Memory.new size_and_data_encoded
+      end
     end
 
     def round_index(size : Int32) : Int32
