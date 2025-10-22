@@ -25,9 +25,9 @@ size:
     min: 1
     max: 1024
 benchmarks:
-- database table add
-- database table checkpoint
-- database table random get
+- database variable table add
+- database variable table checkpoint
+- database variable table random get
 - database fixed table add
 - database fixed table checkpoint
 - database fixed table random get

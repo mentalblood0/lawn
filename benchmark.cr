@@ -32,30 +32,30 @@ alias Config = {benchmarks: Array(String), database: Lawn::Database, seed: Int32
 config = Config.from_yaml File.read ENV["BENCHMARK_CONFIG_PATH"]
 rnd = Random.new config[:seed]
 
-if config[:benchmarks].any? { |benchmark_name| benchmark_name.starts_with? "database table " }
+if config[:benchmarks].any? { |benchmark_name| benchmark_name.starts_with? "database variable table " }
   rnd = Random.new config[:seed]
 
   keyvalues = {} of Bytes => Bytes
 
   table_id = 0_u8
-  table = config[:database].tables[table_id].as Lawn::Table
+  table = config[:database].tables[table_id].as Lawn::VariableTable
   config[:records].times { keyvalues[random_key] = random_value }
   total_size = keyvalues.map { |key, value| key.size.to_i64 + value.size }.sum
 
-  if config[:benchmarks].includes? "database table add"
-    puts "database table write #{keyvalues.size} key-value pairs of total size #{total_size.humanize_bytes}"
+  if config[:benchmarks].includes? "database variable table add"
+    puts "database variable table write #{keyvalues.size} key-value pairs of total size #{total_size.humanize_bytes}"
     time = Time.measure { keyvalues.each_slice(config[:records_per_transaction]) { |slice| config[:database].transaction.set(table_id, slice).commit } }
     write_speeds
   end
 
-  if config[:benchmarks].includes? "database table checkpoint"
-    puts "database table checkpoint #{keyvalues.size} key-value pairs of total size #{total_size.humanize_bytes}"
+  if config[:benchmarks].includes? "database variable table checkpoint"
+    puts "database variable table checkpoint #{keyvalues.size} key-value pairs of total size #{total_size.humanize_bytes}"
     time = Time.measure { config[:database].checkpoint }
     write_speeds
   end
 
-  if config[:benchmarks].includes? "database table random get"
-    puts "database table random get #{keyvalues.size} key-value pairs of total size #{total_size.humanize_bytes}"
+  if config[:benchmarks].includes? "database variable table random get"
+    puts "database variable table random get #{keyvalues.size} key-value pairs of total size #{total_size.humanize_bytes}"
     rnd = Random.new config[:seed]
     keys = keyvalues.keys
     keys.shuffle! rnd
@@ -99,7 +99,7 @@ end
 if config[:benchmarks].any? { |benchmark_name| benchmark_name.starts_with? "aligned list" }
   rnd = Random.new config[:seed]
   element_size = 256
-  aligned_list = Lawn::AlignedList.new config[:database].tables.first.as(Lawn::Table).data_storage.dir / "benchmark_aligned_list.dat", 256
+  aligned_list = Lawn::AlignedList.new config[:database].tables.first.as(Lawn::FixedTable).data_storage_path.parent / "benchmark_aligned_list.dat", 256
   amount = config[:records]
   add = Array.new(amount) { rnd.random_bytes element_size }
   ids = [] of Int64
@@ -133,7 +133,7 @@ end
 
 if config[:benchmarks].any? { |benchmark_name| benchmark_name.starts_with? "data storage" }
   rnd = Random.new config[:seed]
-  data_storage = Lawn::RoundDataStorage.new config[:database].tables.first.as(Lawn::Table).data_storage.dir / "benchmark_data_storage", max_element_size: 65536
+  data_storage = Lawn::RoundDataStorage.new config[:database].tables.first.as(Lawn::FixedTable).data_storage_path.parent / "benchmark_data_storage", max_element_size: 65536
   amount = config[:records]
   add = Array.new(amount) { random_data }
   ids = [] of Lawn::RoundDataStorage::Id
