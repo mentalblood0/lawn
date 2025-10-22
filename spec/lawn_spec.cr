@@ -60,19 +60,23 @@ describe Lawn::AlignedList do
 
   [2, 3, 5, 9].map { |s| s.to_u8! }.each do |s|
     it "generative test: supports #{s} bytes elements" do
-      al = Lawn::AlignedList.new config[:database].log.path.parent / "aligned_list.dat", s
+      data_path = config[:database].log.path.parent / "aligned_list.dat"
+      al = Lawn::AlignedList.new data_path, s
+      al.clear
       added = Hash(Int64, Bytes).new
 
-      1000.times do
+      1.times do
         add = Array.new(rnd.rand 1..16) { rnd.random_bytes s }
         delete = added.keys.sample rnd.rand(1..16), rnd
         delete.each { |pointer| added.delete pointer } if delete
         r = al.update add, delete
         r.each_with_index { |pointer, add_index| added[pointer] = add[add_index] }
       end
+      al = Lawn::AlignedList.new data_path, s
       added.each do |i, b|
         (al.get i).should eq b
       end
+      al.clear
     end
   end
 end

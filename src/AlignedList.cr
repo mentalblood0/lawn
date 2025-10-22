@@ -20,7 +20,7 @@ module Lawn
         Dir.mkdir_p @path.parent
         File.touch @path
       end
-      r = File.new @path, "w+"
+      r = File.new @path, "r+"
       r.sync = true
       r
     end
@@ -36,8 +36,11 @@ module Lawn
     end
 
     protected def init_head
-      return unless (@head = get_head).all? { |b| b == 255 } rescue nil
-      set_head Bytes.new head_size, 255
+      begin
+        @head = get_head
+      rescue
+        set_head Bytes.new head_size, 255
+      end
     end
 
     def after_initialize
