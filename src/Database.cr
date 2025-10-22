@@ -3,7 +3,7 @@ require "yaml"
 require "./common"
 require "./Transaction"
 require "./Log"
-require "./Table"
+require "./VariableTable"
 require "./FixedTable"
 
 module Lawn
@@ -11,7 +11,7 @@ module Lawn
     Lawn.mserializable
 
     getter log : Log
-    getter tables : Array(Table | FixedTable)
+    getter tables : Array(VariableTable | FixedTable)
 
     def initialize(@log, @tables)
     end

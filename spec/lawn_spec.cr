@@ -136,10 +136,10 @@ describe Lawn::AVLTree do
         added[key] = nil
       end
       added.each { |key, value| tree[key]?.should eq value }
-      sorted = added.to_a.sort_by { |key, _| key }
-      tree.each.should eq sorted
-      tree.each { |key, value| tree.each(from: key).should eq sorted[sorted.index({key, value})..] }
     end
+    sorted = added.to_a.sort_by { |key, _| key }
+    tree.each.should eq sorted
+    tree.each { |key, value| tree.each(from: key).should eq sorted[sorted.index({key, value})..] }
   end
 end
 
@@ -188,7 +188,7 @@ describe Lawn::Database do
         table_id = rnd.rand(0..(database.tables.size - 1)).to_u8
 
         case table = database.tables[table_id]
-        when Lawn::Table
+        when Lawn::VariableTable
           key_size = rnd.rand 1..16
           value_size = rnd.rand 1..16
         when Lawn::FixedTable

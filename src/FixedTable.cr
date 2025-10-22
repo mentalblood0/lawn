@@ -1,15 +1,15 @@
 require "yaml"
 
 require "./common"
-require "./checkpoint"
 require "./Transaction"
 require "./Log"
 require "./AlignedList"
 require "./AVLTree"
 require "./Index"
+require "./Table"
 
 module Lawn
-  class FixedTable
+  class FixedTable < Table(Int64)
     Lawn.mserializable
 
     class Index < Index(Int64)
@@ -32,96 +32,37 @@ module Lawn
     getter value_size : Int32
     getter index : Index
 
-    Lawn.mignore
-    getter data_storage : AlignedList { AlignedList.new data_storage_path, @key_size + @value_size }
+    def index=(new_index : Lawn::Index(Int64)) : Nil
+      case new_index
+      when Index then @index = new_index
+      else            raise Exception.new "New index should be of the same type as old"
+      end
+    end
 
-    Lawn.mignore
-    getter memtable = AVLTree.new
+    def data_storage : AlignedList
+      @data_storage ||= AlignedList.new data_storage_path, @key_size + @value_size
+      @data_storage.as AlignedList
+    end
 
     def initialize(@data_storage_path, @key_size, @value_size, @index)
     end
 
-    def clear
-      data_storage.clear
-      index.clear
+    protected def encode_index_entry(io : IO, element_id : Int64, pointer_size : UInt8) : Nil
+      Lawn.encode_number io, element_id, pointer_size
     end
 
-    protected def get_data(data_id : Int64) : KeyValue
-      data = data_storage.get(data_id).not_nil!
+    protected def encode_keyvalue(keyvalue : KeyValue) : Bytes
+      keyvalue[0] + keyvalue[1]
+    end
+
+    protected def decode_keyvalue(data : Bytes) : KeyValue
       key = data[..@key_size - 1]
       value = data[@key_size..]
       {key, value}
     end
 
-    def get_from_checkpointed(key : Bytes, strict : Bool = true) : {index_i: Int64, data_id: Int64, value: Value}?
-      ::Log.debug { "Env.get_from_checkpointed #{key.hexstring} while @index.size = #{@index.size}" }
-      return unless @index.size > 0
-
-      cache = [] of {i: Int64, result: {data_id: Int64, keyvalue: KeyValue}}
-      result_index = (0_i64..@index.size - 1).bsearch do |i|
-        data_id = @index[i]
-        current_keyvalue = get_data data_id
-        cache << {i: i, result: {data_id: data_id, keyvalue: current_keyvalue}}
-        current_keyvalue[0] >= key
-      end
-
-      if result_index
-        cached = cache.find! { |c| c[:i] == result_index }
-        return nil if strict && (cached[:result][:keyvalue][0] != key)
-        {index_i: cached[:i], data_id: cached[:result][:data_id], value: cached[:result][:keyvalue][1]}
-      end
-    end
-
-    protected def encode(keyvalue : KeyValue) : Bytes
-      keyvalue[0] + keyvalue[1]
-    end
-
-    protected def encode(io : IO, id : Int64, pointer_size : UInt8)
-      Lawn.encode_number io, id, pointer_size
-    end
-
-    Lawn.def_checkpoint(Int64, nil)
-
-    def each(from : Key? = nil, & : KeyValue ->)
-      memtable_cursor = AVLTree::Cursor.new @memtable.root
-      index_current = nil
-      memtable_current = nil
-      last_key_yielded_from_memtable = nil
-
-      index_from = from ? (get_from_checkpointed(from, strict: false).not_nil![:index_i] rescue 0_i64) : 0_i64
-
-      @index.each(index_from) do |index_id|
-        index_current = get_data(index_id).not_nil!
-        while (memtable_current = memtable_cursor.next) && (memtable_current[0] <= index_current[0])
-          if memtable_current.is_a? KeyValue
-            last_key_yielded_from_memtable = memtable_current[0]
-            yield memtable_current
-          end
-        end
-        yield index_current unless index_current[0] == last_key_yielded_from_memtable
-      end
-      while memtable_current
-        yield memtable_current if memtable_current.is_a? KeyValue
-        memtable_current = memtable_cursor.next
-      end
-    end
-
-    def each(from : Key? = nil)
-      r = [] of KeyValue
-      each(from) do |keyvalue|
-        r << keyvalue
-      end
-      r
-    end
-
-    def get(key : Bytes) : Value?
-      ::Log.debug { "Env.get #{key.hexstring}" }
-
-      r = @memtable[key]?
-      return r if r
-
-      r = get_from_checkpointed key
-      return r[:value] if r
+    protected def pointer_from(element_id : Int64) : Int64
+      element_id
     end
   end
 end

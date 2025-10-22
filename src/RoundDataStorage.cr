@@ -3,9 +3,10 @@ require "json"
 
 require "./common"
 require "./AlignedList"
+require "./DataStorage"
 
 module Lawn
-  class RoundDataStorage
+  class RoundDataStorage < DataStorage({rounded_size_index: UInt8, pointer: Int64})
     Lawn.mserializable
 
     getter dir : Path
@@ -59,7 +60,7 @@ module Lawn
 
     alias Add = {data: Bytes, data_index: Int32}
 
-    def update(add : Array(Bytes), delete : Array(Id)) : Array(Id)
+    def update(add : Array(Bytes), delete : Array(Id)? = nil) : Array(Id)
       ::Log.debug { "RoundDataStorage.update add: #{add.map &.hexstring}, delete: #{delete}" }
 
       add_data_by_rounded_size_index = Array(Array(Add)?).new(@sizes.size) { nil }
@@ -72,9 +73,11 @@ module Lawn
       end
 
       delete_pointers_by_rounded_size_index = Array(Array(Int64)?).new(@sizes.size) { nil }
-      delete.each do |id|
-        delete_pointers_by_rounded_size_index[id[:rounded_size_index]] = Array(Int64).new unless delete_pointers_by_rounded_size_index[id[:rounded_size_index]]
-        delete_pointers_by_rounded_size_index[id[:rounded_size_index]].not_nil! << id[:pointer]
+      if delete
+        delete.each do |id|
+          delete_pointers_by_rounded_size_index[id[:rounded_size_index]] = Array(Int64).new unless delete_pointers_by_rounded_size_index[id[:rounded_size_index]]
+          delete_pointers_by_rounded_size_index[id[:rounded_size_index]].not_nil! << id[:pointer]
+        end
       end
 
       r = Array(Id).new(add.size) { {rounded_size_index: 0_u8, pointer: 0_i64} }
@@ -92,7 +95,7 @@ module Lawn
       r
     end
 
-    def get(id : Id)
+    def get(id : Id) : Bytes?
       ::Log.debug { "RoundDataStorage.get #{id}" }
 
       al = data_aligned_list id[:rounded_size_index]

@@ -1,62 +1,40 @@
 require "yaml"
 
 require "./common"
-require "./checkpoint"
-require "./Transaction"
 require "./Log"
-require "./RoundDataStorage"
 require "./AVLTree"
 require "./Index"
 
 module Lawn
-  class Table
+  abstract class Table(I)
     Lawn.mserializable
 
-    class Index < Index(RoundDataStorage::Id)
-      Lawn.mserializable
+    abstract def index : Index(I)
+    abstract def index=(new_index : Index(I)) : Nil
 
-      def initialize(@path, @cache_size)
-      end
+    @data_storage : (AlignedList | RoundDataStorage)?
 
-      def element_size : UInt8
-        pointer_size + 1
-      end
-
-      def read(source : IO = file) : RoundDataStorage::Id
-        rounded_size_index = source.read_byte.not_nil!
-        pointer = Lawn.decode_number(source, pointer_size).not_nil!
-        {rounded_size_index: rounded_size_index, pointer: pointer}
-      end
-    end
-
-    getter data_storage : RoundDataStorage
-    getter index : Index
+    abstract def data_storage : DataStorage(I)
 
     Lawn.mignore
     getter memtable = AVLTree.new
-
-    def initialize(@data_storage, @index)
-    end
 
     def clear
       data_storage.clear
       index.clear
     end
 
-    protected def get_data(data_id : RoundDataStorage::Id) : KeyValue
-      data = IO::Memory.new @data_storage.get(data_id).not_nil!
-      value = Lawn.decode_bytes_with_size_size data
-      key = data.getb_to_end
-      {key, value}
+    protected def get_data(data_id : I) : KeyValue
+      decode_keyvalue data_storage.get(data_id).not_nil!
     end
 
-    def get_from_checkpointed(key : Bytes, strict : Bool = true) : {index_i: Int64, data_id: RoundDataStorage::Id, value: Value}?
-      ::Log.debug { "Env.get_from_checkpointed #{key.hexstring} while @index.size = #{@index.size}" }
-      return unless @index.size > 0
+    def get_from_checkpointed(key : Bytes, strict : Bool = true) : {index_i: Int64, data_id: I, value: Value}?
+      ::Log.debug { "#{self.class}.get_from_checkpointed #{key.hexstring} while index.size = #{index.size}" }
+      return unless index.size > 0
 
-      cache = [] of {i: Int64, result: {data_id: RoundDataStorage::Id, keyvalue: KeyValue}}
-      result_index = (0_i64..@index.size - 1).bsearch do |i|
-        data_id = @index[i]
+      cache = [] of {i: Int64, result: {data_id: I, keyvalue: KeyValue}}
+      result_index = (0_i64..index.size - 1).bsearch do |i|
+        data_id = index[i]
         current_keyvalue = get_data data_id
         cache << {i: i, result: {data_id: data_id, keyvalue: current_keyvalue}}
         current_keyvalue[0] >= key
@@ -69,19 +47,95 @@ module Lawn
       end
     end
 
-    protected def encode(keyvalue : KeyValue) : Bytes
-      value_key_encoded = IO::Memory.new
-      Lawn.encode_bytes_with_size_size value_key_encoded, keyvalue[1]
-      value_key_encoded.write keyvalue[0]
-      value_key_encoded.to_slice
-    end
+    protected abstract def encode_index_entry(io : IO, element_id : I, pointer_size : UInt8) : Nil
+    protected abstract def encode_keyvalue(keyvalue : KeyValue) : Bytes
+    protected abstract def decode_keyvalue(data : Bytes) : KeyValue
+    protected abstract def pointer_from(element_id : I) : Int64
 
-    protected def encode(io : IO, id : RoundDataStorage::Id, pointer_size : UInt8)
-      io.write_byte id[:rounded_size_index]
-      Lawn.encode_number io, id[:pointer], pointer_size
-    end
+    def checkpoint
+      ::Log.debug { "#{self.class}.checkpoint" }
+      return self if @memtable.empty?
 
-    Lawn.def_checkpoint(RoundDataStorage::Id, pointer)
+      global_i = 0_i64
+      new_index_positions = [] of Int64
+      new_index_pointer_size = 1_u8
+
+      data_to_add = Array(Bytes).new
+      ids_to_delete = Set(I).new
+
+      index_current = nil
+      memtable_cursor = AVLTree::Cursor.new @memtable.root
+      memtable_current = memtable_cursor.next
+      last_key_yielded_from_memtable = nil
+
+      index.each do |index_id|
+        index_current = get_data index_id
+        while memtable_current && (memtable_current[0] <= index_current[0])
+          last_key_yielded_from_memtable = memtable_current[0]
+          if memtable_current[1]
+            data_to_add << encode_keyvalue({memtable_current[0], memtable_current[1].not_nil!})
+            new_index_positions << global_i
+            global_i += 1
+          else
+          end
+          memtable_current = memtable_cursor.next
+        end
+        if index_current[0] == last_key_yielded_from_memtable
+          ids_to_delete << index_id
+        else
+          index_id_pointer_size = Lawn.number_size pointer_from index_id
+          new_index_pointer_size = Math.max new_index_pointer_size, index_id_pointer_size
+          global_i += 1
+        end
+      end
+      while memtable_current
+        if memtable_current[1]
+          data_to_add << encode_keyvalue({memtable_current[0], memtable_current[1].not_nil!})
+          new_index_positions << global_i
+          global_i += 1
+        else
+        end
+        memtable_current = memtable_cursor.next
+      end
+
+      new_index_ids = data_storage.update add: data_to_add, delete: ids_to_delete.to_a
+      unless new_index_ids.empty?
+        new_index_pointer_size = Math.max new_index_pointer_size, new_index_ids.max_of { |index_id| Lawn.number_size pointer_from index_id }
+      end
+
+      new_index_file = File.new "#{index.file.path}.new", "w"
+      new_index_file.sync = true
+      new_index_file.write_byte new_index_pointer_size
+      global_i = 0_i64
+      new_index_ids_i = 0
+      index.file.pos = 1
+      new_index_positions.each do |new_index_position|
+        while global_i < new_index_position
+          old_index_id = index.read
+          unless ids_to_delete.includes? old_index_id
+            encode_index_entry new_index_file, old_index_id, new_index_pointer_size
+            global_i += 1
+          end
+        end
+        new_index_id = new_index_ids[new_index_ids_i]
+        encode_index_entry new_index_file, new_index_id, new_index_pointer_size
+        new_index_ids_i += 1
+        global_i += 1
+      end
+      while ((old_index_id = index.read) rescue nil)
+        unless ids_to_delete.includes? old_index_id
+          encode_index_entry new_index_file, old_index_id, new_index_pointer_size
+        end
+      end
+
+      new_index_file.rename index.file.path
+      new_index_file.close
+
+      @memtable.clear
+      self.index = self.index.class.new Path.new(new_index_file.path), index.cache_size
+
+      self
+    end
 
     def each(from : Key? = nil, & : KeyValue ->)
       memtable_cursor = AVLTree::Cursor.new @memtable.root
@@ -91,7 +145,7 @@ module Lawn
 
       index_from = from ? (get_from_checkpointed(from, strict: false).not_nil![:index_i] rescue 0_i64) : 0_i64
 
-      @index.each(index_from) do |index_id|
+      index.each(index_from) do |index_id|
         index_current = get_data(index_id).not_nil!
         while (memtable_current = memtable_cursor.next) && (memtable_current[0] <= index_current[0])
           if memtable_current.is_a? KeyValue
@@ -116,7 +170,7 @@ module Lawn
     end
 
     def get(key : Bytes) : Value?
-      ::Log.debug { "Env.get #{key.hexstring}" }
+      ::Log.debug { "#{self.class}.get #{key.hexstring}" }
 
       r = @memtable[key]?
       return r if r

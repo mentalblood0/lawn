@@ -27,13 +27,13 @@ module Lawn
       file.truncate
     end
 
-    def write(tables : Array(Table | FixedTable), batches : Array(Array({Key, Value?})?))
+    def write(tables : Array(Table), batches : Array(Array({Key, Value?})?))
       buf = IO::Memory.new
       batches.each_with_index do |batch, table_id|
         next unless batch
         buf.write_byte table_id.to_u8
         Lawn.encode_number_with_size buf, batch.size
-        if (table = tables[table_id]).is_a?(FixedTable)
+        if (table = tables[table_id]).is_a? FixedTable
           batch.each do |key, value|
             raise Exception.new "Key size must be #{table.key_size}, not #{key.size}" unless key.size == table.key_size
             raise Exception.new "Value size must be #{table.value_size}, not #{value.size}" unless !value || (value.size == table.value_size)
@@ -60,12 +60,12 @@ module Lawn
       file.write buf.to_slice
     end
 
-    def read(tables : Array(Table | FixedTable), &)
+    def read(tables : Array(Table), &)
       file.rewind
       loop do
         table_id = file.read_byte.not_nil! rescue break
         batch_size = Lawn.decode_number_with_size file
-        if (table = tables[table_id]).is_a?(FixedTable)
+        if (table = tables[table_id]).is_a? FixedTable
           batch_size.times do
             key = Lawn.decode_bytes file, table.key_size
             value = case file.read_byte.not_nil!

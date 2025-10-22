@@ -2,12 +2,13 @@ require "syscall"
 require "json"
 require "yaml"
 
-require "./common.cr"
+require "./common"
+require "./DataStorage"
 
 module Lawn
   Syscall.def_syscall pwrite64, LibC::SSizeT, fd : Int32, buf : UInt8*, count : LibC::SizeT, offset : LibC::OffT
 
-  class AlignedList
+  class AlignedList < DataStorage(Int64)
     Lawn.mserializable
 
     getter element_size : Int32
@@ -30,6 +31,7 @@ module Lawn
     getter head_size : Int32 { Math.min(@element_size, 8) }
 
     def initialize(@path, @element_size)
+      ::Log.debug { "AlignedList{#{path}}.initialize" }
       after_initialize
     end
 
@@ -39,10 +41,12 @@ module Lawn
     end
 
     def after_initialize
+      ::Log.debug { "AlignedList{#{path}}.after_initialize" }
       init_head
     end
 
     def clear
+      ::Log.debug { "AlignedList{#{path}}.clear" }
       file.truncate
       after_initialize
     end
@@ -59,12 +63,16 @@ module Lawn
       (@element_size >= 8) ? r : r[8 - @element_size..]
     end
 
-    def get(i : Int64, size : Int32 = @element_size)
+    def get(i : Int64, size : Int32)
       ::Log.debug { "AlignedList{#{path}}.get #{i}" }
       result = Bytes.new Math.min @element_size, size
       read = Crystal::System::FileDescriptor.pread file, result, head_size + i * @element_size
       raise "pread returned #{read} although size of data to read is #{result.size}" unless read == result.size
       result
+    end
+
+    def get(id : Int64) : Bytes?
+      get id, @element_size
     end
 
     protected def set(i : Int64, b : Bytes) : Int64
