@@ -66,7 +66,7 @@ module Lawn
       add_data_by_rounded_size_index = Array(Array(Add)?).new(@sizes.size) { nil }
       add.each_with_index do |data, data_index|
         i = round_index data.size
-        if sizes[i] + 1 == sizes[i + 1]
+        if sizes[i] == i + 1
           size_and_data_encoded = data
         else
           size_and_data_encoded_io = IO::Memory.new
@@ -108,7 +108,7 @@ module Lawn
       return unless al
 
       size_and_data_encoded = al.get id[:pointer]
-      if sizes[id[:rounded_size_index]] + 1 == sizes[id[:rounded_size_index] + 1]
+      if sizes[id[:rounded_size_index]] == id[:rounded_size_index] + 1
         size_and_data_encoded
       else
         Lawn.decode_bytes_with_size_size IO::Memory.new size_and_data_encoded
