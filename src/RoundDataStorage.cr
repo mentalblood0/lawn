@@ -16,6 +16,25 @@ module Lawn
     Lawn.mignore
     getter data_aligned_lists_by_rounded_size_index : Array(AlignedList?) = Array(AlignedList?).new 256 { nil }
 
+    alias Schema = {max_element_size: Int32}
+
+    Lawn.mignore
+    getter schema : Schema { {max_element_size: @max_element_size} }
+
+    Lawn.mignore
+    getter sequential_sizes_threshold_index : Int32 { sizes.index { |size| size != sizes[size - 1] } || sizes.size - 1 }
+
+    Lawn.mignore
+    getter sequential_sizes_threshold : Int32 { sizes[sequential_sizes_threshold_index] }
+
+    def need_size_if_index?(rounded_size_index : Int32)
+      rounded_size_index >= sequential_sizes_threshold_index
+    end
+
+    def need_size_if_size?(size : Int32)
+      size >= sequential_sizes_threshold
+    end
+
     def data_aligned_list(round_index : UInt8)
       unless data_aligned_lists_by_rounded_size_index[round_index]
         size = @sizes[round_index]
@@ -29,12 +48,6 @@ module Lawn
 
     def initialize(@dir, @max_element_size)
       after_initialize
-    end
-
-    alias Schema = {max_element_size: Int32}
-
-    def schema : Schema
-      {max_element_size: @max_element_size}
     end
 
     def after_initialize
@@ -80,15 +93,14 @@ module Lawn
 
       add_data_by_rounded_size_index = Array(Array(Add)?).new(@sizes.size) { nil }
       add.each_with_index do |data, data_index|
-        i = round_index data.size
-        if sizes[i] == i + 1
-          size_and_data_encoded = data
-        else
+        if need_size_if_size? data.size
           size_and_data_encoded_io = IO::Memory.new
           Lawn.encode_bytes_with_size_size size_and_data_encoded_io, data
           size_and_data_encoded = size_and_data_encoded_io.to_slice
-          i = round_index size_and_data_encoded.size
+        else
+          size_and_data_encoded = data
         end
+        i = round_index size_and_data_encoded.size
         add_data_by_rounded_size_index[i] = Array(Add).new unless add_data_by_rounded_size_index[i]
         add_data_by_rounded_size_index[i].not_nil! << {data: size_and_data_encoded, data_index: data_index}
       end
@@ -123,10 +135,10 @@ module Lawn
       return unless al
 
       size_and_data_encoded = al.get id[:pointer]
-      if sizes[id[:rounded_size_index]] == id[:rounded_size_index] + 1
-        size_and_data_encoded
-      else
+      if need_size_if_index? id[:rounded_size_index]
         Lawn.decode_bytes_with_size_size IO::Memory.new size_and_data_encoded
+      else
+        size_and_data_encoded
       end
     end
 
