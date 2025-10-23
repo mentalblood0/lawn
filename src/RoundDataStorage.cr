@@ -25,7 +25,7 @@ module Lawn
     getter sequential_sizes_threshold_index : Int32 { sizes.index { |size| size != sizes[size - 1] } || sizes.size - 1 }
 
     Lawn.mignore
-    getter sequential_sizes_threshold : Int32 { sizes[sequential_sizes_threshold_index] }
+    getter sequential_sizes_threshold : Int32 { sizes[sequential_sizes_threshold_index - 1] + 1 }
 
     def need_size_if_index?(rounded_size_index : Int32)
       rounded_size_index >= sequential_sizes_threshold_index

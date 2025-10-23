@@ -186,6 +186,14 @@ describe Lawn::Database do
     database.tables.first.get(key).should eq new_value
   end
 
+  it "handles wide range of sizes correctly" do
+    value = "v".to_slice
+    keyvalues = (1..1024).map { |key_size| {("k" * key_size).to_slice, value} }
+    database.transaction.set(0_u8, keyvalues).commit
+    database.checkpoint
+    keyvalues.each { |key, value| database.tables[0_u8].get(key).should eq value }
+  end
+
   it "generative test" do
     added = Array(Hash(Lawn::Key, Lawn::Value)).new(database.tables.size) { Hash(Lawn::Key, Lawn::Value).new }
     100.times do
