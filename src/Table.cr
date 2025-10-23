@@ -69,9 +69,10 @@ module Lawn
       memtable_current = memtable_cursor.next
       last_key_yielded_from_memtable = nil
 
-      index.each do |index_id|
-        index_current = get_data index_id
-        while memtable_current && (memtable_current[0] <= index_current[0])
+      index_cursor = Index::Cursor.new index
+      while index_id = index_cursor.value
+        index_current_data = get_data index_id
+        while memtable_current && (memtable_current[0] <= index_current_data[0])
           last_key_yielded_from_memtable = memtable_current[0]
           if memtable_current[1]
             data_to_add << encode_keyvalue({memtable_current[0], memtable_current[1].not_nil!})
@@ -81,13 +82,14 @@ module Lawn
           end
           memtable_current = memtable_cursor.next
         end
-        if index_current[0] == last_key_yielded_from_memtable
+        if index_current_data[0] == last_key_yielded_from_memtable
           ids_to_delete << index_id
         else
           index_id_pointer_size = Lawn.number_size pointer_from index_id
           new_index_pointer_size = Math.max new_index_pointer_size, index_id_pointer_size
           global_i += 1
         end
+        index_cursor.next
       end
       while memtable_current
         if memtable_current[1]
@@ -146,8 +148,9 @@ module Lawn
 
       index_from = from ? (get_from_checkpointed(from, strict: false).not_nil![:index_i] rescue 0_i64) : 0_i64
 
-      index.each(index_from) do |index_id|
-        index_current = get_data(index_id).not_nil!
+      index_cursor = Index::Cursor.new index, index_from
+      while index_id = index_cursor.value
+        index_current = get_data index_id
         while (memtable_current = memtable_cursor.next) && (memtable_current[0] <= index_current[0])
           if memtable_current.is_a? KeyValue
             last_key_yielded_from_memtable = memtable_current[0]
@@ -155,6 +158,7 @@ module Lawn
           end
         end
         yield index_current unless index_current[0] == last_key_yielded_from_memtable
+        index_cursor.next
       end
       while memtable_current
         yield memtable_current if memtable_current.is_a? KeyValue

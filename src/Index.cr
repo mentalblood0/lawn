@@ -89,15 +89,29 @@ module Lawn
       end
     end
 
-    def each(from : Int64 = 0, &)
-      (from..size - 1).each { |i| yield self[i] }
-    end
+    class Cursor(T)
+      getter index : Index(T)
+      getter i : Int64
+      getter value : T?
 
-    def each_with_index(from : Int64 = 0, &)
-      i = 0
-      each(from) do |id|
-        yield({id, i})
-        i += 1
+      protected def update_value
+        @value = (0 <= @i < @index.size) ? @index[@i] : nil
+      end
+
+      def initialize(@index, @i = 0_i64)
+        update_value
+      end
+
+      def next : T?
+        @i += 1
+        update_value
+        value
+      end
+
+      def previous : T?
+        @i -= 1
+        update_value
+        value
       end
     end
   end
