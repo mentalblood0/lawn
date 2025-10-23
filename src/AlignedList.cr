@@ -3,6 +3,7 @@ require "json"
 require "yaml"
 
 require "./common"
+require "./exceptions"
 require "./DataStorage"
 
 module Lawn
@@ -31,26 +32,27 @@ module Lawn
     getter head_size : Int32 { Math.min(@element_size, 8) }
 
     def initialize(@path, @element_size)
-      ::Log.debug { "AlignedList{#{path}}.initialize" }
+      ::Log.debug { "#{self.class}{#{path}}.initialize" }
       after_initialize
     end
 
-    protected def init_head
-      begin
-        @head = get_head
-      rescue
-        set_head Bytes.new head_size, 255
-      end
-    end
-
     def after_initialize
-      ::Log.debug { "AlignedList{#{path}}.after_initialize" }
-      init_head
+      ::Log.debug { "#{self.class}{#{path}}.after_initialize" }
+      if file.size == 0
+        file.pos = 0
+        Lawn.encode_number file, @element_size, 4
+        set_head Bytes.new head_size, 255
+      else
+        element_size_from_file = Lawn.decode_number file, 4
+        raise Exception.new "#{self.class}: Config do not match schema in #{path}, can not operate as may corrupt data" unless @element_size == element_size_from_file
+        @head = get_head
+      end
     end
 
     def clear
       ::Log.debug { "AlignedList{#{path}}.clear" }
-      file.truncate
+      file.delete
+      @file = nil
       after_initialize
     end
 
@@ -67,9 +69,9 @@ module Lawn
     end
 
     def get(i : Int64, size : Int32)
-      ::Log.debug { "AlignedList{#{path}}.get #{i}" }
+      ::Log.debug { "#{self.class}{#{path}}.get #{i}" }
       result = Bytes.new Math.min @element_size, size
-      read = Crystal::System::FileDescriptor.pread file, result, head_size + i * @element_size
+      read = LibC.pread file.fd, result.to_unsafe, result.size, 4 + head_size + i * @element_size
       raise "pread returned #{read} although size of data to read is #{result.size}" unless read == result.size
       result
     end
@@ -79,29 +81,29 @@ module Lawn
     end
 
     protected def set(i : Int64, b : Bytes) : Int64
-      ::Log.debug { "AlignedList{#{path}}.set #{i} #{b.hexstring}" }
-      written = Lawn.pwrite64 file.fd, b.to_unsafe, b.size.to_u64, (head_size + i * @element_size).to_i64
+      ::Log.debug { "#{self.class}{#{path}}.set #{i} #{b.hexstring}" }
+      written = Lawn.pwrite64 file.fd, b.to_unsafe, b.size.to_u64, (4 + head_size + i * @element_size).to_i64
       raise "pwrite64 returned #{written} although size of data to write is #{b.size}" unless written == b.size
       i
     end
 
     def get_head
-      ::Log.debug { "AlignedList{#{path}}.get_head" }
+      ::Log.debug { "#{self.class}{#{path}}.get_head" }
       result = Bytes.new head_size
-      read = Crystal::System::FileDescriptor.pread file, result, 0
+      read = LibC.pread file.fd, result.to_unsafe, result.size, 4
       raise "pread returned #{read} although size of data to read is #{result.size}" unless read == result.size
       result
     end
 
     protected def set_head(b : Bytes)
-      ::Log.debug { "AlignedList{#{path}}.set_head #{b.hexstring}" }
+      ::Log.debug { "#{self.class}{#{path}}.set_head #{b.hexstring}" }
       @head = b
-      written = Lawn.pwrite64 file.fd, b.to_unsafe, b.size.to_u64, 0_i64
+      written = Lawn.pwrite64 file.fd, b.to_unsafe, b.size.to_u64, 4_i64
       raise "pwrite64 returned #{written} although size of data to write is #{b.size}" unless written == b.size
     end
 
     def update(add : Array(Bytes), delete : Array(Int64)? = nil) : Array(Int64)
-      ::Log.debug { "AlignedList{#{path}}.update add: #{add.map &.hexstring}, delete: #{delete}" }
+      ::Log.debug { "#{self.class}{#{path}}.update add: #{add.map &.hexstring}, delete: #{delete}" }
 
       rs = [] of Int64
 
@@ -135,7 +137,7 @@ module Lawn
         end
       end
 
-      ::Log.debug { "AlignedList{#{path}}.update => #{rs}" }
+      ::Log.debug { "#{self.class}{#{path}}.update => #{rs}" }
       rs
     end
   end

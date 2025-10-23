@@ -51,6 +51,7 @@ module Lawn
     protected abstract def encode_keyvalue(keyvalue : KeyValue) : Bytes
     protected abstract def decode_keyvalue(data : Bytes) : KeyValue
     protected abstract def pointer_from(element_id : I) : Int64
+    protected abstract def schema_byte(pointer_size : UInt8) : UInt8
 
     def checkpoint
       ::Log.debug { "#{self.class}.checkpoint" }
@@ -105,7 +106,7 @@ module Lawn
 
       new_index_file = File.new "#{index.file.path}.new", "w"
       new_index_file.sync = true
-      new_index_file.write_byte new_index_pointer_size
+      new_index_file.write_byte schema_byte new_index_pointer_size
       global_i = 0_i64
       new_index_ids_i = 0
       index.file.pos = 1

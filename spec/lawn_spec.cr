@@ -56,13 +56,14 @@ describe Lawn::AlignedList do
 
     ids = aligned_list.update data
     ids.each_with_index { |id, data_index| aligned_list.get(id).should eq data[data_index] }
+
+    aligned_list.file.delete
   end
 
   [2, 3, 5, 9].map { |s| s.to_u8! }.each do |s|
     it "generative test: supports #{s} bytes elements" do
       data_path = config[:database].log.path.parent / "aligned_list.dat"
       al = Lawn::AlignedList.new data_path, s
-      al.clear
       added = Hash(Int64, Bytes).new
 
       1.times do
@@ -76,7 +77,7 @@ describe Lawn::AlignedList do
       added.each do |i, b|
         (al.get i).should eq b
       end
-      al.clear
+      al.file.delete
     end
   end
 end

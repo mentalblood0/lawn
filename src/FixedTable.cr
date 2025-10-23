@@ -1,10 +1,8 @@
 require "yaml"
 
 require "./common"
-require "./Transaction"
-require "./Log"
+require "./exceptions"
 require "./AlignedList"
-require "./AVLTree"
 require "./Index"
 require "./Table"
 
@@ -45,6 +43,11 @@ module Lawn
     end
 
     def initialize(@data_storage_path, @key_size, @value_size, @index)
+      after_initialize
+    end
+
+    def after_initialize
+      raise Exception.new "#{self.class}: Config do not match index schema in #{index.path}, can not operate as may corrupt data" unless (index.file.size == 0) || (index.schema_byte == schema_byte index.pointer_size)
     end
 
     protected def encode_index_entry(io : IO, element_id : Int64, pointer_size : UInt8) : Nil
@@ -63,6 +66,10 @@ module Lawn
 
     protected def pointer_from(element_id : Int64) : Int64
       element_id
+    end
+
+    protected def schema_byte(pointer_size : UInt8) : UInt8
+      pointer_size * 2 + 1
     end
   end
 end

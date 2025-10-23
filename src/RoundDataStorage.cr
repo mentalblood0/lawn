@@ -2,6 +2,7 @@ require "yaml"
 require "json"
 
 require "./common"
+require "./exceptions"
 require "./AlignedList"
 require "./DataStorage"
 
@@ -27,6 +28,24 @@ module Lawn
     getter sizes = [] of Int32
 
     def initialize(@dir, @max_element_size)
+      after_initialize
+    end
+
+    alias Schema = {max_element_size: Int32}
+
+    def schema : Schema
+      {max_element_size: @max_element_size}
+    end
+
+    def after_initialize
+      schema_path = dir / "schema (DO NOT DELETE OR MODIFY).yml"
+      if File.exists? schema_path
+        raise Exception.new "#{self.class.name}: Config do not match schema in #{schema_path}, can not operate as may corrupt data" if schema != Schema.from_yaml File.read schema_path
+      else
+        Dir.mkdir_p schema_path.parent
+        File.write schema_path, schema.to_yaml
+      end
+      @sizes = RoundDataStorage.get_sizes max: @max_element_size, points: 2 ** 8
     end
 
     def self.get_sizes(max : Int32, points : Int32)
@@ -46,10 +65,6 @@ module Lawn
       end
 
       rs.to_a.sort
-    end
-
-    def after_initialize
-      @sizes = RoundDataStorage.get_sizes max: @max_element_size, points: 2 ** 8
     end
 
     def clear

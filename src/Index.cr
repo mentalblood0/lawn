@@ -31,7 +31,7 @@ module Lawn
     getter file : File do
       unless File.exists? @path
         Dir.mkdir_p @path.parent
-        File.write @path, Bytes.new 1, 1_u8
+        File.touch @path
       end
       File.new @path, "r"
     end
@@ -39,20 +39,34 @@ module Lawn
     Lawn.mignore
     getter cache : Bytes do
       file_size = file.size
-      result = Bytes.new (file_size < @cache_size) ? file_size : @cache_size
+      result = Bytes.new Math.min file_size, @cache_size
       Crystal::System::FileDescriptor.pread file, result, 0
       result
     end
 
     Lawn.mignore
-    getter pointer_size : UInt8 do
-      result = 0_u8
-      LibC.pread file.fd, pointerof(result), 1, 0
-      result
+    getter schema_byte : UInt8 do
+      if cache.empty?
+        result = 0_u8
+        LibC.pread file.fd, pointerof(result), 1, 0
+        result
+      else
+        cache[0]
+      end
     end
 
     Lawn.mignore
-    getter size : Int64 { (file.size - 1) // element_size }
+    getter pointer_size : UInt8 do
+      schema_byte // 2
+    end
+
+    Lawn.mignore
+    getter? is_for_fixed_table : Bool do
+      (schema_byte % 2) == 1
+    end
+
+    Lawn.mignore
+    getter size : Int64 { (file.size - 1) // element_size rescue 0_i64 }
 
     abstract def element_size : UInt8
     abstract def read(source : IO = file) : T
