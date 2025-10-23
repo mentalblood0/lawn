@@ -24,6 +24,10 @@ module Lawn
       index.clear
     end
 
+    def bytesize_disk
+      data_storage.bytesize_disk + index.bytesize
+    end
+
     protected def get_data(data_id : I) : KeyValue
       decode_keyvalue data_storage.get(data_id).not_nil!
     end

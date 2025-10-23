@@ -63,21 +63,22 @@ describe Lawn::AlignedList do
   [2, 3, 5, 9].map { |s| s.to_u8! }.each do |s|
     it "generative test: supports #{s} bytes elements" do
       data_path = config[:database].log.path.parent / "aligned_list.dat"
-      al = Lawn::AlignedList.new data_path, s
+      aligned_list = Lawn::AlignedList.new data_path, s
       added = Hash(Int64, Bytes).new
 
-      1.times do
+      1000.times do
         add = Array.new(rnd.rand 1..16) { rnd.random_bytes s }
         delete = added.keys.sample rnd.rand(1..16), rnd
         delete.each { |pointer| added.delete pointer } if delete
-        r = al.update add, delete
-        r.each_with_index { |pointer, add_index| added[pointer] = add[add_index] }
+        result = aligned_list.update add, delete
+        result.each_with_index { |pointer, add_index| added[pointer] = add[add_index] }
       end
-      al = Lawn::AlignedList.new data_path, s
+      aligned_list.bytesize_disk.should eq aligned_list.file.size
+      aligned_list = Lawn::AlignedList.new data_path, s
       added.each do |i, b|
-        (al.get i).should eq b
+        (aligned_list.get i).should eq b
       end
-      al.file.delete
+      aligned_list.file.delete
     end
   end
 end
@@ -141,6 +142,7 @@ describe Lawn::AVLTree do
         added[key] = nil
       end
       added.each { |key, value| tree[key]?.should eq value }
+      tree.size.should eq added.size
     end
     sorted = added.to_a.sort_by { |key, _| key }
     tree.each.should eq sorted
@@ -237,6 +239,7 @@ describe Lawn::Database do
         end
       end
       database.checkpoint
+      added.each_with_index { |added_in_table, table_id| database.tables[table_id].index.size.should eq added_in_table.size }
     end
     added.each_with_index do |added_in_table, table_id|
       added_in_table.keys.each { |k| database.tables[table_id].get(k).should eq added_in_table[k] }
@@ -249,5 +252,6 @@ describe Lawn::Database do
         database.tables[table_id].each(from: key).should eq all_added_in_table[all_added_in_table.index({key, value})..]
       end
     end
+    database.log.bytesize.should eq database.log.file.size
   end
 end

@@ -45,7 +45,7 @@ module Lawn
     end
 
     def after_initialize
-      raise Exception.new "#{self.class}: Config do not match index schema in #{index.path}, can not operate as may corrupt data" unless !index.file.size || (index.schema_byte == schema_byte index.pointer_size)
+      raise Exception.new "#{self.class}: Config do not match index schema in #{index.path}, can not operate as may corrupt data" unless !index.bytesize || (index.schema_byte == schema_byte index.pointer_size)
     end
 
     protected def encode_index_entry(io : IO, element_id : RoundDataStorage::Id, pointer_size : UInt8) : Nil

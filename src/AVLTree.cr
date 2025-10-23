@@ -1,6 +1,9 @@
+require "./exceptions"
+
 module Lawn
   class AVLTree
     getter root : Node? = nil
+    getter size : Int32 = 0
 
     class Node
       property key : Key
@@ -15,22 +18,6 @@ module Lawn
         @left = nil
         @right = nil
         @height = 1
-      end
-    end
-
-    def []=(key : Key, value : Value?)
-      @root = upsert @root, key, value
-    end
-
-    def []?(key : Key, node : Node? = @root) : Value?
-      return unless node
-
-      if key == node.key
-        node.value
-      elsif key < node.key
-        self[key, node.left]?
-      else
-        self[key, node.right]?
       end
     end
 
@@ -54,6 +41,22 @@ module Lawn
           @current = @current.not_nil!.right
           return r unless @from && (r[0] < @from.not_nil!)
         end
+      end
+    end
+
+    def []=(key : Key, value : Value?)
+      @root = upsert @root, key, value
+    end
+
+    def []?(key : Key, node : Node? = @root) : Value?
+      return unless node
+
+      if key == node.key
+        node.value
+      elsif key < node.key
+        self[key, node.left]?
+      else
+        self[key, node.right]?
       end
     end
 
@@ -111,6 +114,7 @@ module Lawn
         node.right = delete key, node.right
       else
         if node.left.nil? || node.right.nil?
+          @size -= 1
           return node.left || node.right
         else
           temp = min_key_node(node.right).not_nil!
@@ -121,7 +125,7 @@ module Lawn
         end
       end
 
-      return node unless node
+      return nil unless node
 
       update_height node
 
@@ -154,7 +158,10 @@ module Lawn
     end
 
     protected def upsert(node : Node?, key : Key, value : Value?) : Node
-      return Node.new key, value unless node
+      unless node
+        @size += 1
+        return Node.new key, value
+      end
 
       if key < node.key
         node.left = upsert node.left, key, value

@@ -27,24 +27,27 @@ module Lawn
     Lawn.mignore
     getter sequential_sizes_threshold : Int32 { sizes[sequential_sizes_threshold_index - 1] + 1 }
 
-    def need_size_if_index?(rounded_size_index : Int32)
+    protected def need_size_if_index?(rounded_size_index : Int32)
       rounded_size_index >= sequential_sizes_threshold_index
     end
 
-    def need_size_if_size?(size : Int32)
+    protected def need_size_if_size?(size : Int32)
       size >= sequential_sizes_threshold
     end
 
-    def data_aligned_list(round_index : UInt8)
-      unless data_aligned_lists_by_rounded_size_index[round_index]
+    protected def data_aligned_list(round_index : UInt8)
+      unless @data_aligned_lists_by_rounded_size_index[round_index]
         size = @sizes[round_index]
-        data_aligned_lists_by_rounded_size_index[round_index] = AlignedList.new @dir / "size_and_data_of_rounded_size_#{size.to_s.rjust 10, '0'}.dat", size
+        @data_aligned_lists_by_rounded_size_index[round_index] = AlignedList.new @dir / "size_and_data_of_rounded_size_#{size.to_s.rjust 10, '0'}.dat", size
       end
-      data_aligned_lists_by_rounded_size_index[round_index].not_nil!
+      @data_aligned_lists_by_rounded_size_index[round_index].not_nil!
     end
 
     Lawn.mignore
     getter sizes = [] of Int32
+
+    Lawn.mignore
+    getter schema_file_size : Int64 = 0_i64
 
     def initialize(@dir, @max_element_size)
       after_initialize
@@ -53,12 +56,22 @@ module Lawn
     def after_initialize
       schema_path = dir / "schema (DO NOT DELETE OR MODIFY).yml"
       if File.exists? schema_path
-        raise Exception.new "#{self.class.name}: Config do not match schema in #{schema_path}, can not operate as may corrupt data" if schema != Schema.from_yaml File.read schema_path
+        schema_text = File.read schema_path
+        raise Exception.new "#{self.class.name}: Config do not match schema in #{schema_path}, can not operate as may corrupt data" if schema != Schema.from_yaml schema_text
+        @schema_file_size = schema_text.bytesize.to_i64
       else
         Dir.mkdir_p schema_path.parent
-        File.write schema_path, schema.to_yaml
+        schema_text = schema.to_yaml
+        File.write schema_path, schema_text
+        @schema_file_size = schema_text.bytesize.to_i64
       end
       @sizes = RoundDataStorage.get_sizes max: @max_element_size, points: 2 ** 8
+    end
+
+    def bytesize_disk : Int64
+      result = @schema_file_size
+      data_aligned_lists_by_rounded_size_index.each { |aligned_list| result += aligned_list.bytesize_disk if aligned_list }
+      result
     end
 
     def self.get_sizes(max : Int32, points : Int32)

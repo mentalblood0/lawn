@@ -29,7 +29,14 @@ module Lawn
     Lawn.mignore
     getter head : Bytes = Bytes.new 0
 
+    Lawn.mignore
     getter head_size : Int32 { Math.min(@element_size, 8) }
+
+    Lawn.mignore
+    getter size : Int64 = 0_i64
+
+    Lawn.mignore
+    getter bytesize_disk : Int64 = 0_i64
 
     def initialize(@path, @element_size)
       ::Log.debug { "#{self.class}{#{path}}.initialize" }
@@ -38,14 +45,17 @@ module Lawn
 
     def after_initialize
       ::Log.debug { "#{self.class}{#{path}}.after_initialize" }
-      if file.size == 0
+      if (@bytesize_disk = file.size) == 0
         file.pos = 0
         Lawn.encode_number file, @element_size, 4
         set_head Bytes.new head_size, 255
+        @bytesize_disk = 4_i64 + head_size
+        @size = 0
       else
         element_size_from_file = Lawn.decode_number file, 4
         raise Exception.new "#{self.class}: Config do not match schema in #{path}, can not operate as may corrupt data" unless @element_size == element_size_from_file
         @head = get_head
+        @size = (@bytesize_disk - (4 + head_size)) // @element_size
       end
     end
 
@@ -124,9 +134,10 @@ module Lawn
 
       (replaced..add.size - 1).each do |i|
         if @head.all? { |b| b == 255 }
-          elements_count = (file.size - head_size) // @element_size
-          (elements_count..elements_count + add.size - i - 1).each { |r| rs << r }
-          set elements_count, Bytes.join add[i..].map { |d| @element_size > d.size ? d + Bytes.new(@element_size - d.size) : d }
+          (@size..@size + add.size - i - 1).each { |r| rs << r }
+          set @size, Bytes.join add[i..].map { |d| @element_size > d.size ? d + Bytes.new(@element_size - d.size) : d }
+          @size += add.size - i
+          @bytesize_disk += @element_size * (add.size - i)
           break
         else
           r = as_p @head

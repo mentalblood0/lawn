@@ -16,6 +16,12 @@ module Lawn
     def initialize(@log, @tables)
     end
 
+    def bytesize_disk
+      result = log.bytesize
+      tables.each { |table| result += table.bytesize_disk }
+      result
+    end
+
     def after_initialize
       @log.read(@tables) { |entry| tables[entry[:table_id]].memtable[entry[:keyvalue][0]] = entry[:keyvalue][1] }
       ::Log.debug { "Initialized database #{self.to_json}" }

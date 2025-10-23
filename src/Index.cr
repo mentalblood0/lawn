@@ -38,8 +38,7 @@ module Lawn
 
     Lawn.mignore
     getter cache : Bytes do
-      file_size = file.size
-      result = Bytes.new Math.min file_size, @cache_size
+      result = Bytes.new Math.min bytesize, @cache_size
       Crystal::System::FileDescriptor.pread file, result, 0
       result
     end
@@ -66,7 +65,10 @@ module Lawn
     end
 
     Lawn.mignore
-    getter size : Int64 { (file.size - 1) // element_size rescue 0_i64 }
+    getter bytesize : Int64 { file.size }
+
+    Lawn.mignore
+    getter size : Int64 { (bytesize - 1) // element_size rescue 0_i64 }
 
     abstract def element_size : UInt8
     abstract def read(source : IO = file) : T
@@ -76,6 +78,7 @@ module Lawn
       @file = nil
       @pointer_size = nil
       @size = nil
+      @bytesize = nil
     end
 
     def [](i : Int64) : T

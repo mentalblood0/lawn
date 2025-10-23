@@ -10,6 +10,9 @@ module Lawn
     getter path : Path
 
     Lawn.mignore
+    getter bytesize : Int64 = 0_i64
+
+    Lawn.mignore
     getter file : File do
       unless File.exists? @path
         Dir.mkdir_p @path.parent
@@ -21,10 +24,16 @@ module Lawn
     end
 
     def initialize(@path)
+      after_initialize
+    end
+
+    def after_initialize
+      @bytesize = file.size
     end
 
     def clear
       file.truncate
+      after_initialize
     end
 
     def write(tables : Array(Table), batches : Array(Array({Key, Value?})?))
@@ -58,6 +67,7 @@ module Lawn
         end
       end
       file.write buf.to_slice
+      @bytesize += buf.size
     end
 
     def read(tables : Array(Table), &)
