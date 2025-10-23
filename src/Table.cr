@@ -141,28 +141,42 @@ module Lawn
     end
 
     def each(from : Key? = nil, & : KeyValue ->)
-      memtable_cursor = AVLTree::Cursor.new @memtable.root
-      index_current = nil
-      memtable_current = nil
+      index_from = from ? (get_from_checkpointed(from, strict: false).not_nil![:index_i] rescue Int64::MAX) : 0_i64
       last_key_yielded_from_memtable = nil
 
-      index_from = from ? (get_from_checkpointed(from, strict: false).not_nil![:index_i] rescue 0_i64) : 0_i64
-
+      memtable_cursor = AVLTree::Cursor.new @memtable.root, from
       index_cursor = Index::Cursor.new index, index_from
-      while index_id = index_cursor.value
-        index_current = get_data index_id
-        while (memtable_current = memtable_cursor.next) && (memtable_current[0] <= index_current[0])
-          if memtable_current.is_a? KeyValue
-            last_key_yielded_from_memtable = memtable_current[0]
-            yield memtable_current
+      memtable_current = memtable_cursor.next
+      index_current = (index_id = index_cursor.value) && get_data index_id
+      loop do
+        case {memtable_current, index_current}
+        when {Tuple(Key, Value?), nil}
+          last_key_yielded_from_memtable = memtable_current[0]
+          if memtable_current[1]
+            result = {memtable_current[0], memtable_current[1].not_nil!}
+            yield result
           end
+          memtable_current = memtable_cursor.next
+        when {Tuple(Key, Value?), KeyValue}
+          if memtable_current[0] <= index_current[0]
+            last_key_yielded_from_memtable = memtable_current[0]
+            if memtable_current[1]
+              result = {memtable_current[0], memtable_current[1].not_nil!}
+              yield result
+            end
+            memtable_current = memtable_cursor.next
+          else
+            unless index_current[0] == last_key_yielded_from_memtable
+              yield index_current
+            end
+            index_current = (index_id = index_cursor.next) && get_data index_id
+          end
+        when {nil, KeyValue}
+          yield index_current unless index_current[0] == last_key_yielded_from_memtable
+          index_current = (index_id = index_cursor.next) && get_data index_id
+        when {nil, nil}
+          break
         end
-        yield index_current unless index_current[0] == last_key_yielded_from_memtable
-        index_cursor.next
-      end
-      while memtable_current
-        yield memtable_current if memtable_current.is_a? KeyValue
-        memtable_current = memtable_cursor.next
       end
     end
 

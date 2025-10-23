@@ -188,7 +188,7 @@ describe Lawn::Database do
 
   it "generative test" do
     added = Array(Hash(Lawn::Key, Lawn::Value)).new(database.tables.size) { Hash(Lawn::Key, Lawn::Value).new }
-    200.times do
+    100.times do
       rnd.rand(1..16).times do
         table_id = rnd.rand(0..(database.tables.size - 1)).to_u8
 
@@ -217,10 +217,21 @@ describe Lawn::Database do
           added[table_id].delete key
         end
       end
-      database.checkpoint
       added.each_with_index do |added_in_table, table_id|
         added_in_table.keys.each { |k| database.tables[table_id].get(k).should eq added_in_table[k] }
       end
+      added.each_with_index do |added_in_table, table_id|
+        all_added_in_table = added_in_table.to_a.sort_by { |key, _| key }
+        all_present_in_table = database.tables[table_id].each
+        all_present_in_table.should eq all_added_in_table
+        all_present_in_table.each do |key, value|
+          database.tables[table_id].each(from: key).should eq all_added_in_table[all_added_in_table.index({key, value})..]
+        end
+      end
+      database.checkpoint
+    end
+    added.each_with_index do |added_in_table, table_id|
+      added_in_table.keys.each { |k| database.tables[table_id].get(k).should eq added_in_table[k] }
     end
     added.each_with_index do |added_in_table, table_id|
       all_added_in_table = added_in_table.to_a.sort_by { |key, _| key }
