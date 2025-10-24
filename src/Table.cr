@@ -22,6 +22,7 @@ module Lawn
     def clear
       data_storage.clear
       index.clear
+      memtable.clear
     end
 
     def bytesize_disk
