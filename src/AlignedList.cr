@@ -60,7 +60,7 @@ module Lawn
     end
 
     def clear
-      ::Log.debug { "AlignedList{#{path}}.clear" }
+      ::Log.debug { "#{self.class}{#{path}}.clear" }
       file.delete
       @file = nil
       after_initialize

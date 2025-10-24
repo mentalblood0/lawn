@@ -27,9 +27,11 @@ module Lawn
       getter from : Key? = nil
 
       def initialize(@current, @from = nil)
+        ::Log.debug { "#{self.class}.initialize current: #{@current} from: #{from ? from.hexstring : nil}" }
       end
 
       def next
+        ::Log.debug { "#{self.class}.next" }
         while @current || !@stack.empty?
           while @current
             @stack << @current.not_nil!
@@ -45,10 +47,12 @@ module Lawn
     end
 
     def []=(key : Key, value : Value?)
+      ::Log.debug { "#{self.class}[#{key}] = #{value}" }
       @root = upsert @root, key, value
     end
 
     def []?(key : Key, node : Node? = @root) : Value?
+      ::Log.debug { "#{self.class}[#{key}]?" }
       return unless node
 
       if key == node.key
@@ -61,6 +65,7 @@ module Lawn
     end
 
     def each(from : Key? = nil, &)
+      ::Log.debug { "#{self.class}.each #{from ? from.hexstring : nil}" }
       cursor = Cursor.new @root, from
       while r = cursor.next
         yield r
@@ -68,16 +73,19 @@ module Lawn
     end
 
     def each(from : Key? = nil)
+      ::Log.debug { "#{self.class}.each #{from ? from.hexstring : nil}" }
       r = [] of {Key, Value?}
       each(from) { |keyvalue| r << keyvalue }
       r
     end
 
     def delete(key : Key)
+      ::Log.debug { "#{self.class}.delete #{key.hexstring}" }
       @root = delete key, @root
     end
 
     def clear
+      ::Log.debug { "#{self.class}.clear" }
       @root = nil
       @size = 0
     end

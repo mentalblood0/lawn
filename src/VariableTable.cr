@@ -41,10 +41,12 @@ module Lawn
     end
 
     def initialize(@data_storage, @index)
+      ::Log.debug { "#{self.class}.initialize data_storage: #{data_storage}, index: #{index}" }
       after_initialize
     end
 
     def after_initialize
+      ::Log.debug { "#{self.class}.after_initialize" }
       raise Exception.new "#{self.class}: Config do not match index schema in #{index.path}, can not operate as may corrupt data" unless !index.bytesize || (index.schema_byte == schema_byte index.pointer_size)
     end
 

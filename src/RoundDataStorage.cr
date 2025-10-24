@@ -93,6 +93,10 @@ module Lawn
       rs.to_a.sort
     end
 
+    protected def round_index(size : Int32) : Int32
+      @sizes.bsearch_index { |n| n >= size }.not_nil!
+    end
+
     def clear
       @data_aligned_lists_by_rounded_size_index.each { |al| al.clear if al }
     end
@@ -102,7 +106,7 @@ module Lawn
     alias Add = {data: Bytes, data_index: Int32}
 
     def update(add : Array(Bytes), delete : Array(Id)? = nil) : Array(Id)
-      ::Log.debug { "RoundDataStorage.update add: #{add.map &.hexstring}, delete: #{delete}" }
+      ::Log.debug { "#{self.class}.update add: #{add.map &.hexstring}, delete: #{delete}" }
 
       add_data_by_rounded_size_index = Array(Array(Add)?).new(@sizes.size) { nil }
       add.each_with_index do |data, data_index|
@@ -137,12 +141,12 @@ module Lawn
         end
       end
 
-      ::Log.debug { "RoundDataStorage.update => #{r}" }
+      ::Log.debug { "#{self.class}.update => #{r}" }
       r
     end
 
     def get(id : Id) : Bytes?
-      ::Log.debug { "RoundDataStorage.get #{id}" }
+      ::Log.debug { "#{self.class}.get #{id}" }
 
       al = data_aligned_list id[:rounded_size_index]
       return unless al
@@ -153,10 +157,6 @@ module Lawn
       else
         size_and_data_encoded
       end
-    end
-
-    def round_index(size : Int32) : Int32
-      @sizes.bsearch_index { |n| n >= size }.not_nil!
     end
   end
 end

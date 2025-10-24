@@ -32,7 +32,7 @@ module Lawn
       decode_keyvalue data_storage.get(data_id).not_nil!
     end
 
-    def get_from_checkpointed(key : Bytes, strict : Bool = true) : {index_i: Int64, data_id: I, value: Value}?
+    protected def get_from_checkpointed(key : Bytes, strict : Bool = true) : {index_i: Int64, data_id: I, value: Value}?
       ::Log.debug { "#{self.class}.get_from_checkpointed #{key.hexstring} while index.size = #{index.size}" }
       return unless index.size > 0
 
@@ -154,6 +154,7 @@ module Lawn
       getter keyvalue : KeyValue? = nil
 
       def initialize(@table, from : Key? = nil)
+        ::Log.debug { "#{self.class}.initialize #{from ? from.hexstring : nil}" }
         index_from = from ? (@table.get_from_checkpointed(from, strict: false).not_nil![:index_i] rescue Int64::MAX) : 0_i64
 
         @memtable_cursor = AVLTree::Cursor.new @table.memtable.root, from
@@ -163,6 +164,7 @@ module Lawn
       end
 
       def next : KeyValue?
+        ::Log.debug { "#{self.class}.next" }
         loop do
           result = nil
           case {memtable_current_temp = @memtable_current, index_current_temp = @index_current}

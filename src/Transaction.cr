@@ -15,49 +15,49 @@ module Lawn
     end
 
     def set(table_id : UInt8, keyvalues : Array({Key, Value?}))
-      ::Log.debug { "Transaction.set table_id: #{table_id}, keyvalues: #{keyvalues.map { |key, value| {key.hexstring, value.hexstring} }}" }
+      ::Log.debug { "#{self.class}.set table_id: #{table_id}, keyvalues: #{keyvalues.map { |key, value| {key.hexstring, value.hexstring} }}" }
       batch(table_id).concat keyvalues
       self
     end
 
     def set(table_id : UInt8, keys : Array(Key))
-      ::Log.debug { "Transaction.set table_id: #{table_id}, keys : #{keys.map &.hexstring}" }
+      ::Log.debug { "#{self.class}.set table_id: #{table_id}, keys : #{keys.map &.hexstring}" }
       batch(table_id).concat keys.map { |key| {key, EMPTY_VALUE} }
       self
     end
 
     def set(table_id : UInt8, keyvalue : {Key, Value?})
-      ::Log.debug { "Transaction.set table_id: #{table_id}, keyvalue: #{{keyvalue[0].hexstring, keyvalue[1] ? keyvalue[1].hexstring : nil}}" }
+      ::Log.debug { "#{self.class}.set table_id: #{table_id}, keyvalue: #{{keyvalue[0].hexstring, keyvalue[1] ? keyvalue[1].hexstring : nil}}" }
       batch(table_id) << keyvalue
       self
     end
 
     def set(table_id : UInt8, key : Key)
-      ::Log.debug { "Transaction.set table_id: #{table_id}, key: #{key.hexstring}" }
+      ::Log.debug { "#{self.class}.set table_id: #{table_id}, key: #{key.hexstring}" }
       batch(table_id) << {key, EMPTY_VALUE}
       self
     end
 
     def set(table_id : UInt8, key : Key, value : Value)
-      ::Log.debug { "Transaction.set table_id: #{table_id}, key: #{key.hexstring}, value: #{value.hexstring}" }
+      ::Log.debug { "#{self.class}.set table_id: #{table_id}, key: #{key.hexstring}, value: #{value.hexstring}" }
       batch(table_id) << {key, value}
       self
     end
 
     def delete(table_id : UInt8, keys : Array(Key))
-      ::Log.debug { "Transaction.delete table_id: #{table_id}, keys: #{keys.map &.hexstring}" }
+      ::Log.debug { "#{self.class}.delete table_id: #{table_id}, keys: #{keys.map &.hexstring}" }
       batch(table_id) { |key| @batch << {key, nil} }
       self
     end
 
     def delete(table_id : UInt8, key : Key)
-      ::Log.debug { "Transaction.delete table_id: #{table_id}, key: #{key.hexstring}" }
+      ::Log.debug { "#{self.class}.delete table_id: #{table_id}, key: #{key.hexstring}" }
       batch(table_id) << {key, nil}
       self
     end
 
     def commit
-      ::Log.debug { "Transaction.commit" }
+      ::Log.debug { "#{self.class}.commit" }
       @database.log.write @database.tables, @batches
       @batches.each_with_index do |batch, table_id|
         next unless batch
