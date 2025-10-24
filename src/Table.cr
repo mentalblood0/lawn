@@ -144,43 +144,59 @@ module Lawn
       self
     end
 
-    def each(from : Key? = nil, & : KeyValue ->)
-      index_from = from ? (get_from_checkpointed(from, strict: false).not_nil![:index_i] rescue Int64::MAX) : 0_i64
-      last_key_yielded_from_memtable = nil
+    class Cursor(I)
+      getter table : Table(I)
+      getter memtable_cursor : AVLTree::Cursor
+      getter index_cursor : Index::Cursor(I)
+      getter memtable_current : {Key, Value?}?
+      getter index_current : KeyValue?
+      getter last_key_yielded_from_memtable : Bytes? = nil
+      getter value : KeyValue? = nil
 
-      memtable_cursor = AVLTree::Cursor.new @memtable.root, from
-      index_cursor = Index::Cursor.new index, index_from
-      memtable_current = memtable_cursor.next
-      index_current = (index_id = index_cursor.value) && get_data index_id
-      loop do
-        case {memtable_current, index_current}
-        when {Tuple(Key, Value?), nil}
-          last_key_yielded_from_memtable = memtable_current[0]
-          if memtable_current[1]
-            result = {memtable_current[0], memtable_current[1].not_nil!}
-            yield result
-          end
-          memtable_current = memtable_cursor.next
-        when {Tuple(Key, Value?), KeyValue}
-          if memtable_current[0] <= index_current[0]
-            last_key_yielded_from_memtable = memtable_current[0]
-            if memtable_current[1]
-              result = {memtable_current[0], memtable_current[1].not_nil!}
-              yield result
+      def initialize(@table, from : Key? = nil)
+        index_from = from ? (@table.get_from_checkpointed(from, strict: false).not_nil![:index_i] rescue Int64::MAX) : 0_i64
+
+        @memtable_cursor = AVLTree::Cursor.new @table.memtable.root, from
+        @index_cursor = Index::Cursor.new @table.index, index_from
+        @memtable_current = @memtable_cursor.next
+        @index_current = (index_id = @index_cursor.value) && @table.get_data index_id
+      end
+
+      def next : KeyValue?
+        loop do
+          result = nil
+          case {memtable_current_temp = @memtable_current, index_current_temp = @index_current}
+          when {Tuple(Key, Value?), nil}
+            @last_key_yielded_from_memtable = memtable_current_temp[0]
+            result = {memtable_current_temp[0], memtable_current_temp[1].not_nil!} if memtable_current_temp[1]
+            @memtable_current = @memtable_cursor.next
+          when {Tuple(Key, Value?), KeyValue}
+            if memtable_current_temp[0] <= index_current_temp[0]
+              @last_key_yielded_from_memtable = memtable_current_temp[0]
+              result = {memtable_current_temp[0], memtable_current_temp[1].not_nil!} if memtable_current_temp[1]
+              @memtable_current = @memtable_cursor.next
+            else
+              result = index_current_temp unless index_current_temp[0] == @last_key_yielded_from_memtable
+              @index_current = (index_id = @index_cursor.next) && @table.get_data index_id
             end
-            memtable_current = memtable_cursor.next
-          else
-            unless index_current[0] == last_key_yielded_from_memtable
-              yield index_current
-            end
-            index_current = (index_id = index_cursor.next) && get_data index_id
+          when {nil, KeyValue}
+            result = index_current_temp unless index_current_temp[0] == @last_key_yielded_from_memtable
+            @index_current = (index_id = @index_cursor.next) && @table.get_data index_id
+          when {nil, nil}
+            break
           end
-        when {nil, KeyValue}
-          yield index_current unless index_current[0] == last_key_yielded_from_memtable
-          index_current = (index_id = index_cursor.next) && get_data index_id
-        when {nil, nil}
-          break
+          if result
+            @value = result
+            return result
+          end
         end
+      end
+    end
+
+    def each(from : Key? = nil, & : KeyValue ->)
+      cursor = Cursor.new self, from
+      while result = cursor.next
+        yield result
       end
     end
 
