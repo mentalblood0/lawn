@@ -151,7 +151,7 @@ module Lawn
       getter memtable_current : {Key, Value?}?
       getter index_current : KeyValue?
       getter last_key_yielded_from_memtable : Bytes? = nil
-      getter value : KeyValue? = nil
+      getter keyvalue : KeyValue? = nil
 
       def initialize(@table, from : Key? = nil)
         index_from = from ? (@table.get_from_checkpointed(from, strict: false).not_nil![:index_i] rescue Int64::MAX) : 0_i64
@@ -186,7 +186,7 @@ module Lawn
             break
           end
           if result
-            @value = result
+            @keyvalue = result
             return result
           end
         end
