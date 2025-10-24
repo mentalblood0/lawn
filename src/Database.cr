@@ -28,18 +28,18 @@ module Lawn
     end
 
     def clear
-      ::Log.debug { "Database.clear" }
+      ::Log.debug { "#{self.class}.clear" }
       log.clear
       tables.each { |table| table.clear }
     end
 
     def transaction
-      ::Log.debug { "Database.transaction" }
+      ::Log.debug { "#{self.class}.transaction" }
       Transaction.new self
     end
 
     def checkpoint
-      ::Log.debug { "Database.checkpoint" }
+      ::Log.debug { "#{self.class}.checkpoint" }
       tables.each { |table| table.checkpoint }
       @log.clear
     end
