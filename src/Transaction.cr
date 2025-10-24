@@ -2,10 +2,11 @@ require "./Log"
 
 module Lawn
   class Transaction
+    getter database : Database
     getter batches : Array(Array({Key, Value?})?) = Array(Array({Key, Value?})?).new(256) { nil }
     EMPTY_VALUE = Bytes.new 0
 
-    protected def initialize(@database : Database)
+    protected def initialize(@database)
     end
 
     def batch(table_id : UInt8)
