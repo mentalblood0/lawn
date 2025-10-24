@@ -201,10 +201,19 @@ describe Lawn::Database do
   end
 
   it "supports setting empty values" do
-    database.transaction.set(FIXED_KEYONLY_TABLE, "1234567890abcdef".to_slice).commit
-    database.tables[FIXED_KEYONLY_TABLE].get("1234567890abcdef".to_slice).should eq Bytes.new 0
+    key = "1234567890abcdef".to_slice
+    database.transaction.set(FIXED_KEYONLY_TABLE, key).commit
+    database.tables[FIXED_KEYONLY_TABLE].get(key).should eq Bytes.new 0
     database.checkpoint
-    database.tables[FIXED_KEYONLY_TABLE].get("1234567890abcdef".to_slice).should eq Bytes.new 0
+    database.tables[FIXED_KEYONLY_TABLE].get(key).should eq Bytes.new 0
+  end
+
+  it "handles prefix search" do
+    key = "1234567890abcdef".to_slice
+    prefix = key[..4]
+    database.transaction.set(FIXED_KEYONLY_TABLE, key).commit
+    cursor = database.tables[FIXED_KEYONLY_TABLE].cursor from: prefix
+    cursor.next.should eq({key, Bytes.new 0})
   end
 
   it "generative test" do
