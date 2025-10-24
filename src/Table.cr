@@ -193,8 +193,12 @@ module Lawn
       end
     end
 
+    def cursor(from : Key? = nil)
+      Cursor(I).new self, from
+    end
+
     def each(from : Key? = nil, & : KeyValue ->)
-      cursor = Cursor.new self, from
+      cursor = self.cursor from
       while result = cursor.next
         yield result
       end
