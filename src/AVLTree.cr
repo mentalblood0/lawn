@@ -47,12 +47,12 @@ module Lawn
     end
 
     def []=(key : Key, value : Value?)
-      ::Log.debug { "#{self.class}[#{key}] = #{value}" }
+      ::Log.debug { "#{self.class}[#{key.hexstring}] = #{value ? value.hexstring : nil}" }
       @root = upsert @root, key, value
     end
 
     def []?(key : Key, node : Node? = @root) : Value?
-      ::Log.debug { "#{self.class}[#{key}]?" }
+      ::Log.debug { "#{self.class}[#{key.hexstring}]?" }
       return unless node
 
       if key == node.key
