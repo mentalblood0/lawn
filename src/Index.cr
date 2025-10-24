@@ -68,7 +68,7 @@ module Lawn
     getter bytesize : Int64 { file.size }
 
     Lawn.mignore
-    getter size : Int64 { (bytesize - 1) // element_size rescue 0_i64 }
+    getter size : Int64 { (bytesize == 0) ? 0_i64 : (bytesize - 1) // element_size }
 
     abstract def element_size : UInt8
     abstract def read(source : IO = file) : T

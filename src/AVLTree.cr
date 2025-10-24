@@ -79,6 +79,7 @@ module Lawn
 
     def clear
       @root = nil
+      @size = 0
     end
 
     def empty?

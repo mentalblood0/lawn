@@ -3,6 +3,7 @@ require "./Log"
 module Lawn
   class Transaction
     getter batches : Array(Array({Key, Value?})?) = Array(Array({Key, Value?})?).new(256) { nil }
+    EMPTY_VALUE = Bytes.new 0
 
     protected def initialize(@database : Database)
     end
@@ -18,9 +19,21 @@ module Lawn
       self
     end
 
+    def set(table_id : UInt8, keys : Array(Key))
+      ::Log.debug { "Transaction.set table_id: #{table_id}, keys : #{keys.map &.hexstring}" }
+      batch(table_id).concat keys.map { |key| {key, EMPTY_VALUE} }
+      self
+    end
+
     def set(table_id : UInt8, keyvalue : {Key, Value?})
       ::Log.debug { "Transaction.set table_id: #{table_id}, keyvalue: #{{keyvalue[0].hexstring, keyvalue[1] ? keyvalue[1].hexstring : nil}}" }
       batch(table_id) << keyvalue
+      self
+    end
+
+    def set(table_id : UInt8, key : Key)
+      ::Log.debug { "Transaction.set table_id: #{table_id}, key: #{key.hexstring}" }
+      batch(table_id) << {key, EMPTY_VALUE}
       self
     end
 

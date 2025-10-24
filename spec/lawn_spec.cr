@@ -5,6 +5,10 @@ require "../src/Database"
 require "../src/RoundDataStorage"
 require "../src/AVLTree"
 
+VARIABLE_TABLE      = 0_u8
+FIXED_TABLE         = 1_u8
+FIXED_KEYONLY_TABLE = 2_u8
+
 struct Slice(T)
   def pretty_print(pp : PrettyPrint)
     pp.text "Bytes[#{self.hexstring}]"
@@ -156,19 +160,19 @@ describe Lawn::Database do
   it "checkpoints" do
     key = "key".to_slice
     value = "value".to_slice
-    database.transaction.set(0_u8, key, value).commit
+    database.transaction.set(VARIABLE_TABLE, key, value).commit
     database.checkpoint
     database.tables.first.get(key).should eq value
   end
 
   it "handles deletes correctly" do
-    database.transaction.set(0_u8, [{"key_to_delete".to_slice, "value".to_slice},
-                                    {"key".to_slice, "value".to_slice}]).commit
+    database.transaction.set(VARIABLE_TABLE, [{"key_to_delete".to_slice, "value".to_slice},
+                                              {"key".to_slice, "value".to_slice}]).commit
     database.checkpoint
     database.tables.first.get("key_to_delete".to_slice).should eq "value".to_slice
     database.tables.first.get("key".to_slice).should eq "value".to_slice
 
-    database.transaction.delete(0_u8, "key_to_delete".to_slice).commit
+    database.transaction.delete(VARIABLE_TABLE, "key_to_delete".to_slice).commit
     database.checkpoint
     database.tables.first.get("key_to_delete".to_slice).should eq nil
     database.tables.first.get("key".to_slice).should eq "value".to_slice
@@ -179,11 +183,11 @@ describe Lawn::Database do
     value = "value".to_slice
     new_value = "new_value".to_slice
 
-    database.transaction.set(0_u8, key, value).commit
+    database.transaction.set(VARIABLE_TABLE, key, value).commit
     database.checkpoint
     database.tables.first.get(key).should eq value
 
-    database.transaction.set(0_u8, key, new_value).commit
+    database.transaction.set(VARIABLE_TABLE, key, new_value).commit
     database.checkpoint
     database.tables.first.get(key).should eq new_value
   end
@@ -191,9 +195,16 @@ describe Lawn::Database do
   it "handles wide range of sizes correctly" do
     value = "v".to_slice
     keyvalues = (1..1024).map { |key_size| {("k" * key_size).to_slice, value} }
-    database.transaction.set(0_u8, keyvalues).commit
+    database.transaction.set(VARIABLE_TABLE, keyvalues).commit
     database.checkpoint
-    keyvalues.each { |key, value| database.tables[0_u8].get(key).should eq value }
+    keyvalues.each { |key, value| database.tables[VARIABLE_TABLE].get(key).should eq value }
+  end
+
+  it "supports setting empty values" do
+    database.transaction.set(FIXED_KEYONLY_TABLE, "1234567890abcdef".to_slice).commit
+    database.tables[FIXED_KEYONLY_TABLE].get("1234567890abcdef".to_slice).should eq Bytes.new 0
+    database.checkpoint
+    database.tables[FIXED_KEYONLY_TABLE].get("1234567890abcdef".to_slice).should eq Bytes.new 0
   end
 
   it "generative test" do
