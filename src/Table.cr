@@ -179,7 +179,6 @@ module Lawn
         @memtable_cursor = AVLTree::Cursor.new @table.memtable.root, from, including_from
         case @direction
         when :forward
-          index_from = from ? (@table.get_from_checkpointed(from, strict: false, condition: including_from ? :greater_or_equal : :greater).not_nil![:index_i] rescue Int64::MAX) : 0_i64
           index_from = if from
                          if from_found = @table.get_from_checkpointed(from, strict: false, condition: including_from ? :greater_or_equal : :greater)
                            from_found.not_nil![:index_i]
