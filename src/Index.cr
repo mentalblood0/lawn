@@ -106,12 +106,14 @@ module Lawn
       end
 
       def next : T?
+        return unless value
         @i += 1
         update_value
         value
       end
 
       def previous : T?
+        return unless value
         @i -= 1
         update_value
         value

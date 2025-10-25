@@ -151,8 +151,10 @@ describe Lawn::AVLTree do
     sorted = added.to_a.sort_by { |key, _| key }
     Lawn::AVLTree::Cursor.new(tree.root).all_next.should eq sorted
     sorted.each { |key, value| Lawn::AVLTree::Cursor.new(tree.root, from: key).all_next.should eq sorted[sorted.index({key, value})..] }
+    sorted.each { |key, value| Lawn::AVLTree::Cursor.new(tree.root, from: key, including_from: false).all_next.should eq sorted[sorted.index({key, value}).not_nil! + 1..] }
     sorted.reverse!
     sorted.each { |key, value| Lawn::AVLTree::Cursor.new(tree.root, from: key).all_previous.should eq sorted[sorted.index({key, value})..] }
+    sorted.each { |key, value| Lawn::AVLTree::Cursor.new(tree.root, from: key, including_from: false).all_previous.should eq sorted[sorted.index({key, value}).not_nil! + 1..] }
   end
 end
 
@@ -168,10 +170,10 @@ macro test_scans
       database.tables[table_id].cursor(from: key).all_next.should eq all_added_in_table[all_added_in_table.index({key, value})..]
       database.tables[table_id].cursor(from: key, including_from: false).all_next.should eq all_added_in_table[all_added_in_table.index({key, value}).not_nil! + 1..]
     end
-    all_present_in_table.reverse!
+    all_added_in_table.reverse!
     all_present_in_table.each do |key, value|
-      database.tables[table_id].cursor(from: key).all_previous.should eq all_added_in_table[all_added_in_table.index({key, value})..]
-      database.tables[table_id].cursor(from: key, including_from: false).all_previous.should eq all_added_in_table[all_added_in_table.index({key, value}).not_nil! + 1..]
+      database.tables[table_id].cursor(from: key, direction: :backward).all_next.should eq all_added_in_table[all_added_in_table.index({key, value})..]
+      database.tables[table_id].cursor(from: key, including_from: false, direction: :backward).all_next.should eq all_added_in_table[all_added_in_table.index({key, value}).not_nil! + 1..]
     end
   end
 end

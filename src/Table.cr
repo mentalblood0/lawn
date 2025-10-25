@@ -1,5 +1,6 @@
 require "yaml"
 
+require "./exceptions"
 require "./common"
 require "./Log"
 require "./AVLTree"
@@ -33,27 +34,39 @@ module Lawn
       decode_keyvalue data_storage.get(data_id).not_nil!
     end
 
-    protected def get_from_checkpointed(key : Key, strict : Bool = true, condition : Symbol = :equal) : {index_i: Int64, data_id: I, value: Value}?
-      ::Log.debug { "#{self.class}.get_from_checkpointed #{key.hexstring} while index.size = #{index.size}" }
+    protected def get_from_checkpointed(key : Key, strict : Bool = true, condition : Symbol = :greater_or_equal) : {index_i: Int64, data_id: I, value: Value}?
+      ::Log.debug { "#{self.class}.get_from_checkpointed key: #{key.hexstring}, strict: #{strict}, condition: #{condition}" }
       return unless index.size > 0
 
       cache = [] of {i: Int64, result: {data_id: I, keyvalue: KeyValue}}
       result_index = (0_i64..index.size - 1).bsearch do |i|
+        i = case condition
+            when :greater_or_equal, :greater then i
+            when :less_or_equal, :less       then index.size - 1 - i
+            else                                  raise Exception.new "Unsupported condition: #{condition}"
+            end
         data_id = index[i]
         current_keyvalue = get_data data_id
         cache << {i: i, result: {data_id: data_id, keyvalue: current_keyvalue}}
         case condition
-        when :equal, :greater_or_equal then current_keyvalue[0] >= key
-        when :less_or_equal            then current_keyvalue[0] <= key
-        when :less                     then current_keyvalue[0] < key
-        when :greater                  then current_keyvalue[0] > key
+        when :greater_or_equal then current_keyvalue[0] >= key
+        when :less_or_equal    then current_keyvalue[0] <= key
+        when :less             then current_keyvalue[0] < key
+        when :greater          then current_keyvalue[0] > key
+        else                        raise Exception.new "Unsupported condition: #{condition}"
         end
       end
 
       if result_index
+        result_index = case condition
+                       when :greater_or_equal, :greater then result_index
+                       when :less_or_equal, :less       then index.size - 1 - result_index
+                       else                                  raise Exception.new "Unsupported condition: #{condition}"
+                       end
         cached = cache.find! { |c| c[:i] == result_index }
         return nil if strict && (cached[:result][:keyvalue][0] != key)
-        {index_i: cached[:i], data_id: cached[:result][:data_id], value: cached[:result][:keyvalue][1]}
+        result = {index_i: cached[:i], data_id: cached[:result][:data_id], value: cached[:result][:keyvalue][1]}
+        return result
       end
     end
 
@@ -158,98 +171,121 @@ module Lawn
       getter index_current : KeyValue?
       getter last_key_yielded_from_memtable : Key? = nil
       getter keyvalue : KeyValue? = nil
+      getter direction : Symbol
 
-      def initialize(@table, from : Key? = nil, including_from : Bool = true)
-        ::Log.debug { "#{self.class}.initialize from: #{from ? from.hexstring : nil}, including_from: #{including_from}" }
-        index_from = from ? (@table.get_from_checkpointed(from, strict: false, condition: including_from ? :equal : :greater).not_nil![:index_i] rescue Int64::MAX) : 0_i64
+      def initialize(@table, from : Key? = nil, including_from : Bool = true, @direction = :forward)
+        ::Log.debug { "#{self.class}.initialize from: #{from ? from.hexstring : nil}, including_from: #{including_from}, direction: #{@direction}" }
 
         @memtable_cursor = AVLTree::Cursor.new @table.memtable.root, from, including_from
+        case @direction
+        when :forward
+          index_from = from ? (@table.get_from_checkpointed(from, strict: false, condition: including_from ? :greater_or_equal : :greater).not_nil![:index_i] rescue Int64::MAX) : 0_i64
+          index_from = if from
+                         if from_found = @table.get_from_checkpointed(from, strict: false, condition: including_from ? :greater_or_equal : :greater)
+                           from_found.not_nil![:index_i]
+                         else
+                           Int64::MAX
+                         end
+                       else
+                         0_i64
+                       end
+          @memtable_current = @memtable_cursor.next
+        when :backward
+          index_from = if from
+                         if from_found = @table.get_from_checkpointed(from, strict: false, condition: including_from ? :less_or_equal : :less)
+                           from_found.not_nil![:index_i]
+                         else
+                           -1_i64
+                         end
+                       else
+                         @table.index.size - 1
+                       end
+          @memtable_current = @memtable_cursor.previous
+        else raise Exception.new "Unsupported direction: #{@direction}"
+        end
+
         @index_cursor = Index::Cursor.new @table.index, index_from
-        @memtable_current = @memtable_cursor.next
         @index_current = (index_id = @index_cursor.value) && @table.get_data index_id
       end
 
       def next : KeyValue?
         ::Log.debug { "#{self.class}.next" }
-        loop do
-          result = nil
-          case {memtable_current_temp = @memtable_current, index_current_temp = @index_current}
-          when {Tuple(Key, Value?), nil}
-            @last_key_yielded_from_memtable = memtable_current_temp[0]
-            result = {memtable_current_temp[0], memtable_current_temp[1].not_nil!} if memtable_current_temp[1]
-            @memtable_current = @memtable_cursor.next
-          when {Tuple(Key, Value?), KeyValue}
-            if memtable_current_temp[0] <= index_current_temp[0]
+        case @direction
+        when :forward
+          loop do
+            result = nil
+            case {memtable_current_temp = @memtable_current, index_current_temp = @index_current}
+            when {Tuple(Key, Value?), nil}
               @last_key_yielded_from_memtable = memtable_current_temp[0]
               result = {memtable_current_temp[0], memtable_current_temp[1].not_nil!} if memtable_current_temp[1]
               @memtable_current = @memtable_cursor.next
-            else
+            when {Tuple(Key, Value?), KeyValue}
+              if memtable_current_temp[0] <= index_current_temp[0]
+                @last_key_yielded_from_memtable = memtable_current_temp[0]
+                result = {memtable_current_temp[0], memtable_current_temp[1].not_nil!} if memtable_current_temp[1]
+                @memtable_current = @memtable_cursor.next
+              else
+                result = index_current_temp unless index_current_temp[0] == @last_key_yielded_from_memtable
+                @index_current = (index_id = @index_cursor.next) && @table.get_data index_id
+              end
+            when {nil, KeyValue}
               result = index_current_temp unless index_current_temp[0] == @last_key_yielded_from_memtable
               @index_current = (index_id = @index_cursor.next) && @table.get_data index_id
+            when {nil, nil}
+              break
             end
-          when {nil, KeyValue}
-            result = index_current_temp unless index_current_temp[0] == @last_key_yielded_from_memtable
-            @index_current = (index_id = @index_cursor.next) && @table.get_data index_id
-          when {nil, nil}
-            break
+            if result
+              @keyvalue = result
+              return result
+            end
           end
-          if result
-            @keyvalue = result
-            return result
+        when :backward
+          loop do
+            result = nil
+            case {memtable_current_temp = @memtable_current, index_current_temp = @index_current}
+            when {Tuple(Key, Value?), nil}
+              @last_key_yielded_from_memtable = memtable_current_temp[0]
+              result = {memtable_current_temp[0], memtable_current_temp[1].not_nil!} if memtable_current_temp[1]
+              @memtable_current = @memtable_cursor.previous
+            when {Tuple(Key, Value?), KeyValue}
+              if memtable_current_temp[0] >= index_current_temp[0]
+                @last_key_yielded_from_memtable = memtable_current_temp[0]
+                result = {memtable_current_temp[0], memtable_current_temp[1].not_nil!} if memtable_current_temp[1]
+                @memtable_current = @memtable_cursor.previous
+              else
+                result = index_current_temp unless index_current_temp[0] == @last_key_yielded_from_memtable
+                @index_current = (index_id = @index_cursor.previous) && @table.get_data index_id
+              end
+            when {nil, KeyValue}
+              result = index_current_temp unless index_current_temp[0] == @last_key_yielded_from_memtable
+              @index_current = (index_id = @index_cursor.previous) && @table.get_data index_id
+            when {nil, nil}
+              break
+            end
+            if result
+              @keyvalue = result
+              return result
+            end
           end
+        else raise Exception.new "Unsupported direction: #{@direction}"
+        end
+      end
+
+      def each_next(&)
+        while (next_keyvalue = self.next)
+          yield next_keyvalue
         end
       end
 
       def all_next : Array(KeyValue)
         result = [] of KeyValue
-        while (next_keyvalue = self.next)
-          result << next_keyvalue
-        end
-        result
-      end
-
-      def previous : KeyValue?
-        ::Log.debug { "#{self.class}.previous" }
-        loop do
-          result = nil
-          case {memtable_current_temp = @memtable_current, index_current_temp = @index_current}
-          when {Tuple(Key, Value?), nil}
-            @last_key_yielded_from_memtable = memtable_current_temp[0]
-            result = {memtable_current_temp[0], memtable_current_temp[1].not_nil!} if memtable_current_temp[1]
-            @memtable_current = @memtable_cursor.previous
-          when {Tuple(Key, Value?), KeyValue}
-            if memtable_current_temp[0] >= index_current_temp[0]
-              @last_key_yielded_from_memtable = memtable_current_temp[0]
-              result = {memtable_current_temp[0], memtable_current_temp[1].not_nil!} if memtable_current_temp[1]
-              @memtable_current = @memtable_cursor.previous
-            else
-              result = index_current_temp unless index_current_temp[0] == @last_key_yielded_from_memtable
-              @index_current = (index_id = @index_cursor.previous) && @table.get_data index_id
-            end
-          when {nil, KeyValue}
-            result = index_current_temp unless index_current_temp[0] == @last_key_yielded_from_memtable
-            @index_current = (index_id = @index_cursor.previous) && @table.get_data index_id
-          when {nil, nil}
-            break
-          end
-          if result
-            @keyvalue = result
-            return result
-          end
-        end
-      end
-
-      def all_previous : Array(KeyValue)
-        result = [] of KeyValue
-        while (previous_keyvalue = self.next)
-          result << previous_keyvalue
-        end
+        each_next { |next_keyvalue| result << next_keyvalue }
         result
       end
     end
 
-    def cursor(from : Key? = nil, including_from : Bool = true)
-      Cursor(I).new self, from, including_from
+    def cursor(from : Key? = nil, including_from : Bool = true, direction = :forward)
+      Cursor(I).new self, from, including_from, direction
     end
 
     def get(key : Key) : Value?
