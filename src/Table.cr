@@ -33,7 +33,7 @@ module Lawn
       decode_keyvalue data_storage.get(data_id).not_nil!
     end
 
-    protected def get_from_checkpointed(key : Bytes, strict : Bool = true) : {index_i: Int64, data_id: I, value: Value}?
+    protected def get_from_checkpointed(key : Key, strict : Bool = true, condition : Symbol = :equal) : {index_i: Int64, data_id: I, value: Value}?
       ::Log.debug { "#{self.class}.get_from_checkpointed #{key.hexstring} while index.size = #{index.size}" }
       return unless index.size > 0
 
@@ -42,7 +42,12 @@ module Lawn
         data_id = index[i]
         current_keyvalue = get_data data_id
         cache << {i: i, result: {data_id: data_id, keyvalue: current_keyvalue}}
-        current_keyvalue[0] >= key
+        case condition
+        when :equal, :greater_or_equal then current_keyvalue[0] >= key
+        when :less_or_equal            then current_keyvalue[0] <= key
+        when :less                     then current_keyvalue[0] < key
+        when :greater                  then current_keyvalue[0] > key
+        end
       end
 
       if result_index
@@ -151,12 +156,12 @@ module Lawn
       getter index_cursor : Index::Cursor(I)
       getter memtable_current : {Key, Value?}?
       getter index_current : KeyValue?
-      getter last_key_yielded_from_memtable : Bytes? = nil
+      getter last_key_yielded_from_memtable : Key? = nil
       getter keyvalue : KeyValue? = nil
 
-      def initialize(@table, from : Key? = nil)
+      def initialize(@table, from : Key? = nil, including_from : Bool = true)
         ::Log.debug { "#{self.class}.initialize #{from ? from.hexstring : nil}" }
-        index_from = from ? (@table.get_from_checkpointed(from, strict: false).not_nil![:index_i] rescue Int64::MAX) : 0_i64
+        index_from = from ? (@table.get_from_checkpointed(from, strict: false, condition: including_from ? :equal : :greater).not_nil![:index_i] rescue Int64::MAX) : 0_i64
 
         @memtable_cursor = AVLTree::Cursor.new @table.memtable.root, from
         @index_cursor = Index::Cursor.new @table.index, index_from
@@ -196,33 +201,33 @@ module Lawn
       end
     end
 
-    def cursor(from : Key? = nil)
-      Cursor(I).new self, from
+    def cursor(from : Key? = nil, including_from : Bool = true)
+      Cursor(I).new self, from, including_from
     end
 
-    def each(from : Key? = nil, & : KeyValue ->)
-      cursor = self.cursor from
+    def each(from : Key? = nil, including_from : Bool = true, & : KeyValue ->)
+      cursor = self.cursor from, including_from
       while result = cursor.next
         yield result
       end
     end
 
-    def each(from : Key? = nil)
-      r = [] of KeyValue
-      each(from) do |keyvalue|
-        r << keyvalue
+    def each(from : Key? = nil, including_from : Bool = true)
+      result = [] of KeyValue
+      each(from, including_from) do |keyvalue|
+        result << keyvalue
       end
-      r
+      result
     end
 
-    def get(key : Bytes) : Value?
+    def get(key : Key) : Value?
       ::Log.debug { "#{self.class}.get #{key.hexstring}" }
 
-      r = @memtable[key]?
-      return r if r
+      result = @memtable[key]?
+      return result if result
 
-      r = get_from_checkpointed key
-      return r[:value] if r
+      result = get_from_checkpointed key
+      return result[:value] if result
     end
   end
 end
