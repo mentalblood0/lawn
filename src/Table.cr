@@ -160,10 +160,10 @@ module Lawn
       getter keyvalue : KeyValue? = nil
 
       def initialize(@table, from : Key? = nil, including_from : Bool = true)
-        ::Log.debug { "#{self.class}.initialize #{from ? from.hexstring : nil}" }
+        ::Log.debug { "#{self.class}.initialize from: #{from ? from.hexstring : nil}, including_from: #{including_from}" }
         index_from = from ? (@table.get_from_checkpointed(from, strict: false, condition: including_from ? :equal : :greater).not_nil![:index_i] rescue Int64::MAX) : 0_i64
 
-        @memtable_cursor = AVLTree::Cursor.new @table.memtable.root, from
+        @memtable_cursor = AVLTree::Cursor.new @table.memtable.root, from, including_from
         @index_cursor = Index::Cursor.new @table.index, index_from
         @memtable_current = @memtable_cursor.next
         @index_current = (index_id = @index_cursor.value) && @table.get_data index_id

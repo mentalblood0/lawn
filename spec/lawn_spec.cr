@@ -256,6 +256,7 @@ describe Lawn::Database do
         all_present_in_table.should eq all_added_in_table
         all_present_in_table.each do |key, value|
           database.tables[table_id].each(from: key).should eq all_added_in_table[all_added_in_table.index({key, value})..]
+          database.tables[table_id].each(from: key, including_from: false).should eq all_added_in_table[all_added_in_table.index({key, value}).not_nil! + 1..]
         end
       end
       database.checkpoint

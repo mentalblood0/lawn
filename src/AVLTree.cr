@@ -9,15 +9,12 @@ module Lawn
       property key : Key
       property value : Value?
 
-      property left : Node?
-      property right : Node?
+      property left : Node? = nil
+      property right : Node? = nil
 
-      property height : Int8
+      property height : Int8 = 1
 
       def initialize(@key, @value)
-        @left = nil
-        @right = nil
-        @height = 1
       end
     end
 
@@ -25,9 +22,10 @@ module Lawn
       getter stack = [] of Node
       getter current : Node?
       getter from : Key? = nil
+      getter including_from : Bool
 
-      def initialize(@current, @from = nil)
-        ::Log.debug { "#{self.class}.initialize current: #{@current} from: #{from ? from.hexstring : nil}" }
+      def initialize(@current, @from = nil, @including_from = true)
+        ::Log.debug { "#{self.class}.initialize current: #{@current} from: #{from ? from.hexstring : nil}, including_from: #{including_from}" }
       end
 
       def next
@@ -39,9 +37,9 @@ module Lawn
             @current = @current.not_nil!.left
           end
           @current = @stack.pop
-          r = {@current.not_nil!.key, @current.not_nil!.value}
+          result = {@current.not_nil!.key, @current.not_nil!.value}
           @current = @current.not_nil!.right
-          return r unless @from && (r[0] < @from.not_nil!)
+          return result unless @from && (@including_from ? (result[0] < @from.not_nil!) : (result[0] <= @from.not_nil!))
         end
       end
     end
@@ -67,8 +65,8 @@ module Lawn
     def each(from : Key? = nil, &)
       ::Log.debug { "#{self.class}.each #{from ? from.hexstring : nil}" }
       cursor = Cursor.new @root, from
-      while r = cursor.next
-        yield r
+      while result = cursor.next
+        yield result
       end
     end
 
