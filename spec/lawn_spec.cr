@@ -156,6 +156,26 @@ describe Lawn::AVLTree do
   end
 end
 
+macro test_scans
+  added.each_with_index do |added_in_table, table_id|
+    added_in_table.keys.each { |k| database.tables[table_id].get(k).should eq added_in_table[k] }
+  end
+  added.each_with_index do |added_in_table, table_id|
+    all_added_in_table = added_in_table.to_a.sort_by { |key, _| key }
+    all_present_in_table = database.tables[table_id].cursor.all_next
+    all_present_in_table.should eq all_added_in_table
+    all_present_in_table.each do |key, value|
+      database.tables[table_id].cursor(from: key).all_next.should eq all_added_in_table[all_added_in_table.index({key, value})..]
+      database.tables[table_id].cursor(from: key, including_from: false).all_next.should eq all_added_in_table[all_added_in_table.index({key, value}).not_nil! + 1..]
+    end
+    all_present_in_table.reverse!
+    all_present_in_table.each do |key, value|
+      database.tables[table_id].cursor(from: key).all_previous.should eq all_added_in_table[all_added_in_table.index({key, value})..]
+      database.tables[table_id].cursor(from: key, including_from: false).all_previous.should eq all_added_in_table[all_added_in_table.index({key, value}).not_nil! + 1..]
+    end
+  end
+end
+
 describe Lawn::Database do
   database = config[:database]
 
@@ -249,33 +269,11 @@ describe Lawn::Database do
           added[table_id].delete key
         end
       end
-      added.each_with_index do |added_in_table, table_id|
-        added_in_table.keys.each { |k| database.tables[table_id].get(k).should eq added_in_table[k] }
-      end
-      added.each_with_index do |added_in_table, table_id|
-        all_added_in_table = added_in_table.to_a.sort_by { |key, _| key }
-        all_present_in_table = database.tables[table_id].each
-        all_present_in_table.should eq all_added_in_table
-        all_present_in_table.each do |key, value|
-          database.tables[table_id].each(from: key).should eq all_added_in_table[all_added_in_table.index({key, value})..]
-          database.tables[table_id].each(from: key, including_from: false).should eq all_added_in_table[all_added_in_table.index({key, value}).not_nil! + 1..]
-        end
-      end
+      test_scans
       database.checkpoint
       added.each_with_index { |added_in_table, table_id| database.tables[table_id].index.size.should eq added_in_table.size }
     end
-    added.each_with_index do |added_in_table, table_id|
-      added_in_table.keys.each { |k| database.tables[table_id].get(k).should eq added_in_table[k] }
-    end
-    added.each_with_index do |added_in_table, table_id|
-      all_added_in_table = added_in_table.to_a.sort_by { |key, _| key }
-      all_present_in_table = database.tables[table_id].each
-      all_present_in_table.should eq all_added_in_table
-      all_present_in_table.each do |key, value|
-        database.tables[table_id].each(from: key).should eq all_added_in_table[all_added_in_table.index({key, value})..]
-        database.tables[table_id].each(from: key, including_from: false).should eq all_added_in_table[all_added_in_table.index({key, value}).not_nil! + 1..]
-      end
-    end
+    test_scans
     database.log.bytesize.should eq database.log.file.size
   end
 end

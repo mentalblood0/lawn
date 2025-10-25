@@ -199,25 +199,57 @@ module Lawn
           end
         end
       end
+
+      def all_next : Array(KeyValue)
+        result = [] of KeyValue
+        while (next_keyvalue = self.next)
+          result << next_keyvalue
+        end
+        result
+      end
+
+      def previous : KeyValue?
+        ::Log.debug { "#{self.class}.previous" }
+        loop do
+          result = nil
+          case {memtable_current_temp = @memtable_current, index_current_temp = @index_current}
+          when {Tuple(Key, Value?), nil}
+            @last_key_yielded_from_memtable = memtable_current_temp[0]
+            result = {memtable_current_temp[0], memtable_current_temp[1].not_nil!} if memtable_current_temp[1]
+            @memtable_current = @memtable_cursor.previous
+          when {Tuple(Key, Value?), KeyValue}
+            if memtable_current_temp[0] >= index_current_temp[0]
+              @last_key_yielded_from_memtable = memtable_current_temp[0]
+              result = {memtable_current_temp[0], memtable_current_temp[1].not_nil!} if memtable_current_temp[1]
+              @memtable_current = @memtable_cursor.previous
+            else
+              result = index_current_temp unless index_current_temp[0] == @last_key_yielded_from_memtable
+              @index_current = (index_id = @index_cursor.previous) && @table.get_data index_id
+            end
+          when {nil, KeyValue}
+            result = index_current_temp unless index_current_temp[0] == @last_key_yielded_from_memtable
+            @index_current = (index_id = @index_cursor.previous) && @table.get_data index_id
+          when {nil, nil}
+            break
+          end
+          if result
+            @keyvalue = result
+            return result
+          end
+        end
+      end
+
+      def all_previous : Array(KeyValue)
+        result = [] of KeyValue
+        while (previous_keyvalue = self.next)
+          result << previous_keyvalue
+        end
+        result
+      end
     end
 
     def cursor(from : Key? = nil, including_from : Bool = true)
       Cursor(I).new self, from, including_from
-    end
-
-    def each(from : Key? = nil, including_from : Bool = true, & : KeyValue ->)
-      cursor = self.cursor from, including_from
-      while result = cursor.next
-        yield result
-      end
-    end
-
-    def each(from : Key? = nil, including_from : Bool = true)
-      result = [] of KeyValue
-      each(from, including_from) do |keyvalue|
-        result << keyvalue
-      end
-      result
     end
 
     def get(key : Key) : Value?
