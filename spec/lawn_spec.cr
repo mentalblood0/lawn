@@ -149,8 +149,10 @@ describe Lawn::AVLTree do
       tree.size.should eq added.size
     end
     sorted = added.to_a.sort_by { |key, _| key }
-    tree.each.should eq sorted
-    tree.each { |key, value| tree.each(from: key).should eq sorted[sorted.index({key, value})..] }
+    Lawn::AVLTree::Cursor.new(tree.root).all_next.should eq sorted
+    sorted.each { |key, value| Lawn::AVLTree::Cursor.new(tree.root, from: key).all_next.should eq sorted[sorted.index({key, value})..] }
+    sorted.reverse!
+    sorted.each { |key, value| Lawn::AVLTree::Cursor.new(tree.root, from: key).all_previous.should eq sorted[sorted.index({key, value})..] }
   end
 end
 

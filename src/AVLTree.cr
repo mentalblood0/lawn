@@ -28,7 +28,7 @@ module Lawn
         ::Log.debug { "#{self.class}.initialize current: #{@current} from: #{from ? from.hexstring : nil}, including_from: #{including_from}" }
       end
 
-      def next
+      def next : {Key, Value?}?
         ::Log.debug { "#{self.class}.next" }
         while @current || !@stack.empty?
           while @current
@@ -41,6 +41,37 @@ module Lawn
           @current = @current.not_nil!.right
           return result unless @from && (@including_from ? (result[0] < @from.not_nil!) : (result[0] <= @from.not_nil!))
         end
+      end
+
+      def all_next : Array({Key, Value?})
+        result = [] of {Key, Value?}
+        while (next_keyvalue = self.next)
+          result << next_keyvalue
+        end
+        result
+      end
+
+      def previous : {Key, Value?}?
+        ::Log.debug { "#{self.class}.previous" }
+        while @current || !@stack.empty?
+          while @current
+            @stack << @current.not_nil!
+            break if @from && (@current.not_nil!.key > @from.not_nil!)
+            @current = @current.not_nil!.right
+          end
+          @current = @stack.pop
+          result = {@current.not_nil!.key, @current.not_nil!.value}
+          @current = @current.not_nil!.left
+          return result unless @from && (@including_from ? (result[0] > @from.not_nil!) : (result[0] >= @from.not_nil!))
+        end
+      end
+
+      def all_previous : Array({Key, Value?})
+        result = [] of {Key, Value?}
+        while (previous_keyvalue = self.previous)
+          result << previous_keyvalue
+        end
+        result
       end
     end
 
@@ -60,21 +91,6 @@ module Lawn
       else
         self[key, node.right]?
       end
-    end
-
-    def each(from : Key? = nil, &)
-      ::Log.debug { "#{self.class}.each #{from ? from.hexstring : nil}" }
-      cursor = Cursor.new @root, from
-      while result = cursor.next
-        yield result
-      end
-    end
-
-    def each(from : Key? = nil)
-      ::Log.debug { "#{self.class}.each #{from ? from.hexstring : nil}" }
-      r = [] of {Key, Value?}
-      each(from) { |keyvalue| r << keyvalue }
-      r
     end
 
     def delete(key : Key)
