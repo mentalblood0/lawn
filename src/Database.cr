@@ -62,7 +62,11 @@ module Lawn
       end
 
       @transactions[:in_work].delete transaction
-      @transactions[:committed] << transaction unless @transactions[:in_work].empty?
+      if @transactions[:in_work].empty?
+        @transactions[:committed].clear
+      else
+        @transactions[:committed] << transaction
+      end
       self
     end
 
