@@ -9,9 +9,12 @@ module Lawn
 
     getter batches : Array(Array({Key, Value?}))
     getter accessed_keys : Set({UInt8, Key}) = Set({UInt8, Key}).new
+    getter began_at : Time
+    getter committed_at : Time?
 
     protected def initialize(@database)
       @batches = @database.tables.map { |table| Array({Key, Value?}).new }
+      @began_at = Time.utc
     end
 
     def set(table_id : UInt8, key : Key, value : Value = EMPTY_VALUE)
@@ -40,6 +43,7 @@ module Lawn
     end
 
     def commit
+      @committed_at = Time.utc
       @database.commit self
       @database
     end

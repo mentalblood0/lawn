@@ -49,7 +49,8 @@ module Lawn
       raise Exception.new "Transaction #{transaction} is orphaned, can not commit" unless @transactions[:in_work].includes? transaction
 
       @transactions[:committed].each do |committed_transaction|
-        if transaction.accessed_keys.intersects? committed_transaction.accessed_keys
+        if (transaction.began_at < committed_transaction.committed_at.not_nil!) &&
+           (transaction.accessed_keys.intersects? committed_transaction.accessed_keys)
           raise Exception.new "Transaction #{transaction} interfere with already committed transaction #{committed_transaction} and therefore can not be committed"
         end
       end
@@ -62,10 +63,12 @@ module Lawn
       end
 
       @transactions[:in_work].delete transaction
-      if @transactions[:in_work].empty?
-        @transactions[:committed].clear
-      else
-        @transactions[:committed] << transaction
+      @transactions[:committed] << transaction
+
+      @transactions[:committed].each do |committed_transaction|
+        unless @transactions[:in_work].any? { |working_transaction| working_transaction.began_at < committed_transaction.committed_at.not_nil! }
+          @transactions[:committed].delete committed_transaction
+        end
       end
       self
     end
