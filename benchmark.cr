@@ -59,7 +59,7 @@ if config[:benchmarks].any? { |benchmark_name| benchmark_name.starts_with? "data
     rnd = Random.new config[:seed]
     keys = keyvalues.keys
     keys.shuffle! rnd
-    time = Time.measure { keys.each { |key| config[:database].tables[table_id].get key } }
+    time = Time.measure { keys.each { |key| config[:database].get table_id, key } }
     write_speeds
   end
 end
@@ -91,7 +91,7 @@ if config[:benchmarks].any? { |benchmark_name| benchmark_name.starts_with? "data
     rnd = Random.new config[:seed]
     keys = keyvalues.keys
     keys.shuffle! rnd
-    time = Time.measure { keys.each { |key| config[:database].tables[table_id].get key } }
+    time = Time.measure { keys.each { |key| config[:database].get table_id, key } }
     write_speeds
   end
 end
