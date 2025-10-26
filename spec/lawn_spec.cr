@@ -190,9 +190,12 @@ describe Lawn::Database do
   end
 
   it "handles deletes correctly" do
-    database.transaction.set(VARIABLE_TABLE, [{"key_to_delete".to_slice, "value".to_slice},
-                                              {"key".to_slice, "value".to_slice}]).commit
-    database.checkpoint
+    database
+      .transaction
+      .set(VARIABLE_TABLE, "key_to_delete".to_slice, "value".to_slice)
+      .set(VARIABLE_TABLE, "key".to_slice, "value".to_slice)
+      .commit
+      .checkpoint
     database.tables.first.get("key_to_delete".to_slice).should eq "value".to_slice
     database.tables.first.get("key".to_slice).should eq "value".to_slice
 
@@ -219,8 +222,7 @@ describe Lawn::Database do
   it "handles wide range of sizes correctly" do
     value = "v".to_slice
     keyvalues = (1..1024).map { |key_size| {("k" * key_size).to_slice, value} }
-    database.transaction.set(VARIABLE_TABLE, keyvalues).commit
-    database.checkpoint
+    database.transaction.set(VARIABLE_TABLE, keyvalues).commit.checkpoint
     keyvalues.each { |key, value| database.tables[VARIABLE_TABLE].get(key).should eq value }
   end
 
@@ -238,6 +240,17 @@ describe Lawn::Database do
     database.transaction.set(FIXED_KEYONLY_TABLE, key).commit
     cursor = database.tables[FIXED_KEYONLY_TABLE].cursor from: prefix
     cursor.next.should eq({key, Bytes.new 0})
+  end
+
+  it "isolates transactions" do
+    transaction_A = database.transaction
+    transaction_B = database.transaction
+
+    transaction_A.get FIXED_KEYONLY_TABLE, "key".to_slice
+    transaction_B.set FIXED_KEYONLY_TABLE, "key".to_slice
+
+    transaction_A.commit
+    expect_raises(Lawn::Exception) { transaction_B.commit }
   end
 
   it "generative test" do

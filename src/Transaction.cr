@@ -1,69 +1,52 @@
+require "./exceptions"
 require "./Log"
 
 module Lawn
   class Transaction
-    getter database : Database
-    getter batches : Array(Array({Key, Value?})?) = Array(Array({Key, Value?})?).new(256) { nil }
     EMPTY_VALUE = Bytes.new 0
 
+    getter database : Database
+
+    getter lifetime : Range(Time, Nil) | Range(Time, Time)
+
+    getter batches : Array(Array({Key, Value?}))
+    getter accessed_keys : Set({UInt8, Key}) = Set({UInt8, Key}).new
+
     protected def initialize(@database)
+      @lifetime = (Time.utc..)
+      @batches = @database.tables.map { |table| Array({Key, Value?}).new }
     end
 
-    def batch(table_id : UInt8)
-      batches[table_id] = Array({Key, Value?}).new unless batches[table_id]
-      batches[table_id].not_nil!
+    protected def lifetime=(@lifetime)
     end
 
-    def set(table_id : UInt8, keyvalues : Array({Key, Value?}))
-      ::Log.debug { "#{self.class}.set table_id: #{table_id}, keyvalues: #{keyvalues.map { |key, value| {key.hexstring, value.hexstring} }}" }
-      batch(table_id).concat keyvalues
-      self
-    end
-
-    def set(table_id : UInt8, keys : Array(Key))
-      ::Log.debug { "#{self.class}.set table_id: #{table_id}, keys : #{keys.map &.hexstring}" }
-      batch(table_id).concat keys.map { |key| {key, EMPTY_VALUE} }
-      self
-    end
-
-    def set(table_id : UInt8, keyvalue : {Key, Value?})
-      ::Log.debug { "#{self.class}.set table_id: #{table_id}, keyvalue: #{{keyvalue[0].hexstring, keyvalue[1] ? keyvalue[1].hexstring : nil}}" }
-      batch(table_id) << keyvalue
-      self
-    end
-
-    def set(table_id : UInt8, key : Key)
-      ::Log.debug { "#{self.class}.set table_id: #{table_id}, key: #{key.hexstring}" }
-      batch(table_id) << {key, EMPTY_VALUE}
-      self
-    end
-
-    def set(table_id : UInt8, key : Key, value : Value)
+    def set(table_id : UInt8, key : Key, value : Value = EMPTY_VALUE)
       ::Log.debug { "#{self.class}.set table_id: #{table_id}, key: #{key.hexstring}, value: #{value.hexstring}" }
-      batch(table_id) << {key, value}
+      @accessed_keys << {table_id, key}
+      @batches[table_id] << {key, value}
       self
     end
 
-    def delete(table_id : UInt8, keys : Array(Key))
-      ::Log.debug { "#{self.class}.delete table_id: #{table_id}, keys: #{keys.map &.hexstring}" }
-      batch(table_id) { |key| @batch << {key, nil} }
+    def set(table_id : UInt8, keyvalues : Array({Key, Value}))
+      keyvalues.each { |key, value| set table_id, key, value }
       self
     end
 
     def delete(table_id : UInt8, key : Key)
       ::Log.debug { "#{self.class}.delete table_id: #{table_id}, key: #{key.hexstring}" }
-      batch(table_id) << {key, nil}
+      @accessed_keys << {table_id, key}
+      @batches[table_id] << {key, nil}
       self
     end
 
+    def get(table_id : UInt8, key : Key) : Value?
+      ::Log.debug { "#{self.class}.get table_id: #{table_id}, key: #{key.hexstring}" }
+      @accessed_keys << {table_id, key}
+      @database.tables[table_id].get key
+    end
+
     def commit
-      ::Log.debug { "#{self.class}.commit" }
-      @database.log.write @database.tables, @batches
-      @batches.each_with_index do |batch, table_id|
-        next unless batch
-        table = @database.tables[table_id]
-        batch.each { |key, value| table.memtable[key] = value }
-      end
+      @database.commit self
       @database
     end
   end

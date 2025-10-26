@@ -36,10 +36,10 @@ module Lawn
       after_initialize
     end
 
-    def write(tables : Array(Table), batches : Array(Array({Key, Value?})?))
+    def write(tables : Array(Table), batches : Array(Array({Key, Value?})))
       buf = IO::Memory.new
       batches.each_with_index do |batch, table_id|
-        next unless batch
+        next if batch.empty?
         buf.write_byte table_id.to_u8
         Lawn.encode_number_with_size buf, batch.size
         if (table = tables[table_id]).is_a? FixedTable
