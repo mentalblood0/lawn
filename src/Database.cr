@@ -13,7 +13,12 @@ module Lawn
     getter tables : Array(VariableTable | FixedTable)
 
     Lawn.mignore
-    getter transactions = {in_work: Set(Transaction).new, committed: Set(Transaction).new}
+    getter transactions = {
+      in_work: Set(Transaction).new,
+      committed: Set({
+        began_at: Time,
+        committed_at: Time,
+        accessed_keys: Set({UInt8, Key})}).new}
 
     def initialize(@log, @tables)
     end
@@ -49,8 +54,8 @@ module Lawn
       raise Exception.new "Transaction #{transaction} is orphaned, can not commit" unless @transactions[:in_work].includes? transaction
 
       @transactions[:committed].each do |committed_transaction|
-        if (transaction.began_at < committed_transaction.committed_at.not_nil!) &&
-           (transaction.accessed_keys.intersects? committed_transaction.accessed_keys)
+        if (transaction.began_at < committed_transaction[:committed_at]) &&
+           (transaction.accessed_keys.intersects? committed_transaction[:accessed_keys])
           raise Exception.new "Transaction #{transaction} interfere with already committed transaction #{committed_transaction} and therefore can not be committed"
         end
       end
@@ -63,10 +68,10 @@ module Lawn
       end
 
       @transactions[:in_work].delete transaction
-      @transactions[:committed] << transaction
+      @transactions[:committed] << {began_at: transaction.began_at, committed_at: transaction.committed_at.not_nil!, accessed_keys: transaction.accessed_keys}
 
       @transactions[:committed].each do |committed_transaction|
-        unless @transactions[:in_work].any? { |working_transaction| working_transaction.began_at < committed_transaction.committed_at.not_nil! }
+        unless @transactions[:in_work].any? { |working_transaction| working_transaction.began_at < committed_transaction[:committed_at] }
           @transactions[:committed].delete committed_transaction
         end
       end
