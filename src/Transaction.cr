@@ -9,7 +9,6 @@ module Lawn
 
     getter batches : Array(Array({Key, Value?}))
     getter accessed_keys : Set({UInt8, Key}) = Set({UInt8, Key}).new
-    getter committed = false
 
     protected def initialize(@database)
       @batches = @database.tables.map { |table| Array({Key, Value?}).new }
@@ -41,9 +40,6 @@ module Lawn
     end
 
     def commit
-      ::Log.debug { "#{self.class}.commit" }
-      raise Exception.new "Can not commit transaction which has already been committed" if @committed
-      @committed = true
       @database.commit self
       @database
     end

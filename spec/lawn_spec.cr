@@ -242,6 +242,18 @@ describe Lawn::Database do
     cursor.next.should eq({key, Bytes.new 0})
   end
 
+  it "denies committing orphaned transactions" do
+    transaction = database.transaction
+    database.clear
+    expect_raises(Lawn::Exception) { transaction.commit }
+  end
+
+  it "denies committing transactions repeatedly" do
+    transaction = database.transaction
+    transaction.commit
+    expect_raises(Lawn::Exception) { transaction.commit }
+  end
+
   it "isolates transactions" do
     transaction_A = database.transaction
     transaction_B = database.transaction

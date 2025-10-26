@@ -32,16 +32,21 @@ module Lawn
       ::Log.debug { "#{self.class}.clear" }
       log.clear
       tables.each { |table| table.clear }
+      transactions[:in_work].clear
+      transactions[:committed].clear
       self
     end
 
     def transaction
       ::Log.debug { "#{self.class}.transaction" }
-      Transaction.new self
+      result = Transaction.new self
+      transactions[:in_work] << result
+      result
     end
 
     protected def commit(transaction : Transaction)
       ::Log.debug { "#{self.class}.commit #{transaction}" }
+      raise Exception.new "Transaction #{transaction} is orphaned, can not commit" unless @transactions[:in_work].includes? transaction
 
       @transactions[:committed].each do |committed_transaction|
         if transaction.accessed_keys.intersects? committed_transaction.accessed_keys
