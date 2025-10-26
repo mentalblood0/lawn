@@ -66,6 +66,13 @@ module Lawn
       self
     end
 
+    def get(table_id : UInt8, key : Key)
+      result_transaction = self.transaction
+      result = result_transaction.get(table_id, key)
+      result_transaction.commit
+      result
+    end
+
     def checkpoint
       ::Log.debug { "#{self.class}.checkpoint" }
       tables.each { |table| table.checkpoint }

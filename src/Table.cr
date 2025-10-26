@@ -287,7 +287,7 @@ module Lawn
       Cursor(I).new self, from, including_from, direction
     end
 
-    def get(key : Key) : Value?
+    protected def get(key : Key) : Value?
       ::Log.debug { "#{self.class}.get #{key.hexstring}" }
 
       result = @memtable[key]?

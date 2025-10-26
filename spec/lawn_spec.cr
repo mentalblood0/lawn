@@ -160,7 +160,7 @@ end
 
 macro test_scans
   added.each_with_index do |added_in_table, table_id|
-    added_in_table.keys.each { |k| database.tables[table_id].get(k).should eq added_in_table[k] }
+    added_in_table.keys.each { |k| database.get(table_id.to_u8, k).should eq added_in_table[k] }
   end
   added.each_with_index do |added_in_table, table_id|
     all_added_in_table = added_in_table.to_a.sort_by { |key, _| key }
@@ -186,7 +186,7 @@ describe Lawn::Database do
     value = "value".to_slice
     database.transaction.set(VARIABLE_TABLE, key, value).commit
     database.checkpoint
-    database.tables.first.get(key).should eq value
+    database.get(VARIABLE_TABLE, key).should eq value
   end
 
   it "handles deletes correctly" do
@@ -196,13 +196,13 @@ describe Lawn::Database do
       .set(VARIABLE_TABLE, "key".to_slice, "value".to_slice)
       .commit
       .checkpoint
-    database.tables.first.get("key_to_delete".to_slice).should eq "value".to_slice
-    database.tables.first.get("key".to_slice).should eq "value".to_slice
+    database.get(VARIABLE_TABLE, "key_to_delete".to_slice).should eq "value".to_slice
+    database.get(VARIABLE_TABLE, "key".to_slice).should eq "value".to_slice
 
     database.transaction.delete(VARIABLE_TABLE, "key_to_delete".to_slice).commit
     database.checkpoint
-    database.tables.first.get("key_to_delete".to_slice).should eq nil
-    database.tables.first.get("key".to_slice).should eq "value".to_slice
+    database.get(VARIABLE_TABLE, "key_to_delete".to_slice).should eq nil
+    database.get(VARIABLE_TABLE, "key".to_slice).should eq "value".to_slice
   end
 
   it "handles updates correctly" do
@@ -212,26 +212,26 @@ describe Lawn::Database do
 
     database.transaction.set(VARIABLE_TABLE, key, value).commit
     database.checkpoint
-    database.tables.first.get(key).should eq value
+    database.get(VARIABLE_TABLE, key).should eq value
 
     database.transaction.set(VARIABLE_TABLE, key, new_value).commit
     database.checkpoint
-    database.tables.first.get(key).should eq new_value
+    database.get(VARIABLE_TABLE, key).should eq new_value
   end
 
   it "handles wide range of sizes correctly" do
     value = "v".to_slice
     keyvalues = (1..1024).map { |key_size| {("k" * key_size).to_slice, value} }
     database.transaction.set(VARIABLE_TABLE, keyvalues).commit.checkpoint
-    keyvalues.each { |key, value| database.tables[VARIABLE_TABLE].get(key).should eq value }
+    keyvalues.each { |key, value| database.get(VARIABLE_TABLE, key).should eq value }
   end
 
   it "supports setting empty values" do
     key = "1234567890abcdef".to_slice
     database.transaction.set(FIXED_KEYONLY_TABLE, key).commit
-    database.tables[FIXED_KEYONLY_TABLE].get(key).should eq Bytes.new 0
+    database.get(FIXED_KEYONLY_TABLE, key).should eq Bytes.new 0
     database.checkpoint
-    database.tables[FIXED_KEYONLY_TABLE].get(key).should eq Bytes.new 0
+    database.get(FIXED_KEYONLY_TABLE, key).should eq Bytes.new 0
   end
 
   it "handles prefix search" do
