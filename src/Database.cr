@@ -40,11 +40,8 @@ module Lawn
       Transaction.new self
     end
 
-    def commit(transaction : Transaction)
+    protected def commit(transaction : Transaction)
       ::Log.debug { "#{self.class}.commit #{transaction}" }
-
-      raise Exception.new "Can not commit transaction which has already been committed (lifetime is #{transaction.lifetime})" if transaction.lifetime.end
-      transaction.lifetime = (transaction.lifetime.begin..Time.utc)
 
       @transactions[:committed].each do |committed_transaction|
         if transaction.accessed_keys.intersects? committed_transaction.accessed_keys
