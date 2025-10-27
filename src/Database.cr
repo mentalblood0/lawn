@@ -27,16 +27,20 @@ module Lawn
       result
     end
 
-    def after_initialize
+    def recover
       @log.read(@tables) { |entry| tables[entry[:table_id]].memtable[entry[:keyvalue][0]] = entry[:keyvalue][1] }
+    end
+
+    def after_initialize
+      recover
     end
 
     def clear
       ::Log.debug { "#{self.class}.clear" }
-      log.clear
-      tables.each { |table| table.clear }
       transactions[:in_work].clear
       transactions[:committed].clear
+      tables.each { |table| table.clear }
+      log.clear
       self
     end
 

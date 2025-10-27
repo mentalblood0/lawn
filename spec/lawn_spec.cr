@@ -188,6 +188,14 @@ end
 describe Lawn::Database do
   database = config[:database]
 
+  it "recovers from log" do
+    key = "1234567890abcdef".to_slice
+    database.transaction.set(FIXED_KEYONLY_TABLE, key).commit
+    database.tables[FIXED_KEYONLY_TABLE].memtable.clear
+    database.recover
+    database.get(FIXED_KEYONLY_TABLE, key).should eq Bytes.new 0
+  end
+
   it "checkpoints" do
     key = "key".to_slice
     value = "value".to_slice
