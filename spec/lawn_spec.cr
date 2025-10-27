@@ -212,13 +212,14 @@ describe Lawn::Database do
     database.get(VARIABLE_TABLE, "key".to_slice).should eq "value".to_slice
   end
 
-  it "handles in-memory deletes correctly" do
+  it "handles in-memory deletes correctly", focus: true do
     key = "1234567890abcdef".to_slice
+    database.transaction.set(FIXED_KEYONLY_TABLE, key).commit.checkpoint
+    database.tables[FIXED_KEYONLY_TABLE].cursor.all_next.should eq [{key, Bytes.new 0}]
     database
-      .transaction.set(FIXED_KEYONLY_TABLE, key).commit
-      .checkpoint
       .transaction.delete(FIXED_KEYONLY_TABLE, key).commit
       .get(FIXED_KEYONLY_TABLE, key).should eq nil
+    database.tables[FIXED_KEYONLY_TABLE].cursor.all_next.should eq [] of Lawn::KeyValue
   end
 
   it "handles updates correctly" do
