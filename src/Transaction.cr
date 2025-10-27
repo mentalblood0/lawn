@@ -7,13 +7,13 @@ module Lawn
 
     getter database : Database
 
-    getter batches : Array(Array({Key, Value?}))
+    getter changes : Array(AVLTree)
     getter accessed_keys = {read: Set({UInt8, Key}).new, write: Set({UInt8, Key}).new}
     getter began_at : Time
     getter committed_at : Time?
 
     protected def initialize(@database)
-      @batches = @database.tables.map { |table| Array({Key, Value?}).new }
+      @changes = @database.tables.map { |table| AVLTree.new }
       @began_at = Time.utc
     end
 
@@ -33,7 +33,7 @@ module Lawn
       ::Log.debug { "#{self.class}.set table_id: #{table_id}, key: #{key.hexstring}, value: #{value.hexstring}" }
       check_write_interference table_id, key
       @accessed_keys[:write] << {table_id, key}
-      @batches[table_id] << {key, value}
+      @changes[table_id][key] = value
       self
     end
 
@@ -46,7 +46,7 @@ module Lawn
       ::Log.debug { "#{self.class}.delete table_id: #{table_id}, key: #{key.hexstring}" }
       check_write_interference table_id, key
       @accessed_keys[:write] << {table_id, key}
-      @batches[table_id] << {key, nil}
+      @changes[table_id][key] = nil
       self
     end
 
@@ -59,8 +59,8 @@ module Lawn
           raise Exception.new "Transaction #{self} try to get value by key #{key}, but value at this key was changed during this transaction by another committed transaction, so thi transaction can not perform this get"
         end
       end
-
       @accessed_keys[:read] << {table_id, key}
+
       @database.tables[table_id].get key
     end
 

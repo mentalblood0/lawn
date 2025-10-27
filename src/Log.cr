@@ -36,14 +36,14 @@ module Lawn
       after_initialize
     end
 
-    def write(tables : Array(Table), batches : Array(Array({Key, Value?})))
+    def write(tables : Array(Table), changes : Array(AVLTree))
       buf = IO::Memory.new
-      batches.each_with_index do |batch, table_id|
-        next if batch.empty?
+      changes.each_with_index do |table_changes, table_id|
+        next if table_changes.empty?
         buf.write_byte table_id.to_u8
-        Lawn.encode_number_with_size buf, batch.size
+        Lawn.encode_number_with_size buf, table_changes.size
         if (table = tables[table_id]).is_a? FixedTable
-          batch.each do |key, value|
+          table_changes.cursor.each_next do |key, value|
             raise Exception.new "Key size must be #{table.key_size}, not #{key.size}" unless key.size == table.key_size
             raise Exception.new "Value size must be #{table.value_size}, not #{value.size}" unless !value || (value.size == table.value_size)
             buf.write key
@@ -55,7 +55,7 @@ module Lawn
             end
           end
         else
-          batch.each do |key, value|
+          table_changes.cursor.each_next do |key, value|
             Lawn.encode_bytes_with_size_size buf, key
             if value
               buf.write_byte 1_u8
@@ -74,9 +74,9 @@ module Lawn
       file.rewind
       loop do
         table_id = file.read_byte.not_nil! rescue break
-        batch_size = Lawn.decode_number_with_size file
+        table_changes_count = Lawn.decode_number_with_size file
         if (table = tables[table_id]).is_a? FixedTable
-          batch_size.times do
+          table_changes_count.times do
             key = Lawn.decode_bytes file, table.key_size
             value = case file.read_byte.not_nil!
                     when 1_u8 then Lawn.decode_bytes file, table.value_size
@@ -85,7 +85,7 @@ module Lawn
             yield({table_id: table_id, keyvalue: {key, value}})
           end
         else
-          batch_size.times do
+          table_changes_count.times do
             key = Lawn.decode_bytes_with_size_size file
             value = case file.read_byte.not_nil!
                     when 1_u8 then Lawn.decode_bytes_with_size_size file

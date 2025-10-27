@@ -43,11 +43,15 @@ module Lawn
         end
       end
 
+      def each_next(&)
+        while (next_keyvalue = self.next)
+          yield next_keyvalue
+        end
+      end
+
       def all_next : Array({Key, Value?})
         result = [] of {Key, Value?}
-        while (next_keyvalue = self.next)
-          result << next_keyvalue
-        end
+        each_next { |next_keyvalue| result << next_keyvalue }
         result
       end
 
@@ -66,13 +70,21 @@ module Lawn
         end
       end
 
+      def each_previous(&)
+        while (previous_keyvalue = self.previous)
+          yield previous_keyvalue
+        end
+      end
+
       def all_previous : Array({Key, Value?})
         result = [] of {Key, Value?}
-        while (previous_keyvalue = self.previous)
-          result << previous_keyvalue
-        end
+        each_previous { |previous_keyvalue| result << previous_keyvalue }
         result
       end
+    end
+
+    def cursor(from : Key? = nil, including_from : Bool = true)
+      Cursor.new @root
     end
 
     def []=(key : Key, value : Value?)
@@ -80,9 +92,9 @@ module Lawn
       @root = upsert @root, key, value
     end
 
-    def []?(key : Key, node : Node? = @root) : Value?
+    def []?(key : Key, node : Node? = @root) : Value? | Symbol
       ::Log.debug { "#{self.class}[#{key.hexstring}]?" }
-      return unless node
+      return :no_key unless node
 
       if key == node.key
         node.value

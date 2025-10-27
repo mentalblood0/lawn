@@ -291,7 +291,7 @@ module Lawn
       ::Log.debug { "#{self.class}.get #{key.hexstring}" }
 
       result = @memtable[key]?
-      return result if result
+      return result if !result.is_a? Symbol
 
       result = get_from_checkpointed key
       return result[:value] if result

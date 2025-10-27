@@ -123,6 +123,13 @@ when Lawn::RoundDataStorage
 end
 
 describe Lawn::AVLTree do
+  it "distinguishes between absent key and key with absent value" do
+    tree = Lawn::AVLTree.new
+    tree["key".to_slice] = nil
+    tree["key".to_slice]?.should eq nil
+    tree["absent_key".to_slice]?.should eq :no_key
+  end
+
   it "generative test" do
     tree = Lawn::AVLTree.new
     added = Hash(Bytes, Bytes?).new
@@ -205,6 +212,15 @@ describe Lawn::Database do
     database.get(VARIABLE_TABLE, "key".to_slice).should eq "value".to_slice
   end
 
+  it "handles in-memory deletes correctly" do
+    key = "1234567890abcdef".to_slice
+    database
+      .transaction.set(FIXED_KEYONLY_TABLE, key).commit
+      .checkpoint
+      .transaction.delete(FIXED_KEYONLY_TABLE, key).commit
+      .get(FIXED_KEYONLY_TABLE, key).should eq nil
+  end
+
   it "handles updates correctly" do
     key = "key".to_slice
     value = "value".to_slice
@@ -254,7 +270,7 @@ describe Lawn::Database do
     expect_raises(Lawn::Exception) { transaction.commit }
   end
 
-  describe "transactions isolation", focus: true do
+  describe "transactions isolation" do
     key = "1234567890abcdef".to_slice
 
     it "denies commit if write interfere with committed write" do

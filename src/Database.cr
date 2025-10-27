@@ -62,11 +62,10 @@ module Lawn
         end
       end
 
-      @log.write @tables, transaction.batches
-      transaction.batches.each_with_index do |batch, table_id|
-        next unless batch
+      @log.write @tables, transaction.changes
+      transaction.changes.each_with_index do |batch, table_id|
         table = @tables[table_id]
-        batch.each { |key, value| table.memtable[key] = value }
+        batch.cursor.each_next { |key, value| table.memtable[key] = value }
       end
 
       @transactions[:in_work].delete transaction
