@@ -17,8 +17,21 @@ module Lawn
       @began_at = Time.utc
     end
 
+    protected def check_write_interference(table_id : UInt8, key : Key)
+      @database.transactions[:committed].each do |committed_transaction|
+        if (@began_at < committed_transaction[:committed_at]) &&
+           (
+             committed_transaction[:accessed_keys][:write].includes?({table_id, key}) ||
+             committed_transaction[:accessed_keys][:read].includes?({table_id, key})
+           )
+          raise Exception.new "Transaction #{self} try to get value by key #{key}, but value at this key was changed during this transaction by another committed transaction, so thi transaction can not perform this get"
+        end
+      end
+    end
+
     def set(table_id : UInt8, key : Key, value : Value = EMPTY_VALUE)
       ::Log.debug { "#{self.class}.set table_id: #{table_id}, key: #{key.hexstring}, value: #{value.hexstring}" }
+      check_write_interference table_id, key
       @accessed_keys[:write] << {table_id, key}
       @batches[table_id] << {key, value}
       self
@@ -31,6 +44,7 @@ module Lawn
 
     def delete(table_id : UInt8, key : Key)
       ::Log.debug { "#{self.class}.delete table_id: #{table_id}, key: #{key.hexstring}" }
+      check_write_interference table_id, key
       @accessed_keys[:write] << {table_id, key}
       @batches[table_id] << {key, nil}
       self

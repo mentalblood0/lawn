@@ -300,6 +300,16 @@ describe Lawn::Database do
       expect_raises(Lawn::Exception) { transaction_B.get FIXED_KEYONLY_TABLE, key }
     end
 
+    it "denies write if it interferes with committed write" do
+      transaction_A = database.transaction
+      transaction_B = database.transaction
+
+      transaction_A.set FIXED_KEYONLY_TABLE, key
+      transaction_A.commit
+
+      expect_raises(Lawn::Exception) { transaction_B.set FIXED_KEYONLY_TABLE, key }
+    end
+
     it "does not deny commit if read interfere with committed read" do
       transaction_A = database.transaction
       transaction_B = database.transaction
