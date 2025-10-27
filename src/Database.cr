@@ -14,11 +14,9 @@ module Lawn
 
     Lawn.mignore
     getter transactions = {
-      in_work: Set(Transaction).new,
-      committed: Set({
-        began_at: Time,
-        committed_at: Time,
-        accessed_keys: Set({UInt8, Key})}).new}
+      in_work:   Set(Transaction).new,
+      committed: Set({began_at: Time, committed_at: Time, accessed_keys: {read: Set({UInt8, Key}), write: Set({UInt8, Key})}}).new,
+    }
 
     def initialize(@log, @tables)
     end
@@ -55,7 +53,11 @@ module Lawn
 
       @transactions[:committed].each do |committed_transaction|
         if (transaction.began_at < committed_transaction[:committed_at]) &&
-           (transaction.accessed_keys.intersects? committed_transaction[:accessed_keys])
+           (
+             (transaction.accessed_keys[:read].intersects? committed_transaction[:accessed_keys][:write]) ||
+             (transaction.accessed_keys[:write].intersects? committed_transaction[:accessed_keys][:write]) ||
+             (transaction.accessed_keys[:write].intersects? committed_transaction[:accessed_keys][:read])
+           )
           raise Exception.new "Transaction #{transaction} interfere with already committed transaction #{committed_transaction} and therefore can not be committed"
         end
       end

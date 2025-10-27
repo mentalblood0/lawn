@@ -254,15 +254,52 @@ describe Lawn::Database do
     expect_raises(Lawn::Exception) { transaction.commit }
   end
 
-  it "isolates transactions" do
-    transaction_A = database.transaction
-    transaction_B = database.transaction
+  describe "transactions isolation", focus: true do
+    key = "1234567890abcdef".to_slice
 
-    transaction_A.get FIXED_KEYONLY_TABLE, "key".to_slice
-    transaction_B.set FIXED_KEYONLY_TABLE, "key".to_slice
+    it "denies commit if write interfere with committed write" do
+      transaction_A = database.transaction
+      transaction_B = database.transaction
 
-    transaction_A.commit
-    expect_raises(Lawn::Exception) { transaction_B.commit }
+      transaction_A.set FIXED_KEYONLY_TABLE, key
+      transaction_B.set FIXED_KEYONLY_TABLE, key
+
+      transaction_A.commit
+      expect_raises(Lawn::Exception) { transaction_B.commit }
+    end
+
+    it "denies commit if write interfere with committed read" do
+      transaction_A = database.transaction
+      transaction_B = database.transaction
+
+      transaction_A.get FIXED_KEYONLY_TABLE, key
+      transaction_B.set FIXED_KEYONLY_TABLE, key
+
+      transaction_A.commit
+      expect_raises(Lawn::Exception) { transaction_B.commit }
+    end
+
+    it "denies commit if read interfere with committed write" do
+      transaction_A = database.transaction
+      transaction_B = database.transaction
+
+      transaction_A.set FIXED_KEYONLY_TABLE, key
+      transaction_B.get FIXED_KEYONLY_TABLE, key
+
+      transaction_A.commit
+      expect_raises(Lawn::Exception) { transaction_B.commit }
+    end
+
+    it "does not deny commit if read interfere with committed read" do
+      transaction_A = database.transaction
+      transaction_B = database.transaction
+
+      transaction_A.get FIXED_KEYONLY_TABLE, key
+      transaction_B.get FIXED_KEYONLY_TABLE, key
+
+      transaction_A.commit
+      transaction_B.commit
+    end
   end
 
   it "generative test" do

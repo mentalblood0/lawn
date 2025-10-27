@@ -8,7 +8,7 @@ module Lawn
     getter database : Database
 
     getter batches : Array(Array({Key, Value?}))
-    getter accessed_keys : Set({UInt8, Key}) = Set({UInt8, Key}).new
+    getter accessed_keys = {read: Set({UInt8, Key}).new, write: Set({UInt8, Key}).new}
     getter began_at : Time
     getter committed_at : Time?
 
@@ -19,7 +19,7 @@ module Lawn
 
     def set(table_id : UInt8, key : Key, value : Value = EMPTY_VALUE)
       ::Log.debug { "#{self.class}.set table_id: #{table_id}, key: #{key.hexstring}, value: #{value.hexstring}" }
-      @accessed_keys << {table_id, key}
+      @accessed_keys[:write] << {table_id, key}
       @batches[table_id] << {key, value}
       self
     end
@@ -31,14 +31,14 @@ module Lawn
 
     def delete(table_id : UInt8, key : Key)
       ::Log.debug { "#{self.class}.delete table_id: #{table_id}, key: #{key.hexstring}" }
-      @accessed_keys << {table_id, key}
+      @accessed_keys[:write] << {table_id, key}
       @batches[table_id] << {key, nil}
       self
     end
 
     def get(table_id : UInt8, key : Key) : Value?
       ::Log.debug { "#{self.class}.get table_id: #{table_id}, key: #{key.hexstring}" }
-      @accessed_keys << {table_id, key}
+      @accessed_keys[:read] << {table_id, key}
       @database.tables[table_id].get key
     end
 
