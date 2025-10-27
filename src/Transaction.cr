@@ -38,6 +38,14 @@ module Lawn
 
     def get(table_id : UInt8, key : Key) : Value?
       ::Log.debug { "#{self.class}.get table_id: #{table_id}, key: #{key.hexstring}" }
+
+      @database.transactions[:committed].each do |committed_transaction|
+        if (@began_at < committed_transaction[:committed_at]) &&
+           committed_transaction[:accessed_keys][:write].includes?({table_id, key})
+          raise Exception.new "Transaction #{self} try to get value by key #{key}, but value at this key was changed during this transaction by another committed transaction, so thi transaction can not perform this get"
+        end
+      end
+
       @accessed_keys[:read] << {table_id, key}
       @database.tables[table_id].get key
     end
