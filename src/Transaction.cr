@@ -61,6 +61,9 @@ module Lawn
       end
       @accessed_keys[:read] << {table_id, key}
 
+      result = @changes[table_id][key]?
+      return result if !result.is_a? Symbol
+
       @database.tables[table_id].get key
     end
 

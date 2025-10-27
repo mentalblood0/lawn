@@ -212,7 +212,7 @@ describe Lawn::Database do
     database.get(VARIABLE_TABLE, "key".to_slice).should eq "value".to_slice
   end
 
-  it "handles in-memory deletes correctly", focus: true do
+  it "handles in-memory deletes correctly" do
     key = "1234567890abcdef".to_slice
     database.transaction.set(FIXED_KEYONLY_TABLE, key).commit.checkpoint
     database.tables[FIXED_KEYONLY_TABLE].cursor.all_next.should eq [{key, Bytes.new 0}]
@@ -336,6 +336,10 @@ describe Lawn::Database do
 
       transaction_A.commit
       transaction_B.commit
+    end
+
+    it "allows transaction see it's changes" do
+      database.transaction.set(FIXED_KEYONLY_TABLE, key).get(FIXED_KEYONLY_TABLE, key).should eq Bytes.new 0
     end
   end
 
