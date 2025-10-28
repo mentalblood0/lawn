@@ -130,23 +130,23 @@ describe Lawn::AVLTree do
     tree["absent_key".to_slice]?.should eq :no_key
   end
 
-  it "can be traversed on pair with another AVLTree", focus: true do
+  it "can be traversed on pair with another AVLTree" do
     added = Hash(Bytes, Bytes?).new
-
-    tree_a = Lawn::AVLTree.new
-    100.times do
-      key = rnd.random_bytes rnd.rand 1..16
-      value = (rnd.rand(0..1) == 1) ? rnd.random_bytes(rnd.rand(1..16)) : nil
-      added[key] = value
-      tree_a[key] = value
-    end
 
     tree_b = Lawn::AVLTree.new
     100.times do
-      key = rnd.random_bytes rnd.rand 1..16
-      value = (rnd.rand(0..1) == 1) ? rnd.random_bytes(rnd.rand(1..16)) : nil
+      key = rnd.random_bytes rnd.rand 1..2
+      value = (rnd.rand(0..1) == 1) ? rnd.random_bytes(rnd.rand(1..1024)) : nil
       added[key] = value
       tree_b[key] = value
+    end
+
+    tree_a = Lawn::AVLTree.new
+    100.times do
+      key = rnd.random_bytes rnd.rand 1..2
+      value = (rnd.rand(0..1) == 1) ? rnd.random_bytes(rnd.rand(1..1024)) : nil
+      added[key] = value
+      tree_a[key] = value
     end
 
     sorted = added.to_a.sort_by { |key, _| key }

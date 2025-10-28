@@ -24,7 +24,7 @@ module Lawn
         current_a = @cursor_a.current
         current_b = @cursor_b.current
 
-        if !current_a && !current_b && @started
+        if !current_a && !current_b
           @current = nil
           break
         end
@@ -37,7 +37,7 @@ module Lawn
         end
 
         @cursor_b.next
-        if current_b && !(current_b[0] == @last_key_yielded_from_a)
+        if current_b && (current_b[0] != @last_key_yielded_from_a)
           @current = current_b
           break
         end
