@@ -130,6 +130,33 @@ describe Lawn::AVLTree do
     tree["absent_key".to_slice]?.should eq :no_key
   end
 
+  it "can be traversed on pair with another AVLTree", focus: true do
+    added = Hash(Bytes, Bytes?).new
+
+    tree_a = Lawn::AVLTree.new
+    100.times do
+      key = rnd.random_bytes rnd.rand 1..16
+      value = (rnd.rand(0..1) == 1) ? rnd.random_bytes(rnd.rand(1..16)) : nil
+      added[key] = value
+      tree_a[key] = value
+    end
+
+    tree_b = Lawn::AVLTree.new
+    100.times do
+      key = rnd.random_bytes rnd.rand 1..16
+      value = (rnd.rand(0..1) == 1) ? rnd.random_bytes(rnd.rand(1..16)) : nil
+      added[key] = value
+      tree_b[key] = value
+    end
+
+    sorted = added.to_a.sort_by { |key, _| key }
+    sorted.each { |key, value| Lawn::Cursor.new(tree_a, tree_b, from: key).all_next.should eq sorted[sorted.index({key, value})..] }
+    sorted.each { |key, value| Lawn::Cursor.new(tree_a, tree_b, from: key, including_from: false).all_next.should eq sorted[sorted.index({key, value}).not_nil! + 1..] }
+    sorted.reverse!
+    sorted.each { |key, value| Lawn::Cursor.new(tree_a, tree_b, from: key).all_previous.should eq sorted[sorted.index({key, value})..] }
+    sorted.each { |key, value| Lawn::Cursor.new(tree_a, tree_b, from: key, including_from: false).all_previous.should eq sorted[sorted.index({key, value}).not_nil! + 1..] }
+  end
+
   it "generative test" do
     tree = Lawn::AVLTree.new
     added = Hash(Bytes, Bytes?).new

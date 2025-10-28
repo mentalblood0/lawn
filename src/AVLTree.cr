@@ -1,6 +1,106 @@
 require "./exceptions"
 
 module Lawn
+  class Cursor
+    getter cursor_a : AVLTree::Cursor | Cursor
+    getter cursor_b : AVLTree::Cursor | Cursor
+
+    getter started : Bool = false
+    getter last_key_yielded_from_a : Key? = nil
+    getter current : {Key, Value?}? = nil
+
+    def initialize(tree_a : AVLTree, tree_b : AVLTree, from : Key?, including_from : Bool = true)
+      @cursor_a = tree_a.cursor from, including_from
+      @cursor_b = tree_b.cursor from, including_from
+    end
+
+    def next : {Key, Value?}?
+      if !@started
+        @started = true
+        @cursor_a.next
+        @cursor_b.next
+      end
+      loop do
+        current_a = @cursor_a.current
+        current_b = @cursor_b.current
+
+        if !current_a && !current_b && @started
+          @current = nil
+          break
+        end
+
+        if current_a && (!current_b || (current_a[0] <= current_b[0]))
+          @last_key_yielded_from_a = current_a[0]
+          @cursor_a.next
+          @current = current_a
+          break
+        end
+
+        @cursor_b.next
+        if current_b && !(current_b[0] == @last_key_yielded_from_a)
+          @current = current_b
+          break
+        end
+      end
+      @current
+    end
+
+    def each_next(&)
+      while (next_keyvalue = self.next)
+        yield next_keyvalue
+      end
+    end
+
+    def all_next : Array({Key, Value?})
+      result = [] of {Key, Value?}
+      each_next { |next_keyvalue| result << next_keyvalue }
+      result
+    end
+
+    def previous : {Key, Value?}?
+      if !@started
+        @started = true
+        @cursor_a.previous
+        @cursor_b.previous
+      end
+      loop do
+        current_a = @cursor_a.current
+        current_b = @cursor_b.current
+
+        if !current_a && !current_b
+          @current = nil
+          break
+        end
+
+        if current_a && (!current_b || (current_a[0] >= current_b[0]))
+          @last_key_yielded_from_a = current_a[0]
+          @cursor_a.previous
+          @current = current_a
+          break
+        end
+
+        @cursor_b.previous
+        if current_b && !(current_b[0] == @last_key_yielded_from_a)
+          @current = current_b
+          break
+        end
+      end
+      @current
+    end
+
+    def each_previous(&)
+      while (previous_keyvalue = self.previous)
+        yield previous_keyvalue
+      end
+    end
+
+    def all_previous : Array({Key, Value?})
+      result = [] of {Key, Value?}
+      each_previous { |previous_keyvalue| result << previous_keyvalue }
+      result
+    end
+  end
+
   class AVLTree
     getter root : Node? = nil
     getter size : Int32 = 0
@@ -20,27 +120,33 @@ module Lawn
 
     class Cursor
       getter stack = [] of Node
-      getter current : Node?
+      getter current_node : Node?
       getter from : Key? = nil
       getter including_from : Bool
 
-      def initialize(@current, @from = nil, @including_from = true)
-        ::Log.debug { "#{self.class}.initialize current: #{@current} from: #{from ? from.hexstring : nil}, including_from: #{including_from}" }
+      getter current : {Key, Value?}? = nil
+
+      def initialize(@current_node, @from = nil, @including_from = true)
+        ::Log.debug { "#{self.class}.initialize current_node: #{@current_node} from: #{from ? from.hexstring : nil}, including_from: #{including_from}" }
       end
 
       def next : {Key, Value?}?
         ::Log.debug { "#{self.class}.next" }
-        while @current || !@stack.empty?
-          while @current
-            @stack << @current.not_nil!
-            break if @from && (@current.not_nil!.key < @from.not_nil!)
-            @current = @current.not_nil!.left
+        while @current_node || !@stack.empty?
+          while @current_node
+            @stack << @current_node.not_nil!
+            break if @from && (@current_node.not_nil!.key < @from.not_nil!)
+            @current_node = @current_node.not_nil!.left
           end
-          @current = @stack.pop
-          result = {@current.not_nil!.key, @current.not_nil!.value}
-          @current = @current.not_nil!.right
-          return result unless @from && (@including_from ? (result[0] < @from.not_nil!) : (result[0] <= @from.not_nil!))
+          @current_node = @stack.pop
+          result = {@current_node.not_nil!.key, @current_node.not_nil!.value}
+          @current_node = @current_node.not_nil!.right
+          unless @from && (@including_from ? (result[0] < @from.not_nil!) : (result[0] <= @from.not_nil!))
+            @current = result
+            return @current
+          end
         end
+        @current = nil
       end
 
       def each_next(&)
@@ -57,17 +163,21 @@ module Lawn
 
       def previous : {Key, Value?}?
         ::Log.debug { "#{self.class}.previous" }
-        while @current || !@stack.empty?
-          while @current
-            @stack << @current.not_nil!
-            break if @from && (@current.not_nil!.key > @from.not_nil!)
-            @current = @current.not_nil!.right
+        while @current_node || !@stack.empty?
+          while @current_node
+            @stack << @current_node.not_nil!
+            break if @from && (@current_node.not_nil!.key > @from.not_nil!)
+            @current_node = @current_node.not_nil!.right
           end
-          @current = @stack.pop
-          result = {@current.not_nil!.key, @current.not_nil!.value}
-          @current = @current.not_nil!.left
-          return result unless @from && (@including_from ? (result[0] > @from.not_nil!) : (result[0] >= @from.not_nil!))
+          @current_node = @stack.pop
+          result = {@current_node.not_nil!.key, @current_node.not_nil!.value}
+          @current_node = @current_node.not_nil!.left
+          unless @from && (@including_from ? (result[0] > @from.not_nil!) : (result[0] >= @from.not_nil!))
+            @current = result
+            return @current
+          end
         end
+        @current = nil
       end
 
       def each_previous(&)
@@ -84,7 +194,7 @@ module Lawn
     end
 
     def cursor(from : Key? = nil, including_from : Bool = true)
-      Cursor.new @root
+      Cursor.new @root, from, including_from
     end
 
     def []=(key : Key, value : Value?)
