@@ -8,10 +8,10 @@ require "./Table"
 
 module Lawn
   class FixedTable < Table(Int64)
-    Lawn.mserializable
+    Lawn.serializable
 
     class Index < Index(Int64)
-      Lawn.mserializable
+      Lawn.serializable
 
       def initialize(@path, @cache_size)
       end

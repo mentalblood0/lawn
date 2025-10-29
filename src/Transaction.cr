@@ -67,6 +67,10 @@ module Lawn
       @database.tables[table_id].get key
     end
 
+    def cursor(table_id : UInt8, from : Key? = nil, including_from : Bool = true, direction = :forward)
+      @database.tables[table_id].cursor @changes[table_id], from, including_from, direction
+    end
+
     def commit
       @committed_at = Time.utc
       @database.commit self

@@ -3,7 +3,7 @@ require "log"
 require "./exceptions"
 
 module Lawn
-  macro mserializable
+  macro serializable
     include YAML::Serializable
     include YAML::Serializable::Strict
     include JSON::Serializable

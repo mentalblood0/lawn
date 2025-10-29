@@ -197,17 +197,20 @@ macro test_scans
     added_in_table.keys.each { |k| database.get(table_id.to_u8, k).should eq added_in_table[k] }
   end
   added.each_with_index do |added_in_table, table_id|
+    table_id = table_id.to_u8
     all_added_in_table = added_in_table.to_a.sort_by { |key, _| key }
-    all_present_in_table = database.tables[table_id].cursor.all_next
+    transaction = database.transaction
+    all_present_in_table = transaction.cursor(table_id).all_next
+    transaction.commit
     all_present_in_table.should eq all_added_in_table
     all_present_in_table.each do |key, value|
-      database.tables[table_id].cursor(from: key).all_next.should eq all_added_in_table[all_added_in_table.index({key, value})..]
-      database.tables[table_id].cursor(from: key, including_from: false).all_next.should eq all_added_in_table[all_added_in_table.index({key, value}).not_nil! + 1..]
+      database.cursor(table_id, from: key) { |cursor| cursor.all_next.should eq all_added_in_table[all_added_in_table.index({key, value})..] }
+      database.cursor(table_id, from: key, including_from: false) { |cursor| cursor.all_next.should eq all_added_in_table[all_added_in_table.index({key, value}).not_nil! + 1..] }
     end
     all_added_in_table.reverse!
     all_present_in_table.each do |key, value|
-      database.tables[table_id].cursor(from: key, direction: :backward).all_next.should eq all_added_in_table[all_added_in_table.index({key, value})..]
-      database.tables[table_id].cursor(from: key, including_from: false, direction: :backward).all_next.should eq all_added_in_table[all_added_in_table.index({key, value}).not_nil! + 1..]
+      database.cursor(table_id, from: key, direction: :backward) { |cursor| cursor.all_next.should eq all_added_in_table[all_added_in_table.index({key, value})..] }
+      database.cursor(table_id, from: key, including_from: false, direction: :backward) { |cursor| cursor.all_next.should eq all_added_in_table[all_added_in_table.index({key, value}).not_nil! + 1..] }
     end
   end
 end
@@ -250,11 +253,11 @@ describe Lawn::Database do
   it "handles in-memory deletes correctly" do
     key = "1234567890abcdef".to_slice
     database.transaction.set(FIXED_KEYONLY_TABLE, key).commit.checkpoint
-    database.tables[FIXED_KEYONLY_TABLE].cursor.all_next.should eq [{key, Bytes.new 0}]
+    database.cursor(FIXED_KEYONLY_TABLE) { |cursor| cursor.all_next.should eq [{key, Bytes.new 0}] }
     database
       .transaction.delete(FIXED_KEYONLY_TABLE, key).commit
       .get(FIXED_KEYONLY_TABLE, key).should eq nil
-    database.tables[FIXED_KEYONLY_TABLE].cursor.all_next.should eq [] of Lawn::KeyValue
+    database.cursor(FIXED_KEYONLY_TABLE) { |cursor| cursor.all_next.should eq [] of Lawn::KeyValue }
   end
 
   it "handles updates correctly" do
@@ -290,8 +293,7 @@ describe Lawn::Database do
     key = "1234567890abcdef".to_slice
     prefix = key[..4]
     database.transaction.set(FIXED_KEYONLY_TABLE, key).commit
-    cursor = database.tables[FIXED_KEYONLY_TABLE].cursor from: prefix
-    cursor.next.should eq({key, Bytes.new 0})
+    cursor = database.cursor(FIXED_KEYONLY_TABLE, from: prefix) { |cursor| cursor.next.should eq({key, Bytes.new 0}) }
   end
 
   it "denies committing orphaned transactions" do
@@ -373,8 +375,12 @@ describe Lawn::Database do
       transaction_B.commit
     end
 
-    it "allows transaction see it's changes" do
+    it "allows transaction see it's changes in gets" do
       database.transaction.set(FIXED_KEYONLY_TABLE, key).get(FIXED_KEYONLY_TABLE, key).should eq Bytes.new 0
+    end
+
+    it "allows transaction see it's changes in scans" do
+      database.transaction.set(FIXED_KEYONLY_TABLE, key).cursor(FIXED_KEYONLY_TABLE).all_next.should eq [{key, Bytes.new 0}]
     end
   end
 

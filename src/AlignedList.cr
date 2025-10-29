@@ -10,7 +10,7 @@ module Lawn
   Syscall.def_syscall pwrite64, LibC::SSizeT, fd : Int32, buf : UInt8*, count : LibC::SizeT, offset : LibC::OffT
 
   class AlignedList < DataStorage(Int64)
-    Lawn.mserializable
+    Lawn.serializable
 
     getter element_size : Int32
     getter path : Path

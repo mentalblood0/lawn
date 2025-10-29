@@ -8,7 +8,7 @@ require "./Index"
 
 module Lawn
   abstract class Table(I)
-    Lawn.mserializable
+    Lawn.serializable
 
     abstract def index : Index(I)
     abstract def index=(new_index : Index(I)) : Nil
@@ -165,7 +165,7 @@ module Lawn
 
     class Cursor(I)
       getter table : Table(I)
-      getter memtable_cursor : AVLTree::Cursor
+      getter memtable_cursor : AVLTree::Cursor | Lawn::Cursor
       getter index_cursor : Index::Cursor(I)
       getter memtable_current : {Key, Value?}?
       getter index_current : KeyValue?
@@ -173,10 +173,10 @@ module Lawn
       getter keyvalue : KeyValue? = nil
       getter direction : Symbol
 
-      def initialize(@table, from : Key? = nil, including_from : Bool = true, @direction = :forward)
+      protected def initialize(@changes : AVLTree, @table, from : Key? = nil, including_from : Bool = true, @direction = :forward)
         ::Log.debug { "#{self.class}.initialize from: #{from ? from.hexstring : nil}, including_from: #{including_from}, direction: #{@direction}" }
 
-        @memtable_cursor = AVLTree::Cursor.new @table.memtable.root, from, including_from
+        @memtable_cursor = Lawn::Cursor.new @changes, @table.memtable, from, including_from
         case @direction
         when :forward
           index_from = if from
@@ -283,8 +283,8 @@ module Lawn
       end
     end
 
-    def cursor(from : Key? = nil, including_from : Bool = true, direction = :forward)
-      Cursor(I).new self, from, including_from, direction
+    protected def cursor(changes : AVLTree, from : Key? = nil, including_from : Bool = true, direction = :forward)
+      Cursor(I).new changes, self, from, including_from, direction
     end
 
     protected def get(key : Key) : Value?

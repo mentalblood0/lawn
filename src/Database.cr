@@ -7,7 +7,7 @@ require "./FixedTable"
 
 module Lawn
   class Database
-    Lawn.mserializable
+    Lawn.serializable
 
     getter log : Log
     getter tables : Array(VariableTable | FixedTable)
@@ -88,6 +88,13 @@ module Lawn
       result = result_transaction.get(table_id, key)
       result_transaction.commit
       result
+    end
+
+    def cursor(table_id : UInt8, from : Key? = nil, including_from : Bool = true, direction = :forward, &)
+      transaction = self.transaction
+      result = transaction.cursor table_id, from, including_from, direction
+      yield result
+      transaction.commit
     end
 
     def checkpoint

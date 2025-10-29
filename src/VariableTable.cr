@@ -8,10 +8,10 @@ require "./Table"
 
 module Lawn
   class VariableTable < Table(RoundDataStorage::Id)
-    Lawn.mserializable
+    Lawn.serializable
 
     class Index < Index(RoundDataStorage::Id)
-      Lawn.mserializable
+      Lawn.serializable
 
       def initialize(@path, @cache_size)
       end

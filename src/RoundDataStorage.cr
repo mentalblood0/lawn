@@ -8,7 +8,7 @@ require "./DataStorage"
 
 module Lawn
   class RoundDataStorage < DataStorage({rounded_size_index: UInt8, pointer: Int64})
-    Lawn.mserializable
+    Lawn.serializable
 
     getter dir : Path
     getter max_element_size : Int32

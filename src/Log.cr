@@ -5,7 +5,7 @@ require "./common"
 
 module Lawn
   class Log
-    Lawn.mserializable
+    Lawn.serializable
 
     getter path : Path
 

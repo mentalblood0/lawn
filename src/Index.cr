@@ -20,7 +20,7 @@ module Lawn
   end
 
   abstract class Index(T)
-    Lawn.mserializable
+    Lawn.serializable
 
     getter path : Path
 
