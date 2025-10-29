@@ -12,10 +12,13 @@ module Lawn
     getter log : Log
     getter tables : Array(VariableTable | FixedTable)
 
+    alias ScansRanges = Set({UInt8, Range(Key?, Key?)})
+    alias TransactionInfo = {began_at: Time, committed_at: Time, accessed_keys: {read: Set({UInt8, Key}), write: Set({UInt8, Key})}, scans_ranges: ScansRanges}
+
     Lawn.mignore
     getter transactions = {
       in_work:   Set(Transaction).new,
-      committed: Set({began_at: Time, committed_at: Time, accessed_keys: {read: Set({UInt8, Key}), write: Set({UInt8, Key})}}).new,
+      committed: Set(TransactionInfo).new,
     }
 
     def initialize(@log, @tables)
@@ -51,16 +54,32 @@ module Lawn
       result
     end
 
+    protected def intersects?(accessed_keys : Set(Key), scans_ranges : ScansRanges)
+      accessed_keys.any? { |key| scans_ranges.any? { |range| range.includes? key } }
+    end
+
+    protected def intersects?(accessed_keys : Set({UInt8, Key}), scans_ranges : ScansRanges)
+      accessed_keys.any? { |key_table_id, key| scans_ranges.any? { |scan_table_id, range| key_table_id == scan_table_id && range.includes? key } }
+    end
+
     protected def commit(transaction : Transaction)
       ::Log.debug { "#{self.class}.commit #{transaction}" }
       raise Exception.new "Transaction #{transaction} is orphaned, can not commit" unless @transactions[:in_work].includes? transaction
 
+      scans_ranges = ScansRanges.new
+      transaction.cursors.each do |table_id, cursor|
+        if cursor_range = cursor.range
+          scans_ranges << {table_id, cursor_range}
+        end
+      end
       @transactions[:committed].each do |committed_transaction|
         if (transaction.began_at < committed_transaction[:committed_at]) &&
            (
              (transaction.accessed_keys[:read].intersects? committed_transaction[:accessed_keys][:write]) ||
              (transaction.accessed_keys[:write].intersects? committed_transaction[:accessed_keys][:write]) ||
-             (transaction.accessed_keys[:write].intersects? committed_transaction[:accessed_keys][:read])
+             (transaction.accessed_keys[:write].intersects? committed_transaction[:accessed_keys][:read]) ||
+             intersects?(committed_transaction[:accessed_keys][:write], scans_ranges) ||
+             intersects?(transaction.accessed_keys[:write], committed_transaction[:scans_ranges])
            )
           raise Exception.new "Transaction #{transaction} interfere with already committed transaction #{committed_transaction} and therefore can not be committed"
         end
@@ -73,7 +92,7 @@ module Lawn
       end
 
       @transactions[:in_work].delete transaction
-      @transactions[:committed] << {began_at: transaction.began_at, committed_at: transaction.committed_at.not_nil!, accessed_keys: transaction.accessed_keys}
+      @transactions[:committed] << {began_at: transaction.began_at, committed_at: transaction.committed_at.not_nil!, accessed_keys: transaction.accessed_keys, scans_ranges: scans_ranges}
 
       @transactions[:committed].each do |committed_transaction|
         unless @transactions[:in_work].any? { |working_transaction| working_transaction.began_at < committed_transaction[:committed_at] }

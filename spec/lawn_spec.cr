@@ -382,6 +382,19 @@ describe Lawn::Database do
     it "allows transaction see it's changes in scans" do
       database.transaction.set(FIXED_KEYONLY_TABLE, key).cursor(FIXED_KEYONLY_TABLE).all_next.should eq [{key, Bytes.new 0}]
     end
+
+    it "denies commit if write interfere with committed range scan" do
+      database.transaction.set(FIXED_KEYONLY_TABLE, key).commit
+
+      transaction_A = database.transaction
+      transaction_B = database.transaction
+
+      transaction_A.cursor(FIXED_KEYONLY_TABLE, key).all_next
+      transaction_B.set FIXED_KEYONLY_TABLE, key
+
+      transaction_A.commit
+      expect_raises(Lawn::Exception) { transaction_B.commit }
+    end
   end
 
   it "generative test" do
