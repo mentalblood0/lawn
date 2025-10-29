@@ -400,32 +400,34 @@ describe Lawn::Database do
   it "generative test" do
     added = Array(Hash(Lawn::Key, Lawn::Value)).new(database.tables.size) { Hash(Lawn::Key, Lawn::Value).new }
     100.times do
-      rnd.rand(1..16).times do
-        table_id = rnd.rand(0..(database.tables.size - 1)).to_u8
+      database.transaction do |transaction|
+        rnd.rand(1..16).times do
+          table_id = rnd.rand(0..(database.tables.size - 1)).to_u8
 
-        case table = database.tables[table_id]
-        when Lawn::VariableTable
-          key_size = rnd.rand 1..16
-          value_size = rnd.rand 1..16
-        when Lawn::FixedTable
-          key_size = table.key_size
-          value_size = table.value_size
-        else
-          raise "unreacheable"
-        end
+          case table = database.tables[table_id]
+          when Lawn::VariableTable
+            key_size = rnd.rand 1..16
+            value_size = rnd.rand 1..16
+          when Lawn::FixedTable
+            key_size = table.key_size
+            value_size = table.value_size
+          else
+            raise "unreacheable"
+          end
 
-        case rnd.rand 0..2
-        when 0, 1
-          key = rnd.random_bytes key_size
-          value = rnd.random_bytes value_size
+          case rnd.rand 0..2
+          when 0, 1
+            key = rnd.random_bytes key_size
+            value = rnd.random_bytes value_size
 
-          database.transaction.set(table_id, key, value).commit
-          added[table_id][key] = value
-        when 2
-          key = added[table_id].keys.sample rnd rescue next
+            transaction.set table_id, key, value
+            added[table_id][key] = value
+          when 2
+            key = added[table_id].keys.sample rnd rescue next
 
-          database.transaction.delete(table_id, key).commit
-          added[table_id].delete key
+            transaction.delete table_id, key
+            added[table_id].delete key
+          end
         end
       end
       test_scans

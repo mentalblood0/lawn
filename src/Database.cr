@@ -54,6 +54,12 @@ module Lawn
       result
     end
 
+    def transaction(&)
+      result = transaction
+      yield result
+      result.commit
+    end
+
     protected def intersects?(accessed_keys : Set(Key), scans_ranges : ScansRanges)
       accessed_keys.any? { |key| scans_ranges.any? { |range| range.includes? key } }
     end
