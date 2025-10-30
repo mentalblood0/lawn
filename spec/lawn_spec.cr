@@ -315,6 +315,14 @@ describe Lawn::Database do
     end
   end
 
+  it "cancels transaction on exception in transaction block" do
+    database.transaction do |transaction|
+      raise "oh no"
+    end
+    database.transactions[:in_work].empty?.should eq true
+    database.transactions[:committed].empty?.should eq true
+  end
+
   describe "transactions isolation" do
     key = "1234567890abcdef".to_slice
 

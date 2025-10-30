@@ -56,7 +56,12 @@ module Lawn
 
     def transaction(&)
       result = transaction
-      yield result
+      begin
+        yield result
+      rescue
+        @transactions[:in_work].delete result
+        return
+      end
       result.commit
     end
 
