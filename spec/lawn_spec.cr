@@ -308,6 +308,13 @@ describe Lawn::Database do
     expect_raises(Lawn::Exception) { transaction.commit }
   end
 
+  it "immediately raises exception on set with incorrect key/value size" do
+    database.transaction do |transaction|
+      expect_raises(Lawn::Exception) { transaction.set FIXED_KEYONLY_TABLE, "1234".to_slice }
+      expect_raises(Lawn::Exception) { transaction.set FIXED_KEYONLY_TABLE, "1234567890abcdef".to_slice, "1".to_slice }
+    end
+  end
+
   describe "transactions isolation" do
     key = "1234567890abcdef".to_slice
 

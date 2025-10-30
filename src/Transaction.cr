@@ -32,6 +32,10 @@ module Lawn
 
     def set(table_id : UInt8, key : Key, value : Value = EMPTY_VALUE)
       ::Log.debug { "#{self.class}.set table_id: #{table_id}, key: #{key.hexstring}, value: #{value.hexstring}" }
+      if (table = @database.tables[table_id]).is_a? FixedTable
+        raise Exception.new "Key size must be #{table.key_size}, not #{key.size}" unless key.size == table.key_size
+        raise Exception.new "Value size must be #{table.value_size}, not #{value.size}" unless !value || (value.size == table.value_size)
+      end
       check_write_interference table_id, key
       @accessed_keys[:write] << {table_id, key}
       @changes[table_id][key] = value
