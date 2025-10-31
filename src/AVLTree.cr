@@ -70,6 +70,8 @@ module Lawn
       property left : Node? = nil
       property right : Node? = nil
 
+      property parent : Node? = nil
+
       property height : Int8 = 1
 
       def initialize(@key, @value)
@@ -246,6 +248,27 @@ module Lawn
       node.height = 1_i8 + Math.max height(node.left), height(node.right)
     end
 
+    protected def update_left_child_parent(node : Node)
+      return unless left = node.left
+      left.parent = node
+    end
+
+    protected def update_right_child_parent(node : Node)
+      return unless right = node.right
+      right.parent = node
+    end
+
+    def test_children_parents(node : Node = @root.not_nil!)
+      if left = node.left
+        left.parent.should eq node
+        test_children_parents left
+      end
+      if right = node.right
+        right.parent.should eq node
+        test_children_parents right
+      end
+    end
+
     protected def upsert(node : Node?, key : Key, value : Value?) : Node
       unless node
         @size += 1
@@ -254,8 +277,10 @@ module Lawn
 
       if key < node.key
         node.left = upsert node.left, key, value
+        update_left_child_parent node
       elsif key > node.key
         node.right = upsert node.right, key, value
+        update_right_child_parent node
       else
         node.value = value
         return node
@@ -273,11 +298,13 @@ module Lawn
       # left right
       if (balance > 1) && (key > node.left.not_nil!.key)
         node.left = rotate_left node.left.not_nil!
+        update_left_child_parent node
         return rotate_right node
       end
       # right left
       if (balance < -1) && (key < node.right.not_nil!.key)
         node.right = rotate_right node.right.not_nil!
+        update_right_child_parent node
         return rotate_left node
       end
 
@@ -289,7 +316,9 @@ module Lawn
       t2 = x.right
 
       x.right = y
+      update_right_child_parent x
       y.left = t2
+      update_left_child_parent y
 
       update_height y
       update_height x
@@ -302,7 +331,9 @@ module Lawn
       t2 = y.left
 
       y.left = x
+      update_left_child_parent y
       x.right = t2
+      update_right_child_parent x
 
       update_height x
       update_height y
