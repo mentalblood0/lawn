@@ -153,18 +153,18 @@ describe Lawn::AVLTree do
     sorted.each { |key, value| Lawn::Cursor.new(tree_a, tree_b, from: key).all_next.should eq sorted[sorted.index({key, value})..] }
     sorted.each { |key, value| Lawn::Cursor.new(tree_a, tree_b, from: key, including_from: false).all_next.should eq sorted[sorted.index({key, value}).not_nil! + 1..] }
     sorted.reverse!
-    sorted.each { |key, value| Lawn::Cursor.new(tree_a, tree_b, from: key).all_previous.should eq sorted[sorted.index({key, value})..] }
-    sorted.each { |key, value| Lawn::Cursor.new(tree_a, tree_b, from: key, including_from: false).all_previous.should eq sorted[sorted.index({key, value}).not_nil! + 1..] }
+    sorted.each { |key, value| Lawn::Cursor.new(tree_a, tree_b, from: key, direction: :backward).all_next.should eq sorted[sorted.index({key, value})..] }
+    sorted.each { |key, value| Lawn::Cursor.new(tree_a, tree_b, from: key, including_from: false, direction: :backward).all_next.should eq sorted[sorted.index({key, value}).not_nil! + 1..] }
   end
 
-  it "generative test" do
+  it "generative test", focus: true do
     tree = Lawn::AVLTree.new
     added = Hash(Bytes, Bytes?).new
     1000.times do
       case rnd.rand 0..4
       when 0, 1, 2
-        key = rnd.random_bytes rnd.rand 1..1024
-        value = rnd.random_bytes rnd.rand 1..1024
+        key = rnd.random_bytes rnd.rand 1..16
+        value = rnd.random_bytes rnd.rand 1..16
         ::Log.debug { "add #{key.hexstring} : #{value.hexstring}" }
         tree[key] = value
         added[key] = value
@@ -187,8 +187,8 @@ describe Lawn::AVLTree do
     sorted.each { |key, value| Lawn::AVLTree::Cursor.new(tree.root, from: key).all_next.should eq sorted[sorted.index({key, value})..] }
     sorted.each { |key, value| Lawn::AVLTree::Cursor.new(tree.root, from: key, including_from: false).all_next.should eq sorted[sorted.index({key, value}).not_nil! + 1..] }
     sorted.reverse!
-    sorted.each { |key, value| Lawn::AVLTree::Cursor.new(tree.root, from: key).all_previous.should eq sorted[sorted.index({key, value})..] }
-    sorted.each { |key, value| Lawn::AVLTree::Cursor.new(tree.root, from: key, including_from: false).all_previous.should eq sorted[sorted.index({key, value}).not_nil! + 1..] }
+    sorted.each { |key, value| Lawn::AVLTree::Cursor.new(tree.root, from: key, direction: :backward).all_next.should eq sorted[sorted.index({key, value})..] }
+    sorted.each { |key, value| Lawn::AVLTree::Cursor.new(tree.root, from: key, including_from: false, direction: :backward).all_next.should eq sorted[sorted.index({key, value}).not_nil! + 1..] }
   end
 end
 

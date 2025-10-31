@@ -89,7 +89,9 @@ module Lawn
         ::Log.debug { "#{self.class}.initialize from: #{from ? from.hexstring : nil}, including_from: #{including_from}, direction: #{@direction}" }
 
         @table = transaction.database.tables[table_id].as Table(I)
-        @memtable_cursor = Lawn::Cursor.new transaction.changes[table_id], @table.memtable, from, including_from
+        @memtable_cursor = Lawn::Cursor.new transaction.changes[table_id], @table.memtable, from, including_from, @direction
+        @memtable_current = @memtable_cursor.next
+
         case @direction
         when :forward
           index_from = if from_temp = @from
@@ -101,7 +103,6 @@ module Lawn
                        else
                          0_i64
                        end
-          @memtable_current = @memtable_cursor.next
         when :backward
           index_from = if from_temp = @from
                          if from_found = @table.get_from_checkpointed(from_temp, strict: false, condition: including_from ? :less_or_equal : :less)
@@ -112,76 +113,42 @@ module Lawn
                        else
                          @table.index.size - 1
                        end
-          @memtable_current = @memtable_cursor.previous
         else raise Exception.new "Unsupported direction: #{@direction}"
         end
-
         @index_cursor = Index::Cursor.new @table.index, index_from
         @index_current = (index_id = @index_cursor.value) && @table.get_data index_id
       end
 
       def next : KeyValue?
         ::Log.debug { "#{self.class}.next" }
-        case @direction
-        when :forward
-          loop do
-            result = nil
-            case {memtable_current_temp = @memtable_current, index_current_temp = @index_current}
-            when {Tuple(Key, Value?), nil}
+        loop do
+          result = nil
+          case {memtable_current_temp = @memtable_current, index_current_temp = @index_current}
+          when {Tuple(Key, Value?), nil}
+            @last_key_yielded_from_memtable = memtable_current_temp[0]
+            result = {memtable_current_temp[0], memtable_current_temp[1].not_nil!} if memtable_current_temp[1]
+            @memtable_current = @memtable_cursor.next
+          when {Tuple(Key, Value?), KeyValue}
+            if (@direction == :forward && memtable_current_temp[0] <= index_current_temp[0]) ||
+               (@direction == :backward && memtable_current_temp[0] >= index_current_temp[0])
               @last_key_yielded_from_memtable = memtable_current_temp[0]
               result = {memtable_current_temp[0], memtable_current_temp[1].not_nil!} if memtable_current_temp[1]
               @memtable_current = @memtable_cursor.next
-            when {Tuple(Key, Value?), KeyValue}
-              if memtable_current_temp[0] <= index_current_temp[0]
-                @last_key_yielded_from_memtable = memtable_current_temp[0]
-                result = {memtable_current_temp[0], memtable_current_temp[1].not_nil!} if memtable_current_temp[1]
-                @memtable_current = @memtable_cursor.next
-              else
-                result = index_current_temp unless index_current_temp[0] == @last_key_yielded_from_memtable
-                @index_current = (index_id = @index_cursor.next) && @table.get_data index_id
-              end
-            when {nil, KeyValue}
+            else
               result = index_current_temp unless index_current_temp[0] == @last_key_yielded_from_memtable
               @index_current = (index_id = @index_cursor.next) && @table.get_data index_id
-            when {nil, nil}
-              break
             end
-            if result
-              @range = (from..result[0].as(Key?))
-              @keyvalue = result
-              return result
-            end
+          when {nil, KeyValue}
+            result = index_current_temp unless index_current_temp[0] == @last_key_yielded_from_memtable
+            @index_current = (index_id = @index_cursor.next) && @table.get_data index_id
+          when {nil, nil}
+            break
           end
-        when :backward
-          loop do
-            result = nil
-            case {memtable_current_temp = @memtable_current, index_current_temp = @index_current}
-            when {Tuple(Key, Value?), nil}
-              @last_key_yielded_from_memtable = memtable_current_temp[0]
-              result = {memtable_current_temp[0], memtable_current_temp[1].not_nil!} if memtable_current_temp[1]
-              @memtable_current = @memtable_cursor.previous
-            when {Tuple(Key, Value?), KeyValue}
-              if memtable_current_temp[0] >= index_current_temp[0]
-                @last_key_yielded_from_memtable = memtable_current_temp[0]
-                result = {memtable_current_temp[0], memtable_current_temp[1].not_nil!} if memtable_current_temp[1]
-                @memtable_current = @memtable_cursor.previous
-              else
-                result = index_current_temp unless index_current_temp[0] == @last_key_yielded_from_memtable
-                @index_current = (index_id = @index_cursor.previous) && @table.get_data index_id
-              end
-            when {nil, KeyValue}
-              result = index_current_temp unless index_current_temp[0] == @last_key_yielded_from_memtable
-              @index_current = (index_id = @index_cursor.previous) && @table.get_data index_id
-            when {nil, nil}
-              break
-            end
-            if result
-              @range = (result[0].as(Key?)..from)
-              @keyvalue = result
-              return result
-            end
+          if result
+            @range = (from..result[0].as(Key?))
+            @keyvalue = result
+            return result
           end
-        else raise Exception.new "Unsupported direction: #{@direction}"
         end
       end
 
