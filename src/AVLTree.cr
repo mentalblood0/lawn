@@ -64,15 +64,11 @@ module Lawn
     getter size : Int32 = 0
 
     class Node
-      Lawn.serializable
-
       property key : Key
       property value : Value?
 
       property left : Node? = nil
       property right : Node? = nil
-
-      property parent : Node? = nil
 
       property height : Int8 = 1
 
@@ -81,70 +77,51 @@ module Lawn
     end
 
     class Cursor
+      getter stack = [] of Node
       getter current_node : Node?
       getter from : Key? = nil
       getter including_from : Bool
       getter direction : Symbol
 
-      def current : {Key, Value?}?
-        (current_node_temp = @current_node) ? {current_node_temp.key, current_node_temp.value} : nil
-      end
+      getter current : {Key, Value?}? = nil
 
       def initialize(@current_node, @from = nil, @including_from = true, @direction = :forward)
-        current_node_temp = @current_node
-        ::Log.debug { "#{self.class}.initialize current_node: #{current_node_temp ? current_node_temp.key.hexstring : nil} from: #{from ? from.hexstring : nil}, including_from: #{including_from}, direction: #{@direction}" }
-        position
-      end
-
-      protected def position
-        puts "position to #{@from}"
-        return unless from_temp = @from
-        while current_node_temp = @current_node
-          if from_temp > current_node_temp.key
-            break unless left = current_node_temp.left
-            @current_node = left
-          elsif from_temp < current_node_temp.key
-            break unless right = current_node_temp.right
-            @current_node = right
-          else
-            break
-          end
-        end
+        ::Log.debug { "#{self.class}.initialize current_node: #{@current_node} from: #{from ? from.hexstring : nil}, including_from: #{including_from}, direction: #{@direction}" }
       end
 
       def next : {Key, Value?}?
         ::Log.debug { "#{self.class}.next" }
-        puts "next"
-        if current_node_temp = @current_node
-          puts "@current_node == #{current_node.to_yaml}"
-          gets
+        while @current_node || !@stack.empty?
           case @direction
           when :forward
-            if right = current_node_temp.right
-              puts "right"
-              current_node_temp = right
-              @current_node = current_node_temp
-            else
-              puts "parent"
-              loop do
-                parent = current_node_temp.parent
-                puts "parent = #{parent ? Base64.encode parent.key : nil}"
-                break unless parent
-                break unless parent_right = parent.right
-                if parent_right == current_node_temp
-                  puts "current_node_temp = #{parent ? Base64.encode parent.key : nil}"
-                  current_node_temp = parent
-                else
-                  puts "@current_node = #{parent ? Base64.encode parent.key : nil}"
-                  @current_node = parent
-                  return current
-                end
-              end
-              @current_node = nil
+            while @current_node
+              @stack << @current_node.not_nil!
+              break if @from && (@current_node.not_nil!.key < @from.not_nil!)
+              @current_node = @current_node.not_nil!.left
+            end
+            @current_node = @stack.pop
+            result = {@current_node.not_nil!.key, @current_node.not_nil!.value}
+            @current_node = @current_node.not_nil!.right
+            unless @from && (@including_from ? (result[0] < @from.not_nil!) : (result[0] <= @from.not_nil!))
+              @current = result
+              return @current
+            end
+          when :backward
+            while @current_node
+              @stack << @current_node.not_nil!
+              break if @from && (@current_node.not_nil!.key > @from.not_nil!)
+              @current_node = @current_node.not_nil!.right
+            end
+            @current_node = @stack.pop
+            result = {@current_node.not_nil!.key, @current_node.not_nil!.value}
+            @current_node = @current_node.not_nil!.left
+            unless @from && (@including_from ? (result[0] > @from.not_nil!) : (result[0] >= @from.not_nil!))
+              @current = result
+              return @current
             end
           end
         end
-        current
+        @current = nil
       end
 
       def each_next(&)
@@ -167,10 +144,6 @@ module Lawn
     def []=(key : Key, value : Value?)
       ::Log.debug { "#{self.class}[#{key.hexstring}] = #{value ? value.hexstring : nil}" }
       @root = upsert @root, key, value
-      return unless root_temp = @root
-      update_left_child_parent root_temp
-      update_right_child_parent root_temp
-      root_temp.parent = nil
     end
 
     def []?(key : Key, node : Node? = @root) : Value? | Symbol
@@ -273,27 +246,6 @@ module Lawn
       node.height = 1_i8 + Math.max height(node.left), height(node.right)
     end
 
-    protected def update_left_child_parent(node : Node)
-      return unless left = node.left
-      left.parent = node
-    end
-
-    protected def update_right_child_parent(node : Node)
-      return unless right = node.right
-      right.parent = node
-    end
-
-    def test_children_parents(node : Node = @root.not_nil!)
-      if left = node.left
-        left.parent.should eq node
-        test_children_parents left
-      end
-      if right = node.right
-        right.parent.should eq node
-        test_children_parents right
-      end
-    end
-
     protected def upsert(node : Node?, key : Key, value : Value?) : Node
       unless node
         @size += 1
@@ -302,10 +254,8 @@ module Lawn
 
       if key < node.key
         node.left = upsert node.left, key, value
-        update_left_child_parent node
       elsif key > node.key
         node.right = upsert node.right, key, value
-        update_right_child_parent node
       else
         node.value = value
         return node
@@ -323,13 +273,11 @@ module Lawn
       # left right
       if (balance > 1) && (key > node.left.not_nil!.key)
         node.left = rotate_left node.left.not_nil!
-        update_left_child_parent node
         return rotate_right node
       end
       # right left
       if (balance < -1) && (key < node.right.not_nil!.key)
         node.right = rotate_right node.right.not_nil!
-        update_right_child_parent node
         return rotate_left node
       end
 
@@ -341,9 +289,7 @@ module Lawn
       t2 = x.right
 
       x.right = y
-      update_right_child_parent x
       y.left = t2
-      update_left_child_parent y
 
       update_height y
       update_height x
@@ -356,9 +302,7 @@ module Lawn
       t2 = y.left
 
       y.left = x
-      update_left_child_parent y
       x.right = t2
-      update_right_child_parent x
 
       update_height x
       update_height y
