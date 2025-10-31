@@ -166,6 +166,7 @@ describe Lawn::AVLTree do
         key = rnd.random_bytes rnd.rand 1..1
         value = rnd.random_bytes rnd.rand 1..1
         ::Log.debug { "add #{key.hexstring} : #{value.hexstring}" }
+        puts "add #{key.hexstring}"
         tree[key] = value
         added[key] = value
       when 3
@@ -184,7 +185,7 @@ describe Lawn::AVLTree do
     end
     tree.test_children_parents
     sorted = added.to_a.sort_by { |key, _| key }
-    Lawn::AVLTree::Cursor.new(tree.root).all_next.should eq sorted
+    tree.cursor.all_next.should eq sorted
     sorted.each { |key, value| Lawn::AVLTree::Cursor.new(tree.root, from: key).all_next.should eq sorted[sorted.index({key, value})..] }
     sorted.each { |key, value| Lawn::AVLTree::Cursor.new(tree.root, from: key, including_from: false).all_next.should eq sorted[sorted.index({key, value}).not_nil! + 1..] }
     sorted.reverse!

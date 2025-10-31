@@ -64,6 +64,8 @@ module Lawn
     getter size : Int32 = 0
 
     class Node
+      Lawn.serializable
+
       property key : Key
       property value : Value?
 
@@ -79,51 +81,70 @@ module Lawn
     end
 
     class Cursor
-      getter stack = [] of Node
       getter current_node : Node?
       getter from : Key? = nil
       getter including_from : Bool
       getter direction : Symbol
 
-      getter current : {Key, Value?}? = nil
+      def current : {Key, Value?}?
+        (current_node_temp = @current_node) ? {current_node_temp.key, current_node_temp.value} : nil
+      end
 
       def initialize(@current_node, @from = nil, @including_from = true, @direction = :forward)
-        ::Log.debug { "#{self.class}.initialize current_node: #{@current_node} from: #{from ? from.hexstring : nil}, including_from: #{including_from}, direction: #{@direction}" }
+        current_node_temp = @current_node
+        ::Log.debug { "#{self.class}.initialize current_node: #{current_node_temp ? current_node_temp.key.hexstring : nil} from: #{from ? from.hexstring : nil}, including_from: #{including_from}, direction: #{@direction}" }
+        position
+      end
+
+      protected def position
+        puts "position to #{@from}"
+        return unless from_temp = @from
+        while current_node_temp = @current_node
+          if from_temp > current_node_temp.key
+            break unless left = current_node_temp.left
+            @current_node = left
+          elsif from_temp < current_node_temp.key
+            break unless right = current_node_temp.right
+            @current_node = right
+          else
+            break
+          end
+        end
       end
 
       def next : {Key, Value?}?
         ::Log.debug { "#{self.class}.next" }
-        while @current_node || !@stack.empty?
+        puts "next"
+        if current_node_temp = @current_node
+          puts "@current_node == #{current_node.to_yaml}"
+          gets
           case @direction
           when :forward
-            while @current_node
-              @stack << @current_node.not_nil!
-              break if @from && (@current_node.not_nil!.key < @from.not_nil!)
-              @current_node = @current_node.not_nil!.left
-            end
-            @current_node = @stack.pop
-            result = {@current_node.not_nil!.key, @current_node.not_nil!.value}
-            @current_node = @current_node.not_nil!.right
-            unless @from && (@including_from ? (result[0] < @from.not_nil!) : (result[0] <= @from.not_nil!))
-              @current = result
-              return @current
-            end
-          when :backward
-            while @current_node
-              @stack << @current_node.not_nil!
-              break if @from && (@current_node.not_nil!.key > @from.not_nil!)
-              @current_node = @current_node.not_nil!.right
-            end
-            @current_node = @stack.pop
-            result = {@current_node.not_nil!.key, @current_node.not_nil!.value}
-            @current_node = @current_node.not_nil!.left
-            unless @from && (@including_from ? (result[0] > @from.not_nil!) : (result[0] >= @from.not_nil!))
-              @current = result
-              return @current
+            if right = current_node_temp.right
+              puts "right"
+              current_node_temp = right
+              @current_node = current_node_temp
+            else
+              puts "parent"
+              loop do
+                parent = current_node_temp.parent
+                puts "parent = #{parent ? Base64.encode parent.key : nil}"
+                break unless parent
+                break unless parent_right = parent.right
+                if parent_right == current_node_temp
+                  puts "current_node_temp = #{parent ? Base64.encode parent.key : nil}"
+                  current_node_temp = parent
+                else
+                  puts "@current_node = #{parent ? Base64.encode parent.key : nil}"
+                  @current_node = parent
+                  return current
+                end
+              end
+              @current_node = nil
             end
           end
         end
-        @current = nil
+        current
       end
 
       def each_next(&)
