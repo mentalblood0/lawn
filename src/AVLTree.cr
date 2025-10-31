@@ -167,6 +167,10 @@ module Lawn
     def []=(key : Key, value : Value?)
       ::Log.debug { "#{self.class}[#{key.hexstring}] = #{value ? value.hexstring : nil}" }
       @root = upsert @root, key, value
+      return unless root_temp = @root
+      update_left_child_parent root_temp
+      update_right_child_parent root_temp
+      root_temp.parent = nil
     end
 
     def []?(key : Key, node : Node? = @root) : Value? | Symbol
