@@ -136,11 +136,11 @@ module Lawn
               @memtable_current = @memtable_cursor.next
             else
               result = index_current_temp unless index_current_temp[0] == @last_key_yielded_from_memtable
-              @index_current = (index_id = @index_cursor.next) && @table.get_data index_id
+              @index_current = (index_id = ((@direction == :forward) ? @index_cursor.next : @index_cursor.previous)) && @table.get_data index_id
             end
           when {nil, KeyValue}
             result = index_current_temp unless index_current_temp[0] == @last_key_yielded_from_memtable
-            @index_current = (index_id = @index_cursor.next) && @table.get_data index_id
+            @index_current = (index_id = ((@direction == :forward) ? @index_cursor.next : @index_cursor.previous)) && @table.get_data index_id
           when {nil, nil}
             break
           end

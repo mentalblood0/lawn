@@ -157,7 +157,7 @@ describe Lawn::AVLTree do
     sorted.each { |key, value| Lawn::Cursor.new(tree_a, tree_b, from: key, including_from: false, direction: :backward).all_next.should eq sorted[sorted.index({key, value}).not_nil! + 1..] }
   end
 
-  it "generative test", focus: true do
+  it "generative test" do
     tree = Lawn::AVLTree.new
     added = Hash(Bytes, Bytes?).new
     1000.times do

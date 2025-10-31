@@ -5,7 +5,6 @@ module Lawn
     getter cursor_a : AVLTree::Cursor | Cursor
     getter cursor_b : AVLTree::Cursor | Cursor
 
-    getter started : Bool = false
     getter last_key_yielded_from_a : Key? = nil
     getter current : {Key, Value?}? = nil
     getter direction : Symbol
@@ -13,14 +12,11 @@ module Lawn
     def initialize(tree_a : AVLTree, tree_b : AVLTree, from : Key?, including_from : Bool = true, @direction = :forward)
       @cursor_a = tree_a.cursor from, including_from, @direction
       @cursor_b = tree_b.cursor from, including_from, @direction
+      @cursor_a.next
+      @cursor_b.next
     end
 
     def next : {Key, Value?}?
-      if !@started
-        @started = true
-        @cursor_a.next
-        @cursor_b.next
-      end
       loop do
         current_a = @cursor_a.current
         current_b = @cursor_b.current
@@ -30,7 +26,7 @@ module Lawn
           break
         end
 
-        if current_a && (!current_b || (current_a[0] <= current_b[0]))
+        if current_a && (!current_b || (@direction == :forward && current_a[0] <= current_b[0]) || (@direction == :backward && current_a[0] >= current_b[0]))
           @last_key_yielded_from_a = current_a[0]
           @cursor_a.next
           @current = current_a
