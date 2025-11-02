@@ -47,7 +47,7 @@ module Lawn
     getter schema_byte : UInt8 do
       if cache.empty?
         result = 0_u8
-        LibC.pread file.fd, pointerof(result), 1, 0
+        LibC.pread file.fd, pointerof(result), 1, 0_i64
         result
       else
         cache[0]
@@ -82,7 +82,7 @@ module Lawn
     end
 
     def [](i : Int64) : T
-      offset = 1 + i * element_size
+      offset = 1_i64 + i * element_size
       if offset + element_size <= cache.size
         read IO::Memory.new cache[offset, element_size]
       else

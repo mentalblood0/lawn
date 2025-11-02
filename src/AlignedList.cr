@@ -81,7 +81,7 @@ module Lawn
     def get(i : Int64, size : Int32)
       ::Log.debug { "#{self.class}{#{path}}.get #{i}" }
       result = Bytes.new Math.min @element_size, size
-      read = LibC.pread file.fd, result.to_unsafe, result.size, 4 + head_size + i * @element_size
+      read = LibC.pread file.fd, result.to_unsafe, result.size, 4_i64 + head_size + i * @element_size
       raise "pread returned #{read} although size of data to read is #{result.size}" unless read == result.size
       result
     end
@@ -92,7 +92,7 @@ module Lawn
 
     protected def set(i : Int64, b : Bytes) : Int64
       ::Log.debug { "#{self.class}{#{path}}.set #{i} #{b.hexstring}" }
-      written = Lawn.pwrite64 file.fd, b.to_unsafe, b.size.to_u64, (4 + head_size + i * @element_size).to_i64
+      written = Lawn.pwrite64 file.fd, b.to_unsafe, b.size.to_u64, 4_i64 + head_size + i * @element_size
       raise "pwrite64 returned #{written} although size of data to write is #{b.size}" unless written == b.size
       i
     end
