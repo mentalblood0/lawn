@@ -27,7 +27,7 @@ module Lawn
     @[YAML::Field(converter: Lawn::SizeConverter)]
     getter cache_size : Int64
 
-    Lawn.mignore
+    Lawn.ignore
     getter file : File do
       unless File.exists? @path
         Dir.mkdir_p @path.parent
@@ -36,14 +36,14 @@ module Lawn
       File.new @path, "r"
     end
 
-    Lawn.mignore
+    Lawn.ignore
     getter cache : Bytes do
       result = Bytes.new Math.min bytesize, @cache_size
       Crystal::System::FileDescriptor.pread file, result, 0
       result
     end
 
-    Lawn.mignore
+    Lawn.ignore
     getter schema_byte : UInt8 do
       if cache.empty?
         result = 0_u8
@@ -54,20 +54,20 @@ module Lawn
       end
     end
 
-    Lawn.mignore
+    Lawn.ignore
     getter pointer_size : UInt8 do
       schema_byte // 2
     end
 
-    Lawn.mignore
+    Lawn.ignore
     getter? is_for_fixed_table : Bool do
       (schema_byte % 2) == 1
     end
 
-    Lawn.mignore
+    Lawn.ignore
     getter bytesize : Int64 { file.size }
 
-    Lawn.mignore
+    Lawn.ignore
     getter size : Int64 { (bytesize == 0) ? 0_i64 : (bytesize - 1) // element_size }
 
     abstract def element_size : UInt8

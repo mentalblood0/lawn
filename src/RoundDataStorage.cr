@@ -13,18 +13,18 @@ module Lawn
     getter dir : Path
     getter max_element_size : Int32
 
-    Lawn.mignore
+    Lawn.ignore
     getter data_aligned_lists_by_rounded_size_index : Array(AlignedList?) = Array(AlignedList?).new 256 { nil }
 
     alias Schema = {max_element_size: Int32}
 
-    Lawn.mignore
+    Lawn.ignore
     getter schema : Schema { {max_element_size: @max_element_size} }
 
-    Lawn.mignore
+    Lawn.ignore
     getter sequential_sizes_threshold_index : Int32 { sizes.index { |size| size != sizes[size - 1] } || sizes.size - 1 }
 
-    Lawn.mignore
+    Lawn.ignore
     getter sequential_sizes_threshold : Int32 { sizes[sequential_sizes_threshold_index - 1] + 1 }
 
     protected def need_size_if_index?(rounded_size_index : Int32)
@@ -43,10 +43,10 @@ module Lawn
       @data_aligned_lists_by_rounded_size_index[round_index].not_nil!
     end
 
-    Lawn.mignore
+    Lawn.ignore
     getter sizes = [] of Int32
 
-    Lawn.mignore
+    Lawn.ignore
     getter schema_file_size : Int64 = 0_i64
 
     def initialize(@dir, @max_element_size)

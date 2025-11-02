@@ -12,10 +12,13 @@ module Lawn
     getter log : Log
     getter tables : Array(VariableTable | FixedTable)
 
+    Lawn.ignore
+    getter checkpoint_after_commit_condition : Proc(Database, Bool)? = nil
+
     alias ScansRanges = Set({UInt8, Range(Key?, Key?)})
     alias TransactionInfo = {began_at: Time, committed_at: Time, accessed_keys: {read: Set({UInt8, Key}), write: Set({UInt8, Key})}, scans_ranges: ScansRanges}
 
-    Lawn.mignore
+    Lawn.ignore
     getter transactions = {
       in_work:   Set(Transaction).new,
       committed: Set(TransactionInfo).new,
@@ -28,6 +31,13 @@ module Lawn
       result = log.bytesize
       tables.each { |table| result += table.bytesize_disk }
       result
+    end
+
+    def keyvalues_amount_in_memory
+      tables.map { |table| table.memtable.size }.sum
+    end
+
+    def checkpoint_after_commit_if(condition : Proc(Database, Bool))
     end
 
     def recover
@@ -110,6 +120,8 @@ module Lawn
           @transactions[:committed].delete committed_transaction
         end
       end
+
+      checkpoint if (checkpoint_after_commit_condition_temp = @checkpoint_after_commit_condition) && (checkpoint_after_commit_condition_temp.call(self) == true)
       self
     end
 

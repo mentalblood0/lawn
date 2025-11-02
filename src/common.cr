@@ -10,7 +10,7 @@ module Lawn
     include JSON::Serializable::Strict
   end
 
-  macro mignore
+  macro ignore
     @[YAML::Field(ignore: true)]
     @[JSON::Field(ignore: true)]
   end

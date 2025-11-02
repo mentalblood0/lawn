@@ -15,7 +15,7 @@ module Lawn
     getter element_size : Int32
     getter path : Path
 
-    Lawn.mignore
+    Lawn.ignore
     getter file : File do
       unless File.exists? @path
         Dir.mkdir_p @path.parent
@@ -26,16 +26,16 @@ module Lawn
       r
     end
 
-    Lawn.mignore
+    Lawn.ignore
     getter head : Bytes = Bytes.new 0
 
-    Lawn.mignore
+    Lawn.ignore
     getter head_size : Int32 { Math.min(@element_size, 8) }
 
-    Lawn.mignore
+    Lawn.ignore
     getter size : Int64 = 0_i64
 
-    Lawn.mignore
+    Lawn.ignore
     getter bytesize_disk : Int64 = 0_i64
 
     def initialize(@path, @element_size)

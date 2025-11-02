@@ -9,10 +9,10 @@ module Lawn
 
     getter path : Path
 
-    Lawn.mignore
+    Lawn.ignore
     getter bytesize : Int64 = 0_i64
 
-    Lawn.mignore
+    Lawn.ignore
     getter file : File do
       unless File.exists? @path
         Dir.mkdir_p @path.parent

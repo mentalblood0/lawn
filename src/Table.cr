@@ -17,7 +17,7 @@ module Lawn
 
     abstract def data_storage : DataStorage(I)
 
-    Lawn.mignore
+    Lawn.ignore
     getter memtable = AVLTree.new
 
     def clear
