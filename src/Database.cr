@@ -13,7 +13,7 @@ module Lawn
     getter tables : Array(VariableTable | FixedTable)
 
     Lawn.ignore
-    getter checkpoint_after_commit_condition : Proc(Database, Bool)? = nil
+    property checkpoint_after_commit_condition : Proc(Database, Bool)? = nil
 
     alias ScansRanges = Set({UInt8, Range(Key?, Key?)})
     alias TransactionInfo = {began_at: Time, committed_at: Time, accessed_keys: {read: Set({UInt8, Key}), write: Set({UInt8, Key})}, scans_ranges: ScansRanges}
@@ -35,9 +35,6 @@ module Lawn
 
     def keyvalues_amount_in_memory
       tables.map { |table| table.memtable.size }.sum
-    end
-
-    def checkpoint_after_commit_if(condition : Proc(Database, Bool))
     end
 
     def recover
@@ -121,7 +118,10 @@ module Lawn
         end
       end
 
-      checkpoint if (checkpoint_after_commit_condition_temp = @checkpoint_after_commit_condition) && (checkpoint_after_commit_condition_temp.call(self) == true)
+      if (checkpoint_after_commit_condition_temp = @checkpoint_after_commit_condition) && (checkpoint_after_commit_condition_temp.call(self) == true)
+        checkpoint_time = Time.measure { checkpoint }
+        puts checkpoint_time
+      end
       self
     end
 
