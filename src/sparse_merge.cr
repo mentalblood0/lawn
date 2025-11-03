@@ -18,13 +18,20 @@ module Lawn
     end
   end
 
-  def self.insert_merge(big : Slice(Bytes), small : Array(Bytes), result_insert_indexes : Array(Int32?))
-    small.each_with_index { |element_to_insert, i| result_insert_indexes[i] = big.bsearch_index { |element, _| element >= element_to_insert } }
+  def self.insert_merge(big : Slice(Bytes), small : Array(Bytes))
+    comparisons_count = 0
+    result = small.map_with_index { |element_to_insert, i| big.bsearch_index do |element, _|
+      comparisons_count += 1
+      element >= element_to_insert
+    end }
+    puts "insert_merge: #{comparisons_count}"
+    result
   end
 
-  def self.sparse_merge(big : Slice(Bytes), small : Array(Bytes), result_insert_indexes : Array(Int32?))
+  def self.sparse_merge(big : Slice(Bytes), small : Array(Bytes))
+    comparisons_count = 0
+    result_insert_indexes = Array(Int32?).new(small.size) { nil }
     self.walk_middles(small.size) do |indexes|
-      puts "indexes = #{indexes}"
       element_to_insert = small[indexes[:middle]]
 
       left_bound = result_insert_indexes[Math.max 0, indexes[:left] - 1] || 0
@@ -34,16 +41,16 @@ module Lawn
         left_bound = right_bound
         right_bound = temp
       end
-      puts "left_bound = #{left_bound}, right_bound = #{right_bound}"
 
-      puts "search in big[#{left_bound}..#{right_bound}]"
-
-      insert_relative_index = big[left_bound..right_bound].bsearch_index { |element, _| element >= element_to_insert } || 0
+      insert_relative_index = big[left_bound..right_bound].bsearch_index do |element, _|
+        comparisons_count += 1
+        element >= element_to_insert
+      end || 0
       insert_index = insert_relative_index + left_bound
-      puts "insert_index = #{insert_index}"
 
       result_insert_indexes[indexes[:middle]] = insert_index
-      puts
     end
+    puts "sparse_merge: #{comparisons_count}"
+    result_insert_indexes
   end
 end

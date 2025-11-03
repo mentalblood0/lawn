@@ -23,20 +23,19 @@ rnd = Random.new config[:seed]
 
 describe "Lawn.sparse_merge" do
   it "merges correctly", focus: true do
-    big = Array(Bytes).new(100) { rnd.random_bytes 16 }
-    small = Array(Bytes).new(10) { rnd.random_bytes 16 }
+    big_size = 10**5
+
+    puts "linear_merge: #{big_size}"
+    big = Array(Bytes).new(10_000_000) { rnd.random_bytes 16 }
+    small = Array(Bytes).new(2**20) { rnd.random_bytes 16 }
 
     big.sort!
     small.sort!
 
     slice = Slice(Bytes).new(big.to_unsafe, big.size)
 
-    correct_result_insert_indexes = Array(Int32?).new(small.size) { nil }
-    Lawn.insert_merge slice, small, correct_result_insert_indexes
-
-    result_insert_indexes = Array(Int32?).new(small.size) { nil }
-    result = Lawn.sparse_merge slice, small, result_insert_indexes
-
+    correct_result_insert_indexes = Lawn.insert_merge slice, small
+    result_insert_indexes = Lawn.sparse_merge slice, small
     result_insert_indexes.should eq correct_result_insert_indexes
   end
 end
