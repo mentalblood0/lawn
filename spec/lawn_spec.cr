@@ -21,21 +21,46 @@ alias Config = {database: Lawn::Database, seed: Int32}
 config = Config.from_yaml File.read ENV["SPEC_CONFIG_PATH"]
 rnd = Random.new config[:seed]
 
-describe "Lawn.sparse_merge" do
-  it "merges correctly", focus: true do
-    big_size = 10**5
-
-    puts "linear_merge: #{big_size}"
-    big = Array(Bytes).new(10_000_000) { rnd.random_bytes 16 }
-    small = Array(Bytes).new(2**20) { rnd.random_bytes 16 }
+describe "Lawn.sparse_merge", focus: true do
+  it "random arrays" do
+    big = Array(Bytes).new(1000) { rnd.random_bytes 16 }
+    small = Array(Bytes).new(100) { rnd.random_bytes 16 }
 
     big.sort!
     small.sort!
 
-    slice = Slice(Bytes).new(big.to_unsafe, big.size)
+    puts "linear_merge: #{big.size}"
 
-    correct_result_insert_indexes = Lawn.insert_merge slice, small
-    result_insert_indexes = Lawn.sparse_merge slice, small
+    correct_result_insert_indexes = Lawn.insert_merge big, small
+    result_insert_indexes = Lawn.sparse_merge big, small
+    result_insert_indexes.should eq correct_result_insert_indexes
+  end
+  it "in-order arrays: to right" do
+    merged = Array(Bytes).new(1100) { rnd.random_bytes 16 }
+    big = merged[..999]
+    small = merged[1000..]
+
+    big.sort!
+    small.sort!
+
+    puts "linear_merge: #{big.size}"
+
+    correct_result_insert_indexes = Lawn.insert_merge big, small
+    result_insert_indexes = Lawn.sparse_merge big, small
+    result_insert_indexes.should eq correct_result_insert_indexes
+  end
+  it "in-order arrays: to left" do
+    merged = Array(Bytes).new(1100) { rnd.random_bytes 16 }
+    big = merged[100..]
+    small = merged[..99]
+
+    big.sort!
+    small.sort!
+
+    puts "linear_merge: #{big.size}"
+
+    correct_result_insert_indexes = Lawn.insert_merge big, small
+    result_insert_indexes = Lawn.sparse_merge big, small
     result_insert_indexes.should eq correct_result_insert_indexes
   end
 end

@@ -18,7 +18,7 @@ module Lawn
     end
   end
 
-  def self.insert_merge(big : Slice(Bytes), small : Array(Bytes))
+  def self.insert_merge(big : Array(Bytes), small : Array(Bytes))
     comparisons_count = 0
     result = small.map_with_index { |element_to_insert, i| big.bsearch_index do |element, _|
       comparisons_count += 1
@@ -28,7 +28,7 @@ module Lawn
     result
   end
 
-  def self.sparse_merge(big : Slice(Bytes), small : Array(Bytes))
+  def self.sparse_merge(big : Array(Bytes), small : Array(Bytes))
     comparisons_count = 0
     result_insert_indexes = Array(Int32?).new(small.size) { nil }
     self.walk_middles(small.size) do |indexes|
@@ -42,7 +42,7 @@ module Lawn
         right_bound = temp
       end
 
-      insert_relative_index = big[left_bound..right_bound].bsearch_index do |element, _|
+      insert_relative_index = Slice(Bytes).new(big.to_unsafe + left_bound, right_bound + 1 - left_bound).bsearch_index do |element, _|
         comparisons_count += 1
         element >= element_to_insert
       end || 0
