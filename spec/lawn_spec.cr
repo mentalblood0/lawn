@@ -4,6 +4,7 @@ require "spec"
 require "../src/Database"
 require "../src/RoundDataStorage"
 require "../src/AVLTree"
+require "../src/sparse_merge"
 
 VARIABLE_TABLE      = 0_u8
 FIXED_TABLE         = 1_u8
@@ -19,6 +20,26 @@ alias Config = {database: Lawn::Database, seed: Int32}
 
 config = Config.from_yaml File.read ENV["SPEC_CONFIG_PATH"]
 rnd = Random.new config[:seed]
+
+describe "Lawn.sparse_merge" do
+  it "merges correctly", focus: true do
+    big = Array(Bytes).new(100) { rnd.random_bytes 16 }
+    small = Array(Bytes).new(10) { rnd.random_bytes 16 }
+
+    big.sort!
+    small.sort!
+
+    slice = Slice(Bytes).new(big.to_unsafe, big.size)
+
+    correct_result_insert_indexes = Array(Int32?).new(small.size) { nil }
+    Lawn.insert_merge slice, small, correct_result_insert_indexes
+
+    result_insert_indexes = Array(Int32?).new(small.size) { nil }
+    result = Lawn.sparse_merge slice, small, result_insert_indexes
+
+    result_insert_indexes.should eq correct_result_insert_indexes
+  end
+end
 
 Spec.before_each { config[:database].clear }
 
