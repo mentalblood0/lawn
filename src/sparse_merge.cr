@@ -23,7 +23,7 @@ module Lawn
     result = small.map_with_index { |element_to_insert, i| big.bsearch_index do |element, _|
       comparisons_count += 1
       element >= element_to_insert
-    end }
+    end || 0 }
     puts "insert_merge: #{comparisons_count}"
     result
   end
@@ -51,6 +51,25 @@ module Lawn
       result_insert_indexes[indexes[:middle]] = insert_index
     end
     puts "sparse_merge: #{comparisons_count}"
+    result_insert_indexes
+  end
+
+  def self.sparse_merge_sequential(big : Array(Bytes), small : Array(Bytes))
+    comparisons_count = 0
+    result_insert_indexes = Array(Int32?).new(small.size) { nil }
+
+    last_insert_index = 0
+    small.each_with_index do |element_to_insert, element_to_insert_index|
+      insert_relative_index = Slice(Bytes).new(big.to_unsafe + last_insert_index, big.size - last_insert_index).bsearch_index do |element, _|
+        comparisons_count += 1
+        element >= element_to_insert
+      end || 0
+      insert_index = insert_relative_index + last_insert_index
+      result_insert_indexes[element_to_insert_index] = insert_index
+      last_insert_index = insert_index
+    end
+
+    puts "sparse_merge_sequential: #{comparisons_count}"
     result_insert_indexes
   end
 end

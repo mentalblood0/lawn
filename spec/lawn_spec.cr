@@ -16,52 +16,52 @@ struct Slice(T)
   end
 end
 
+class Array(T)
+  def pretty_print(pp : PrettyPrint)
+    pp.text "Array[#{self.join(", ")}]"
+  end
+end
+
 alias Config = {database: Lawn::Database, seed: Int32}
 
 config = Config.from_yaml File.read ENV["SPEC_CONFIG_PATH"]
 rnd = Random.new config[:seed]
 
-describe "Lawn.sparse_merge", focus: true do
+macro test_merge(big, small, *strategies)
+  puts "linear_merge: #{big.size}"
+  correct_result_insert_indexes = Lawn.insert_merge big, small
+
+  {% for strategy in strategies %}
+    result_insert_indexes = Lawn.{{strategy}} big, small
+    result_insert_indexes.should eq correct_result_insert_indexes
+  {% end %}
+  puts
+end
+
+describe "merging strategies", focus: true do
   it "random arrays" do
     big = Array(Bytes).new(1000) { rnd.random_bytes 16 }
     small = Array(Bytes).new(100) { rnd.random_bytes 16 }
-
     big.sort!
     small.sort!
 
-    puts "linear_merge: #{big.size}"
-
-    correct_result_insert_indexes = Lawn.insert_merge big, small
-    result_insert_indexes = Lawn.sparse_merge big, small
-    result_insert_indexes.should eq correct_result_insert_indexes
+    test_merge big, small, sparse_merge, sparse_merge_sequential
   end
   it "in-order arrays: to right" do
     merged = Array(Bytes).new(1100) { rnd.random_bytes 16 }
+    merged.sort!
     big = merged[..999]
     small = merged[1000..]
 
-    big.sort!
-    small.sort!
-
-    puts "linear_merge: #{big.size}"
-
-    correct_result_insert_indexes = Lawn.insert_merge big, small
-    result_insert_indexes = Lawn.sparse_merge big, small
-    result_insert_indexes.should eq correct_result_insert_indexes
+    test_merge big, small, sparse_merge, sparse_merge_sequential
   end
   it "in-order arrays: to left" do
     merged = Array(Bytes).new(1100) { rnd.random_bytes 16 }
+    merged.sort!
     big = merged[100..]
     small = merged[..99]
 
-    big.sort!
-    small.sort!
-
-    puts "linear_merge: #{big.size}"
-
-    correct_result_insert_indexes = Lawn.insert_merge big, small
-    result_insert_indexes = Lawn.sparse_merge big, small
-    result_insert_indexes.should eq correct_result_insert_indexes
+    test_merge big, small, sparse_merge, sparse_merge_sequential
   end
 end
 
