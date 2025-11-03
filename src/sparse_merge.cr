@@ -18,58 +18,33 @@ module Lawn
     end
   end
 
-  def self.insert_merge(big : Array(Bytes), small : Array(Bytes))
+  def self.insert_merge(big_size : Int64, big_get_element : Proc(Int64, Bytes), small : Array(Bytes))
     comparisons_count = 0
-    result = small.map_with_index { |element_to_insert, i| big.bsearch_index do |element, _|
+    result = small.map_with_index { |element_to_insert, i| (0_i64..big_size - 1).bsearch do |i|
       comparisons_count += 1
-      element >= element_to_insert
-    end || 0 }
+      big_get_element.call(i) >= element_to_insert
+    end || 0_i64 }
     puts "insert_merge: #{comparisons_count}"
     result
   end
 
-  def self.sparse_merge(big : Array(Bytes), small : Array(Bytes))
+  def self.sparse_merge(big_size : Int64, big_get_element : Proc(Int64, Bytes), small : Array(Bytes))
     comparisons_count = 0
     result_insert_indexes = Array(Int32?).new(small.size) { nil }
     self.walk_middles(small.size) do |indexes|
       element_to_insert = small[indexes[:middle]]
 
-      left_bound = result_insert_indexes[Math.max 0, indexes[:left] - 1] || 0
-      right_bound = result_insert_indexes[Math.min indexes[:right] + 1, result_insert_indexes.size - 1] || big.size - 1
-      if left_bound > right_bound
-        temp = left_bound
-        left_bound = right_bound
-        right_bound = temp
-      end
+      left_bound = (result_insert_indexes[Math.max 0, indexes[:left] - 1] || 0).to_i64!
+      right_bound = (result_insert_indexes[Math.min indexes[:right] + 1, result_insert_indexes.size - 1] || big_size - 1).to_i64!
 
-      insert_relative_index = Slice(Bytes).new(big.to_unsafe + left_bound, right_bound + 1 - left_bound).bsearch_index do |element, _|
+      insert_index = (left_bound..right_bound).bsearch do |i|
         comparisons_count += 1
-        element >= element_to_insert
-      end || 0
-      insert_index = insert_relative_index + left_bound
+        big_get_element.call(i) >= element_to_insert
+      end || left_bound
 
-      result_insert_indexes[indexes[:middle]] = insert_index
+      result_insert_indexes[indexes[:middle]] = insert_index.to_i32!
     end
     puts "sparse_merge: #{comparisons_count}"
-    result_insert_indexes
-  end
-
-  def self.sparse_merge_sequential(big : Array(Bytes), small : Array(Bytes))
-    comparisons_count = 0
-    result_insert_indexes = Array(Int32?).new(small.size) { nil }
-
-    last_insert_index = 0
-    small.each_with_index do |element_to_insert, element_to_insert_index|
-      insert_relative_index = Slice(Bytes).new(big.to_unsafe + last_insert_index, big.size - last_insert_index).bsearch_index do |element, _|
-        comparisons_count += 1
-        element >= element_to_insert
-      end || 0
-      insert_index = insert_relative_index + last_insert_index
-      result_insert_indexes[element_to_insert_index] = insert_index
-      last_insert_index = insert_index
-    end
-
-    puts "sparse_merge_sequential: #{comparisons_count}"
     result_insert_indexes
   end
 end

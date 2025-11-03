@@ -29,10 +29,10 @@ rnd = Random.new config[:seed]
 
 macro test_merge(big, small, *strategies)
   puts "linear_merge: #{big.size}"
-  correct_result_insert_indexes = Lawn.insert_merge big, small
+  correct_result_insert_indexes = Lawn.insert_merge big.size, ->(i : Int64) { big[i] }, small
 
   {% for strategy in strategies %}
-    result_insert_indexes = Lawn.{{strategy}} big, small
+    result_insert_indexes = Lawn.{{strategy}} big.size, ->(i : Int64) { big[i] }, small
     result_insert_indexes.should eq correct_result_insert_indexes
   {% end %}
   puts
@@ -45,7 +45,7 @@ describe "merging strategies", focus: true do
     big.sort!
     small.sort!
 
-    test_merge big, small, sparse_merge, sparse_merge_sequential
+    test_merge big, small, sparse_merge
   end
   it "in-order arrays: to right" do
     merged = Array(Bytes).new(1100) { rnd.random_bytes 16 }
@@ -53,7 +53,7 @@ describe "merging strategies", focus: true do
     big = merged[..999]
     small = merged[1000..]
 
-    test_merge big, small, sparse_merge, sparse_merge_sequential
+    test_merge big, small, sparse_merge
   end
   it "in-order arrays: to left" do
     merged = Array(Bytes).new(1100) { rnd.random_bytes 16 }
@@ -61,7 +61,7 @@ describe "merging strategies", focus: true do
     big = merged[100..]
     small = merged[..99]
 
-    test_merge big, small, sparse_merge, sparse_merge_sequential
+    test_merge big, small, sparse_merge
   end
 end
 
