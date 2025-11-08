@@ -1,9 +1,0 @@
-name: lawn
-version: 0.1.0
-
-authors:
-  - mentalblood0 <necheporenko.stepan@yandex.ru>
-
-crystal: '>= 1.17.0'
-
-license: MIT
