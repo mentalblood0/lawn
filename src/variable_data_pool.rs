@@ -11,7 +11,7 @@ pub fn split_scale_logarithmically(max_value: usize) -> Result<Vec<usize>, Strin
 
     let mut result: Vec<usize> = Vec::with_capacity(VALUES_COUNT);
 
-    for current_values_count in 0..(VALUES_COUNT - 3) {
+    for current_values_count in 0..(VALUES_COUNT - 1) {
         let new_value = (2 as f64).powf(
             (max_value as f64).log2() * current_values_count as f64 / (VALUES_COUNT - 1) as f64,
         ) as usize;
