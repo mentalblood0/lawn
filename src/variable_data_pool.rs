@@ -19,10 +19,14 @@ pub fn split_scale_logarithmically(max_value: usize) -> Result<Vec<usize>, Strin
             result.push(new_value);
         }
     }
+    result.push(max_value);
 
-    let additional_values_count = VALUES_COUNT - 1 - result.len();
-    if additional_values_count > 0 {
-        let mut additional_values: Vec<usize> = Vec::with_capacity(additional_values_count);
+    let mut additional_values_count = VALUES_COUNT - result.len();
+    let mut additional_values: Vec<usize> = Vec::with_capacity(additional_values_count);
+    loop {
+        if additional_values_count == 0 {
+            break;
+        }
         for two_values in result.windows(2) {
             if two_values[1] - two_values[0] == 1 {
                 continue;
@@ -33,10 +37,9 @@ pub fn split_scale_logarithmically(max_value: usize) -> Result<Vec<usize>, Strin
             }
         }
         result.append(&mut additional_values);
+        result.sort();
+        additional_values_count = VALUES_COUNT - result.len();
     }
-
-    result.sort();
-    result.push(max_value);
 
     Ok(result)
 }
@@ -47,12 +50,12 @@ mod tests {
 
     #[test]
     fn test_splitting_scale() {
-        let max_value = 65536;
-
-        let result = split_scale_logarithmically(max_value).unwrap();
-        assert!(result.is_sorted());
-        assert_eq!(result.len(), 256);
-        assert_eq!(*result.last().unwrap(), max_value);
+        for max_value in (256..(2 as usize).pow(16)).step_by(19) {
+            let result = split_scale_logarithmically(max_value).unwrap();
+            assert!(result.is_sorted());
+            assert_eq!(result.len(), 256);
+            assert_eq!(*result.last().unwrap(), max_value);
+        }
     }
 }
 
