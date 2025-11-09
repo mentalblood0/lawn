@@ -4,14 +4,14 @@ use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
 
 #[derive(Debug, Deserialize)]
-pub struct DataPoolConfig {
+pub struct FixedDataPoolConfig {
     pub path: PathBuf,
     pub container_size: usize,
 }
 
 #[derive(Debug)]
-pub struct DataPool {
-    pub config: DataPoolConfig,
+pub struct FixedDataPool {
+    pub config: FixedDataPoolConfig,
     pub containers_allocated: usize,
     pub bytesize_on_disk: usize,
     file: fs::File,
@@ -20,8 +20,16 @@ pub struct DataPool {
     empty: bool,
 }
 
-impl DataPool {
-    pub fn new(config: DataPoolConfig) -> Result<Self, String> {
+impl FixedDataPool {
+    pub fn new(config: FixedDataPoolConfig) -> Result<Self, String> {
+        if let Some(path_parent_directory) = config.path.parent() {
+            std::fs::create_dir_all(path_parent_directory).map_err(|error| {
+                format!(
+                    "Can not create parent directories for path {}: {error}",
+                    &config.path.display()
+                )
+            })?;
+        }
         let file = fs::OpenOptions::new()
             .create(true)
             .read(true)
@@ -214,17 +222,17 @@ mod tests {
     #[test]
     fn test_generative() {
         const CONTAINER_SIZE: usize = 16;
-        let path = Path::new("/tmp/data_pool.dat");
+        let path = Path::new("/tmp/lawn/test/fixed_data_pool.dat");
 
         fs::remove_file(path).unwrap_or(());
         let mut rng = WyRand::new_seed(0);
 
-        let mut data_pool = DataPool::new(DataPoolConfig {
+        let mut fixed_data_pool = FixedDataPool::new(FixedDataPoolConfig {
             path: path.to_path_buf(),
             container_size: CONTAINER_SIZE,
         })
         .unwrap();
-        data_pool.clear().unwrap();
+        fixed_data_pool.clear().unwrap();
         let mut previously_added_data: HashMap<usize, Vec<u8>> = HashMap::new();
 
         for _ in 0..1000 {
@@ -244,7 +252,7 @@ mod tests {
                 previously_added_data.remove(&pointer);
             }
 
-            let pointers_to_added_data = data_pool
+            let pointers_to_added_data = fixed_data_pool
                 .update(&data_to_add, &pointers_to_data_to_delete)
                 .unwrap();
             pointers_to_added_data
@@ -255,22 +263,22 @@ mod tests {
                 });
 
             for (pointer, data) in &previously_added_data {
-                assert_eq!(&data_pool.get(*pointer).unwrap(), data);
+                assert_eq!(&fixed_data_pool.get(*pointer).unwrap(), data);
             }
         }
 
         assert_eq!(
-            data_pool.bytesize_on_disk,
-            data_pool.file.metadata().unwrap().len() as usize
+            fixed_data_pool.bytesize_on_disk,
+            fixed_data_pool.file.metadata().unwrap().len() as usize
         );
-        let mut data_pool = DataPool::new(DataPoolConfig {
-            path: Path::new("/tmp/data_pool.dat").to_path_buf(),
+        let mut fixed_data_pool = FixedDataPool::new(FixedDataPoolConfig {
+            path: path.to_path_buf(),
             container_size: CONTAINER_SIZE,
         })
         .unwrap();
         for (pointer, data) in &previously_added_data {
-            assert_eq!(&data_pool.get(*pointer).unwrap(), data);
+            assert_eq!(&fixed_data_pool.get(*pointer).unwrap(), data);
         }
-        data_pool.clear().unwrap();
+        fixed_data_pool.clear().unwrap();
     }
 }
