@@ -1,44 +1,59 @@
 use serde::Deserialize;
 use std::path::PathBuf;
 
-pub fn split_scale_logarithmically(max_value: usize) -> Result<Vec<usize>, String> {
-    const VALUES_COUNT: usize = 256;
-    if max_value < VALUES_COUNT {
+use super::fixed_data_pool::*;
+
+const CONTAINERS_SIZES_COUNT: usize = 256;
+
+pub fn split_scale_logarithmically(
+    max_value: usize,
+) -> Result<[usize; CONTAINERS_SIZES_COUNT], String> {
+    if max_value < CONTAINERS_SIZES_COUNT {
         return Err(format!(
-            "Can not split scale: maximum value {max_value} must be greater or equal to values count {VALUES_COUNT}"
+            "Can not split scale: maximum value {max_value} must be greater or equal to values count {CONTAINERS_SIZES_COUNT}"
         ));
     }
 
-    let mut result: Vec<usize> = Vec::with_capacity(VALUES_COUNT);
+    let mut result = [max_value; CONTAINERS_SIZES_COUNT];
+    let mut current_values_count = 0 as usize;
 
-    for current_values_count in 0..(VALUES_COUNT - 1) {
+    for iterations_count in 0.. {
         let new_value = (2 as f64).powf(
-            (max_value as f64).log2() * current_values_count as f64 / (VALUES_COUNT - 1) as f64,
+            (max_value as f64).log2() * iterations_count as f64
+                / (CONTAINERS_SIZES_COUNT - 1) as f64,
         ) as usize;
-        if result.len() == 0 || *result.last().unwrap() != new_value {
-            result.push(new_value);
-        }
-    }
-    result.push(max_value);
-
-    let mut additional_values_count = VALUES_COUNT - result.len();
-    let mut additional_values: Vec<usize> = Vec::with_capacity(additional_values_count);
-    loop {
-        if additional_values_count == 0 {
+        if new_value > max_value {
             break;
         }
+        if current_values_count == 0 || result[current_values_count - 1] != new_value {
+            result[current_values_count] = new_value;
+            current_values_count += 1;
+        }
+    }
+    result[std::cmp::min(CONTAINERS_SIZES_COUNT, current_values_count) - 1] = max_value;
+
+    let mut additional_values = [0 as usize; CONTAINERS_SIZES_COUNT];
+    loop {
+        let target_additional_values_count = CONTAINERS_SIZES_COUNT - current_values_count;
+        if target_additional_values_count == 0 {
+            break;
+        }
+        let mut current_additional_values_count = 0 as usize;
         for two_values in result.windows(2) {
             if two_values[1] - two_values[0] == 1 {
                 continue;
             }
-            additional_values.push((two_values[0] + two_values[1]) / 2);
-            if additional_values.len() == additional_values_count {
+            additional_values[current_additional_values_count] =
+                (two_values[0] + two_values[1]) / 2;
+            current_additional_values_count += 1;
+            if current_additional_values_count == target_additional_values_count {
                 break;
             }
         }
-        result.append(&mut additional_values);
+        result[current_values_count..current_values_count + current_additional_values_count]
+            .copy_from_slice(&additional_values[..current_additional_values_count]);
+        current_values_count += current_additional_values_count;
         result.sort();
-        additional_values_count = VALUES_COUNT - result.len();
     }
 
     Ok(result)
@@ -46,14 +61,14 @@ pub fn split_scale_logarithmically(max_value: usize) -> Result<Vec<usize>, Strin
 
 #[cfg(test)]
 mod tests {
-    use crate::variable_data_pool::split_scale_logarithmically;
+    use super::*;
 
     #[test]
     fn test_splitting_scale() {
-        for max_value in (256..(2 as usize).pow(16)).step_by(19) {
+        for max_value in (CONTAINERS_SIZES_COUNT..(2 as usize).pow(16)).step_by(19) {
             let result = split_scale_logarithmically(max_value).unwrap();
             assert!(result.is_sorted());
-            assert_eq!(result.len(), 256);
+            assert_eq!(result.len(), CONTAINERS_SIZES_COUNT);
             assert_eq!(*result.last().unwrap(), max_value);
         }
     }
@@ -68,4 +83,5 @@ pub struct VariableDataPoolConfig {
 #[derive(Debug)]
 pub struct VariableDataPool {
     pub config: VariableDataPoolConfig,
+    container_size_index_to_fixed_data_pool: [FixedDataPool; CONTAINERS_SIZES_COUNT],
 }
