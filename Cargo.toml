@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-nanorand = "0.8.0"
+bincode = { version = "2.0.1", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde-saphyr = { git = "https://github.com/bourumir-wyngs/serde-saphyr" }
+
+[dev-dependencies]
+nanorand = "0.8.0"

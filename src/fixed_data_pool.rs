@@ -42,7 +42,7 @@ impl FixedDataPool {
                 )
             })?;
         let mut result = Self {
-            config: config,
+            config,
             file: file,
             head_size: 0,
             head: vec![],
