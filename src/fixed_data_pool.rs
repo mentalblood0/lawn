@@ -176,7 +176,8 @@ impl FixedDataPool {
             )?;
         }
 
-        for pointer_index in replaced..data_to_add.len() - 1 {
+        dbg!(replaced);
+        for pointer_index in replaced..data_to_add.len() {
             if self.empty {
                 for pointer in self.containers_allocated
                     ..(self.containers_allocated + data_to_add.len() - pointer_index)

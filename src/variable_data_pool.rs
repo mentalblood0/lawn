@@ -1,3 +1,4 @@
+use bincode;
 use serde::Deserialize;
 use std::path::PathBuf;
 
@@ -71,6 +72,17 @@ pub struct VariableDataPool {
     container_size_index_to_fixed_data_pool: [FixedDataPool; CONTAINERS_SIZES_COUNT],
 }
 
+#[derive(Debug, Clone)]
+pub struct Id {
+    pub container_size_index: u8,
+    pub pointer: usize,
+}
+
+#[derive(bincode::Encode, bincode::Decode)]
+pub struct Container {
+    pub data: Vec<u8>,
+}
+
 impl VariableDataPool {
     pub fn new(config: VariableDataPoolConfig) -> Result<Self, String> {
         let mut fixed_data_pools: Vec<FixedDataPool> = Vec::with_capacity(CONTAINERS_SIZES_COUNT);
@@ -88,6 +100,73 @@ impl VariableDataPool {
                 format!("Can not convert fixed data pools vec to static array with required size: {source_type:?}")
             })?,
         })
+    }
+
+    pub fn update(
+        &mut self,
+        data_to_add: &Vec<Vec<u8>>,
+        ids_of_data_to_delete: &Vec<Id>,
+    ) -> Result<Vec<Id>, String> {
+        let mut container_size_index_to_encoded_data_to_add: [Vec<Vec<u8>>;
+            CONTAINERS_SIZES_COUNT] = [const { Vec::new() }; CONTAINERS_SIZES_COUNT];
+        let mut container_size_index_to_data_to_add_initial_indexes: [Vec<usize>;
+            CONTAINERS_SIZES_COUNT] = [const { Vec::new() }; CONTAINERS_SIZES_COUNT];
+        for (initial_index, data) in data_to_add.iter().enumerate() {
+            let encoded_data = bincode::encode_to_vec(
+                Container { data: data.clone() },
+                bincode::config::standard(),
+            )
+            .map_err(|error| format!("Can not encode data to container structure: {error}"))?;
+            let container_size_index = self
+                .container_size_index_to_fixed_data_pool
+                .partition_point(|fixed_data_pool| {
+                    fixed_data_pool.config.container_size < encoded_data.len()
+                });
+            container_size_index_to_data_to_add_initial_indexes[container_size_index]
+                .push(initial_index);
+            container_size_index_to_encoded_data_to_add[container_size_index].push(encoded_data);
+        }
+
+        let mut container_size_index_to_pointers_to_delete: [Vec<usize>; CONTAINERS_SIZES_COUNT] =
+            [const { Vec::new() }; CONTAINERS_SIZES_COUNT];
+        for id in ids_of_data_to_delete {
+            container_size_index_to_pointers_to_delete[id.container_size_index as usize]
+                .push(id.pointer);
+        }
+
+        let mut result: Vec<Id> = vec![
+            Id {
+                container_size_index: 0,
+                pointer: 0
+            };
+            data_to_add.len()
+        ];
+        for container_size_index in 0..CONTAINERS_SIZES_COUNT {
+            let encoded_data_to_add =
+                &container_size_index_to_encoded_data_to_add[container_size_index];
+            let pointers_to_data_to_delete =
+                &container_size_index_to_pointers_to_delete[container_size_index];
+            if encoded_data_to_add.len() == 0 && pointers_to_data_to_delete.len() == 0 {
+                continue;
+            }
+            dbg!(&encoded_data_to_add);
+            let encoded_data_to_add_pointers = self.container_size_index_to_fixed_data_pool
+                [container_size_index]
+                .update(encoded_data_to_add, pointers_to_data_to_delete)?;
+            dbg!(&encoded_data_to_add_pointers);
+            for (encoded_data_to_add_index, pointer) in
+                encoded_data_to_add_pointers.iter().enumerate()
+            {
+                let initial_index = container_size_index_to_data_to_add_initial_indexes
+                    [container_size_index][encoded_data_to_add_index];
+                result[initial_index] = Id {
+                    container_size_index: container_size_index as u8,
+                    pointer: *pointer,
+                };
+            }
+        }
+
+        Ok(result)
     }
 }
 
@@ -108,12 +187,19 @@ mod tests {
     }
 
     #[test]
-    fn test_new() {
+    fn test_update_simple() {
         let path = Path::new("/tmp/lawn/test/variable_data_pool");
-        VariableDataPool::new(VariableDataPoolConfig {
+        let mut variable_data_pool = VariableDataPool::new(VariableDataPoolConfig {
             directory: path.to_path_buf(),
             max_element_size: 65536,
         })
         .unwrap();
+
+        let ids = variable_data_pool
+            .update(&vec!["lalala".to_string().into_bytes()], &vec![])
+            .unwrap();
+        assert_eq!(ids.len(), 1);
+        assert_eq!(ids[0].container_size_index, 6);
+        assert_eq!(ids[0].pointer, 0);
     }
 }
