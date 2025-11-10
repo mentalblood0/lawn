@@ -72,7 +72,7 @@ pub struct VariableDataPool {
     container_size_index_to_fixed_data_pool: [FixedDataPool; CONTAINERS_SIZES_COUNT],
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Id {
     pub container_size_index: u8,
     pub pointer: usize,
@@ -149,11 +149,9 @@ impl VariableDataPool {
             if encoded_data_to_add.len() == 0 && pointers_to_data_to_delete.len() == 0 {
                 continue;
             }
-            dbg!(&encoded_data_to_add);
             let encoded_data_to_add_pointers = self.container_size_index_to_fixed_data_pool
                 [container_size_index]
                 .update(encoded_data_to_add, pointers_to_data_to_delete)?;
-            dbg!(&encoded_data_to_add_pointers);
             for (encoded_data_to_add_index, pointer) in
                 encoded_data_to_add_pointers.iter().enumerate()
             {
@@ -168,11 +166,25 @@ impl VariableDataPool {
 
         Ok(result)
     }
+
     pub fn clear(&mut self) -> Result<&Self, String> {
         for fixed_data_pool in self.container_size_index_to_fixed_data_pool.iter_mut() {
             fixed_data_pool.clear()?;
         }
         Ok(self)
+    }
+
+    pub fn get(&self, id: Id) -> Result<Vec<u8>, String> {
+        let encoded_data = self
+            .container_size_index_to_fixed_data_pool
+            .get(id.container_size_index as usize)
+            .ok_or_else(|| format!("Can not get {id:?}: no such container index"))?
+            .get(id.pointer)?;
+        let container: Container =
+            bincode::decode_from_slice(&encoded_data, bincode::config::standard())
+                .map_err(|error| format!("Can not decode got data: {error}"))?
+                .0;
+        Ok(container.data)
     }
 }
 
@@ -180,6 +192,8 @@ impl VariableDataPool {
 mod tests {
     use super::*;
 
+    use nanorand::{Rng, WyRand};
+    use std::collections::HashMap;
     use std::path::Path;
 
     #[test]
@@ -193,20 +207,47 @@ mod tests {
     }
 
     #[test]
-    fn test_update_simple() {
-        let path = Path::new("/tmp/lawn/test/variable_data_pool");
+    fn test_update_generative() {
         let mut variable_data_pool = VariableDataPool::new(VariableDataPoolConfig {
-            directory: path.to_path_buf(),
+            directory: Path::new("/tmp/lawn/test/variable_data_pool").to_path_buf(),
             max_element_size: 65536,
         })
         .unwrap();
         variable_data_pool.clear().unwrap();
 
-        let ids = variable_data_pool
-            .update(&vec!["lalala".to_string().into_bytes()], &vec![])
-            .unwrap();
-        assert_eq!(ids.len(), 1);
-        assert_eq!(ids[0].container_size_index, 6);
-        assert_eq!(ids[0].pointer, 0);
+        let mut previously_added_data: HashMap<Id, Vec<u8>> = HashMap::new();
+        let mut rng = WyRand::new_seed(0);
+
+        for _ in 0..1000 {
+            let data_to_add: Vec<Vec<u8>> = (0..rng.generate_range(1..=16))
+                .map(|_| {
+                    let mut data = vec![0u8; rng.generate_range(1..1024)];
+                    rng.fill(&mut data);
+                    data
+                })
+                .collect();
+            let ids_of_data_to_delete: Vec<Id> = previously_added_data
+                .keys()
+                .take(rng.generate_range(0..=previously_added_data.len()))
+                .cloned()
+                .collect();
+            for id in &ids_of_data_to_delete {
+                previously_added_data.remove(&id);
+            }
+
+            let ids_of_added_data = variable_data_pool
+                .update(&data_to_add, &ids_of_data_to_delete)
+                .unwrap();
+            ids_of_added_data
+                .iter()
+                .enumerate()
+                .for_each(|(id_index, id)| {
+                    previously_added_data.insert(id.clone(), data_to_add[id_index].clone());
+                });
+
+            for (id, data) in &previously_added_data {
+                assert_eq!(&variable_data_pool.get(id.clone()).unwrap(), data);
+            }
+        }
     }
 }

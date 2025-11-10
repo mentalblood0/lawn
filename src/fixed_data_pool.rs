@@ -176,7 +176,6 @@ impl FixedDataPool {
             )?;
         }
 
-        dbg!(replaced);
         for pointer_index in replaced..data_to_add.len() {
             if self.empty {
                 for pointer in self.containers_allocated
@@ -224,8 +223,6 @@ mod tests {
     fn test_generative() {
         const CONTAINER_SIZE: usize = 16;
         let path = Path::new("/tmp/lawn/test/fixed_data_pool.dat");
-
-        fs::remove_file(path).unwrap_or(());
         let mut rng = WyRand::new_seed(0);
 
         let mut fixed_data_pool = FixedDataPool::new(FixedDataPoolConfig {
