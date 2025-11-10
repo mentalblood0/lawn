@@ -168,6 +168,12 @@ impl VariableDataPool {
 
         Ok(result)
     }
+    pub fn clear(&mut self) -> Result<&Self, String> {
+        for fixed_data_pool in self.container_size_index_to_fixed_data_pool.iter_mut() {
+            fixed_data_pool.clear()?;
+        }
+        Ok(self)
+    }
 }
 
 #[cfg(test)]
@@ -194,6 +200,7 @@ mod tests {
             max_element_size: 65536,
         })
         .unwrap();
+        variable_data_pool.clear().unwrap();
 
         let ids = variable_data_pool
             .update(&vec!["lalala".to_string().into_bytes()], &vec![])
