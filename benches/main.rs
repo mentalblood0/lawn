@@ -17,17 +17,17 @@ fn variable_data_pool(bencher: divan::Bencher) {
     const PATH: &str = "/tmp/lawn/benchmark/variable_data_pool";
 
     bencher.bench(|| {
+        let mut variable_data_pool = VariableDataPool::new(VariableDataPoolConfig {
+            directory: Path::new(PATH).to_path_buf(),
+            max_element_size: 65536,
+        })
+        .unwrap();
+        variable_data_pool.clear().unwrap();
+
+        let mut previously_added_data: HashMap<Id, Vec<u8>> = HashMap::new();
+        let mut rng = WyRand::new_seed(0);
+
         for _ in 0..ITERATIONS {
-            let mut variable_data_pool = VariableDataPool::new(VariableDataPoolConfig {
-                directory: Path::new(PATH).to_path_buf(),
-                max_element_size: 65536,
-            })
-            .unwrap();
-            variable_data_pool.clear().unwrap();
-
-            let mut previously_added_data: HashMap<Id, Vec<u8>> = HashMap::new();
-            let mut rng = WyRand::new_seed(0);
-
             let data_to_add: Vec<Vec<u8>> = (0..rng
                 .generate_range(MIN_BATCH_SIZE..=MAX_BATCH_SIZE))
                 .map(|_| {
