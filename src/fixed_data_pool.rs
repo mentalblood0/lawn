@@ -202,12 +202,12 @@ impl DataPool for FixedDataPool {
 
         Ok(result)
     }
-    fn clear(&mut self) -> Result<&Self, String> {
+    fn clear(&mut self) -> Result<(), String> {
         self.file
             .set_len(0)
             .map_err(|error| format!("Can not truncate file {:?}: {error}", self.file))?;
         self.initialize_empty_file()?;
-        Ok(self)
+        Ok(())
     }
 
     fn get(&self, pointer: u64) -> Result<Vec<u8>, String> {

@@ -180,11 +180,11 @@ impl DataPool for VariableDataPool {
         Ok(result)
     }
 
-    fn clear(&mut self) -> Result<&Self, String> {
+    fn clear(&mut self) -> Result<(), String> {
         for fixed_data_pool in self.container_size_index_to_fixed_data_pool.iter_mut() {
             fixed_data_pool.clear()?;
         }
-        Ok(self)
+        Ok(())
     }
 
     fn get(&self, id: u64) -> Result<Vec<u8>, String> {

@@ -5,7 +5,7 @@ pub trait DataPool {
         ids_of_data_to_delete: &Vec<u64>,
     ) -> Result<Vec<u64>, String>;
 
-    fn clear(&mut self) -> Result<&Self, String>;
+    fn clear(&mut self) -> Result<(), String>;
 
     fn get(&self, id: u64) -> Result<Vec<u8>, String>;
 }
