@@ -61,7 +61,7 @@ fn split_scale_logarithmically(
     Ok(result)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct VariableDataPoolConfig {
     pub directory: PathBuf,
     pub max_element_size: usize,
@@ -99,11 +99,17 @@ pub struct Container {
     pub data: Vec<u8>,
 }
 
+impl DataPoolConfig for VariableDataPoolConfig {
+    fn new_data_pool(&self) -> Result<Box<dyn DataPool>, String> {
+        Ok(Box::new(VariableDataPool::new(self)?))
+    }
+}
+
 impl VariableDataPool {
-    pub fn new(config: VariableDataPoolConfig) -> Result<Self, String> {
+    pub fn new(config: &VariableDataPoolConfig) -> Result<Self, String> {
         let mut fixed_data_pools: Vec<FixedDataPool> = Vec::with_capacity(CONTAINERS_SIZES_COUNT);
         for container_size in split_scale_logarithmically(config.max_element_size)? {
-            fixed_data_pools.push(FixedDataPool::new(FixedDataPoolConfig {
+            fixed_data_pools.push(FixedDataPool::new(&FixedDataPoolConfig {
                 path: config
                     .directory
                     .join(format!("containers_of_size_{container_size:0>10}.dat")),
@@ -111,7 +117,7 @@ impl VariableDataPool {
             })?);
         }
         Ok(Self {
-            config,
+            config: config.clone(),
             container_size_index_to_fixed_data_pool: fixed_data_pools.try_into().map_err(|source_type| {
                 format!("Can not convert fixed data pools vec to static array with required size: {source_type:?}")
             })?,
@@ -222,7 +228,7 @@ mod tests {
 
     #[test]
     fn test_generative() {
-        let mut variable_data_pool = VariableDataPool::new(VariableDataPoolConfig {
+        let mut variable_data_pool = VariableDataPool::new(&VariableDataPoolConfig {
             directory: Path::new("/tmp/lawn/test/variable_data_pool").to_path_buf(),
             max_element_size: 65536,
         })

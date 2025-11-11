@@ -1,20 +1,11 @@
 use std::collections::BTreeMap;
 
-use crate::data_pool::DataPool;
+use crate::data_pool::{DataPool, DataPoolConfig};
 use crate::index::{Index, IndexConfig};
-use crate::{
-    fixed_data_pool::{FixedDataPool, FixedDataPoolConfig},
-    variable_data_pool::{VariableDataPool, VariableDataPoolConfig},
-};
-
-enum DataPoolConfig {
-    Fixed(FixedDataPoolConfig),
-    Variable(VariableDataPoolConfig),
-}
 
 pub struct TableConfig {
     index: IndexConfig,
-    data_pool: DataPoolConfig,
+    data_pool: Box<dyn DataPoolConfig>,
 }
 
 pub struct Table {
@@ -27,10 +18,7 @@ impl Table {
     pub fn new(config: TableConfig) -> Result<Self, String> {
         Ok(Table {
             index: Index::new(config.index)?,
-            data_pool: match config.data_pool {
-                DataPoolConfig::Fixed(config) => Box::new(FixedDataPool::new(config)?),
-                DataPoolConfig::Variable(config) => Box::new(VariableDataPool::new(config)?),
-            },
+            data_pool: config.data_pool.new_data_pool()?,
             memtable: BTreeMap::new(),
         })
     }

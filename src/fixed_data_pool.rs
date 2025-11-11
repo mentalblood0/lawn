@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use super::data_pool::*;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct FixedDataPoolConfig {
     pub path: PathBuf,
     pub container_size: usize,
@@ -22,8 +22,14 @@ pub struct FixedDataPool {
     empty: bool,
 }
 
+impl DataPoolConfig for FixedDataPoolConfig {
+    fn new_data_pool(&self) -> Result<Box<dyn DataPool>, String> {
+        Ok(Box::new(FixedDataPool::new(self)?))
+    }
+}
+
 impl FixedDataPool {
-    pub fn new(config: FixedDataPoolConfig) -> Result<Self, String> {
+    pub fn new(config: &FixedDataPoolConfig) -> Result<Self, String> {
         if let Some(path_parent_directory) = config.path.parent() {
             std::fs::create_dir_all(path_parent_directory).map_err(|error| {
                 format!(
@@ -44,7 +50,7 @@ impl FixedDataPool {
                 )
             })?;
         let mut result = Self {
-            config,
+            config: config.clone(),
             file: file,
             head_size: 0,
             head: vec![],
@@ -52,7 +58,7 @@ impl FixedDataPool {
             containers_allocated: 0,
             bytesize_on_disk: 0,
         };
-        result.head_size = std::cmp::min(result.config.container_size, 8) as u8;
+        result.head_size = std::cmp::min(config.container_size, 8) as u8;
         result.bytesize_on_disk = result
             .file
             .metadata()
@@ -65,8 +71,8 @@ impl FixedDataPool {
                 .file
                 .read_exact_at(&mut result.head, 0)
                 .map_err(|error| format!("Can not read head of {result:?}: {error}"))?;
-            result.containers_allocated = (result.bytesize_on_disk - result.head_size as u64)
-                / result.config.container_size as u64;
+            result.containers_allocated =
+                (result.bytesize_on_disk - result.head_size as u64) / config.container_size as u64;
             result.empty = result.head.iter().all(|byte| *byte == 255);
         }
         Ok(result)
@@ -228,7 +234,7 @@ mod tests {
         let path = Path::new("/tmp/lawn/test/fixed_data_pool.dat");
         let mut rng = WyRand::new_seed(0);
 
-        let mut fixed_data_pool = FixedDataPool::new(FixedDataPoolConfig {
+        let mut fixed_data_pool = FixedDataPool::new(&FixedDataPoolConfig {
             path: path.to_path_buf(),
             container_size: CONTAINER_SIZE,
         })
@@ -272,7 +278,7 @@ mod tests {
             fixed_data_pool.bytesize_on_disk,
             fixed_data_pool.file.metadata().unwrap().len() as u64
         );
-        let mut fixed_data_pool = FixedDataPool::new(FixedDataPoolConfig {
+        let mut fixed_data_pool = FixedDataPool::new(&FixedDataPoolConfig {
             path: path.to_path_buf(),
             container_size: CONTAINER_SIZE,
         })
