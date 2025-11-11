@@ -3,6 +3,8 @@ use std::fs;
 use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
 
+use super::data_pool::*;
+
 #[derive(Debug, Deserialize)]
 pub struct FixedDataPoolConfig {
     pub path: PathBuf,
@@ -86,14 +88,6 @@ impl FixedDataPool {
         Ok(self)
     }
 
-    pub fn clear(&mut self) -> Result<&Self, String> {
-        self.file
-            .set_len(0)
-            .map_err(|error| format!("Can not truncate file {:?}: {error}", self.file))?;
-        self.initialize_empty_file()?;
-        Ok(self)
-    }
-
     fn pointer_from_container(&self, container: &Vec<u8>) -> u64 {
         let mut result: u64 = 0;
         for byte in container[..std::cmp::min(8, container.len())].iter() {
@@ -126,10 +120,6 @@ impl FixedDataPool {
         Ok(result)
     }
 
-    pub fn get(&self, pointer: u64) -> Result<Vec<u8>, String> {
-        self.get_of_size(pointer, self.config.container_size)
-    }
-
     fn set(&mut self, pointer: u64, container: &Vec<u8>) -> Result<(), String> {
         self.file
             .write_all_at(
@@ -144,8 +134,10 @@ impl FixedDataPool {
             })?;
         Ok(())
     }
+}
 
-    pub fn update(
+impl DataPool for FixedDataPool {
+    fn update(
         &mut self,
         data_to_add: &Vec<Vec<u8>>,
         pointers_to_data_to_delete: &Vec<u64>,
@@ -209,6 +201,17 @@ impl FixedDataPool {
         }
 
         Ok(result)
+    }
+    fn clear(&mut self) -> Result<&Self, String> {
+        self.file
+            .set_len(0)
+            .map_err(|error| format!("Can not truncate file {:?}: {error}", self.file))?;
+        self.initialize_empty_file()?;
+        Ok(self)
+    }
+
+    fn get(&self, pointer: u64) -> Result<Vec<u8>, String> {
+        self.get_of_size(pointer, self.config.container_size)
     }
 }
 

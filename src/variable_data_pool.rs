@@ -2,6 +2,7 @@ use bincode;
 use serde::Deserialize;
 use std::path::PathBuf;
 
+use super::data_pool::*;
 use super::fixed_data_pool::*;
 
 const CONTAINERS_SIZES_COUNT: usize = 256;
@@ -73,7 +74,7 @@ pub struct VariableDataPool {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Id {
+struct Id {
     pub container_size_index: u8,
     pub pointer: u64,
 }
@@ -116,8 +117,10 @@ impl VariableDataPool {
             })?,
         })
     }
+}
 
-    pub fn update(
+impl DataPool for VariableDataPool {
+    fn update(
         &mut self,
         data_to_add: &Vec<Vec<u8>>,
         ids_of_data_to_delete: &Vec<u64>,
@@ -177,14 +180,14 @@ impl VariableDataPool {
         Ok(result)
     }
 
-    pub fn clear(&mut self) -> Result<&Self, String> {
+    fn clear(&mut self) -> Result<&Self, String> {
         for fixed_data_pool in self.container_size_index_to_fixed_data_pool.iter_mut() {
             fixed_data_pool.clear()?;
         }
         Ok(self)
     }
 
-    pub fn get(&self, id: u64) -> Result<Vec<u8>, String> {
+    fn get(&self, id: u64) -> Result<Vec<u8>, String> {
         let parsed_id = Id::from(id);
         let encoded_data = self
             .container_size_index_to_fixed_data_pool
@@ -218,7 +221,7 @@ mod tests {
     }
 
     #[test]
-    fn test_update_generative() {
+    fn test_generative() {
         let mut variable_data_pool = VariableDataPool::new(VariableDataPoolConfig {
             directory: Path::new("/tmp/lawn/test/variable_data_pool").to_path_buf(),
             max_element_size: 65536,
