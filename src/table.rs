@@ -1,8 +1,10 @@
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::data_pool::{DataPool, DataPoolConfig};
 use crate::index::{Index, IndexConfig};
 
+#[derive(Serialize, Deserialize)]
 pub struct TableConfig {
     index: IndexConfig,
     data_pool: Box<dyn DataPoolConfig>,

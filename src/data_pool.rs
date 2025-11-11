@@ -1,3 +1,6 @@
+use typetag;
+
+#[typetag::serde(tag = "type")]
 pub trait DataPoolConfig {
     fn new_data_pool(&self) -> Result<Box<dyn DataPool>, String>;
 }
