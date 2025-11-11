@@ -12,10 +12,10 @@ pub struct FixedDataPoolConfig {
 #[derive(Debug)]
 pub struct FixedDataPool {
     pub config: FixedDataPoolConfig,
-    pub containers_allocated: usize,
-    pub bytesize_on_disk: usize,
+    pub containers_allocated: u64,
+    pub bytesize_on_disk: u64,
     file: fs::File,
-    head_size: usize,
+    head_size: u8,
     head: Vec<u8>,
     empty: bool,
 }
@@ -50,12 +50,12 @@ impl FixedDataPool {
             containers_allocated: 0,
             bytesize_on_disk: 0,
         };
-        result.head_size = std::cmp::min(result.config.container_size, 8);
+        result.head_size = std::cmp::min(result.config.container_size, 8) as u8;
         result.bytesize_on_disk = result
             .file
             .metadata()
             .map_err(|error| format!("Can not get metadata of file {:?}: {error}", result.file))?
-            .len() as usize;
+            .len() as u64;
         if result.bytesize_on_disk == 0 {
             result.initialize_empty_file()?;
         } else {
@@ -63,8 +63,8 @@ impl FixedDataPool {
                 .file
                 .read_exact_at(&mut result.head, 0)
                 .map_err(|error| format!("Can not read head of {result:?}: {error}"))?;
-            result.containers_allocated =
-                (result.bytesize_on_disk - result.head_size) / result.config.container_size;
+            result.containers_allocated = (result.bytesize_on_disk - result.head_size as u64)
+                / result.config.container_size as u64;
             result.empty = result.head.iter().all(|byte| *byte == 255);
         }
         Ok(result)
@@ -72,7 +72,7 @@ impl FixedDataPool {
 
     fn initialize_empty_file(&mut self) -> Result<&Self, String> {
         self.set_head(&vec![0; self.head_size as usize])?;
-        self.bytesize_on_disk = self.head_size;
+        self.bytesize_on_disk = self.head_size as u64;
         self.containers_allocated = 0;
         self.empty = true;
         Ok(self)
@@ -94,15 +94,15 @@ impl FixedDataPool {
         Ok(self)
     }
 
-    fn pointer_from_container(&self, container: &Vec<u8>) -> usize {
-        let mut result: usize = 0;
+    fn pointer_from_container(&self, container: &Vec<u8>) -> u64 {
+        let mut result: u64 = 0;
         for byte in container[..std::cmp::min(8, container.len())].iter() {
-            result = (result << 8) + *byte as usize;
+            result = (result << 8) + *byte as u64;
         }
         result
     }
 
-    fn pointer_to_container(&self, pointer: usize) -> Vec<u8> {
+    fn pointer_to_container(&self, pointer: u64) -> Vec<u8> {
         let result_not_cutted = pointer.to_le_bytes();
         if self.config.container_size >= 8 {
             result_not_cutted.to_vec()
@@ -111,12 +111,12 @@ impl FixedDataPool {
         }
     }
 
-    fn get_of_size(&self, pointer: usize, size: usize) -> Result<Vec<u8>, String> {
+    fn get_of_size(&self, pointer: u64, size: usize) -> Result<Vec<u8>, String> {
         let mut result = vec![0; size];
         self.file
             .read_exact_at(
                 &mut result,
-                (self.head_size + pointer * self.config.container_size) as u64,
+                self.head_size as u64 + pointer * self.config.container_size as u64,
             )
             .map_err(|error| {
                 format!(
@@ -126,15 +126,15 @@ impl FixedDataPool {
         Ok(result)
     }
 
-    pub fn get(&self, pointer: usize) -> Result<Vec<u8>, String> {
+    pub fn get(&self, pointer: u64) -> Result<Vec<u8>, String> {
         self.get_of_size(pointer, self.config.container_size)
     }
 
-    fn set(&mut self, pointer: usize, container: &Vec<u8>) -> Result<(), String> {
+    fn set(&mut self, pointer: u64, container: &Vec<u8>) -> Result<(), String> {
         self.file
             .write_all_at(
                 container,
-                (self.head_size + pointer * self.config.container_size) as u64,
+                self.head_size as u64 + pointer * self.config.container_size as u64,
             )
             .map_err(|error| {
                 format!(
@@ -148,8 +148,8 @@ impl FixedDataPool {
     pub fn update(
         &mut self,
         data_to_add: &Vec<Vec<u8>>,
-        pointers_to_data_to_delete: &Vec<usize>,
-    ) -> Result<Vec<usize>, String> {
+        pointers_to_data_to_delete: &Vec<u64>,
+    ) -> Result<Vec<u64>, String> {
         let mut result = Vec::with_capacity(data_to_add.len());
 
         let mut replaced = 0 as usize;
@@ -179,7 +179,7 @@ impl FixedDataPool {
         for pointer_index in replaced..data_to_add.len() {
             if self.empty {
                 for pointer in self.containers_allocated
-                    ..(self.containers_allocated + data_to_add.len() - pointer_index)
+                    ..(self.containers_allocated + data_to_add.len() as u64 - pointer_index as u64)
                 {
                     result.push(pointer);
                 }
@@ -196,12 +196,12 @@ impl FixedDataPool {
                         target_slice.copy_from_slice(data);
                     });
                 self.set(self.containers_allocated, &data_to_add_left)?;
-                self.containers_allocated += data_to_add.len() - pointer_index;
-                self.bytesize_on_disk += data_to_add_left.len();
+                self.containers_allocated += (data_to_add.len() - pointer_index) as u64;
+                self.bytesize_on_disk += data_to_add_left.len() as u64;
                 break;
             } else {
                 let pointer = self.pointer_from_container(&self.head);
-                let new_head = self.get_of_size(pointer, self.head_size)?;
+                let new_head = self.get_of_size(pointer, self.head_size as usize)?;
                 self.set(pointer, &data_to_add[pointer_index])?;
                 result.push(pointer);
                 self.set_head(&new_head)?;
@@ -231,7 +231,7 @@ mod tests {
         })
         .unwrap();
         fixed_data_pool.clear().unwrap();
-        let mut previously_added_data: HashMap<usize, Vec<u8>> = HashMap::new();
+        let mut previously_added_data: HashMap<u64, Vec<u8>> = HashMap::new();
 
         for _ in 0..1000 {
             let data_to_add: Vec<Vec<u8>> = (0..rng.generate_range(1..=16))
@@ -241,7 +241,7 @@ mod tests {
                     data
                 })
                 .collect();
-            let pointers_to_data_to_delete: Vec<usize> = previously_added_data
+            let pointers_to_data_to_delete: Vec<u64> = previously_added_data
                 .keys()
                 .take(rng.generate_range(0..=previously_added_data.len()))
                 .cloned()
@@ -267,7 +267,7 @@ mod tests {
 
         assert_eq!(
             fixed_data_pool.bytesize_on_disk,
-            fixed_data_pool.file.metadata().unwrap().len() as usize
+            fixed_data_pool.file.metadata().unwrap().len() as u64
         );
         let mut fixed_data_pool = FixedDataPool::new(FixedDataPoolConfig {
             path: path.to_path_buf(),

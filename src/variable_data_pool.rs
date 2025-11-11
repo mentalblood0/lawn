@@ -75,7 +75,22 @@ pub struct VariableDataPool {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Id {
     pub container_size_index: u8,
-    pub pointer: usize,
+    pub pointer: u64,
+}
+
+impl From<u64> for Id {
+    fn from(item: u64) -> Self {
+        Id {
+            container_size_index: (item % 256) as u8,
+            pointer: item / 256,
+        }
+    }
+}
+
+impl From<Id> for u64 {
+    fn from(item: Id) -> Self {
+        item.pointer * 256 + item.container_size_index as u64
+    }
 }
 
 #[derive(bincode::Encode, bincode::Decode)]
@@ -105,8 +120,8 @@ impl VariableDataPool {
     pub fn update(
         &mut self,
         data_to_add: &Vec<Vec<u8>>,
-        ids_of_data_to_delete: &Vec<Id>,
-    ) -> Result<Vec<Id>, String> {
+        ids_of_data_to_delete: &Vec<u64>,
+    ) -> Result<Vec<u64>, String> {
         let mut container_size_index_to_encoded_data_to_add: [Vec<Vec<u8>>;
             CONTAINERS_SIZES_COUNT] = [const { Vec::new() }; CONTAINERS_SIZES_COUNT];
         let mut container_size_index_to_data_to_add_initial_indexes: [Vec<usize>;
@@ -127,20 +142,15 @@ impl VariableDataPool {
             container_size_index_to_encoded_data_to_add[container_size_index].push(encoded_data);
         }
 
-        let mut container_size_index_to_pointers_to_delete: [Vec<usize>; CONTAINERS_SIZES_COUNT] =
+        let mut container_size_index_to_pointers_to_delete: [Vec<u64>; CONTAINERS_SIZES_COUNT] =
             [const { Vec::new() }; CONTAINERS_SIZES_COUNT];
         for id in ids_of_data_to_delete {
-            container_size_index_to_pointers_to_delete[id.container_size_index as usize]
-                .push(id.pointer);
+            let parsed_id = Id::from(*id);
+            container_size_index_to_pointers_to_delete[parsed_id.container_size_index as usize]
+                .push(parsed_id.pointer);
         }
 
-        let mut result: Vec<Id> = vec![
-            Id {
-                container_size_index: 0,
-                pointer: 0
-            };
-            data_to_add.len()
-        ];
+        let mut result: Vec<u64> = vec![0; data_to_add.len()];
         for container_size_index in 0..CONTAINERS_SIZES_COUNT {
             let encoded_data_to_add =
                 &container_size_index_to_encoded_data_to_add[container_size_index];
@@ -157,10 +167,10 @@ impl VariableDataPool {
             {
                 let initial_index = container_size_index_to_data_to_add_initial_indexes
                     [container_size_index][encoded_data_to_add_index];
-                result[initial_index] = Id {
+                result[initial_index] = u64::from(Id {
                     container_size_index: container_size_index as u8,
                     pointer: *pointer,
-                };
+                });
             }
         }
 
@@ -174,12 +184,13 @@ impl VariableDataPool {
         Ok(self)
     }
 
-    pub fn get(&self, id: Id) -> Result<Vec<u8>, String> {
+    pub fn get(&self, id: u64) -> Result<Vec<u8>, String> {
+        let parsed_id = Id::from(id);
         let encoded_data = self
             .container_size_index_to_fixed_data_pool
-            .get(id.container_size_index as usize)
+            .get(parsed_id.container_size_index as usize)
             .ok_or_else(|| format!("Can not get {id:?}: no such container index"))?
-            .get(id.pointer)?;
+            .get(parsed_id.pointer)?;
         let container: Container =
             bincode::decode_from_slice(&encoded_data, bincode::config::standard())
                 .map_err(|error| format!("Can not decode got data: {error}"))?
@@ -215,7 +226,7 @@ mod tests {
         .unwrap();
         variable_data_pool.clear().unwrap();
 
-        let mut previously_added_data: HashMap<Id, Vec<u8>> = HashMap::new();
+        let mut previously_added_data: HashMap<u64, Vec<u8>> = HashMap::new();
         let mut rng = WyRand::new_seed(0);
 
         for _ in 0..1000 {
@@ -226,7 +237,7 @@ mod tests {
                     data
                 })
                 .collect();
-            let ids_of_data_to_delete: Vec<Id> = previously_added_data
+            let ids_of_data_to_delete: Vec<u64> = previously_added_data
                 .keys()
                 .take(rng.generate_range(0..=previously_added_data.len()))
                 .cloned()

@@ -24,7 +24,7 @@ fn variable_data_pool(bencher: divan::Bencher) {
         .unwrap();
         variable_data_pool.clear().unwrap();
 
-        let mut previously_added_data: HashMap<Id, Vec<u8>> = HashMap::new();
+        let mut previously_added_data: HashMap<u64, Vec<u8>> = HashMap::new();
         let mut rng = WyRand::new_seed(0);
 
         for _ in 0..ITERATIONS {
@@ -36,7 +36,7 @@ fn variable_data_pool(bencher: divan::Bencher) {
                     data
                 })
                 .collect();
-            let ids_of_data_to_delete: Vec<Id> = previously_added_data
+            let ids_of_data_to_delete: Vec<u64> = previously_added_data
                 .keys()
                 .take(rng.generate_range(0..=previously_added_data.len()))
                 .cloned()
