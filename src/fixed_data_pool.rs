@@ -1,11 +1,14 @@
-use serde::{Deserialize, Serialize};
 use std::fs;
 use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 use super::data_pool::*;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct FixedDataPoolConfig {
     pub path: PathBuf,
     pub container_size: usize,
@@ -22,7 +25,7 @@ pub struct FixedDataPool {
     empty: bool,
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl DataPoolConfig for FixedDataPoolConfig {
     fn new_data_pool(&self) -> Result<Box<dyn DataPool>, String> {
         Ok(Box::new(FixedDataPool::new(self)?))

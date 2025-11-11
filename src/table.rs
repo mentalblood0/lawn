@@ -1,13 +1,15 @@
-use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 use crate::data_pool::{DataPool, DataPoolConfig};
 use crate::index::{Index, IndexConfig};
 
-#[derive(Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TableConfig {
-    index: IndexConfig,
-    data_pool: Box<dyn DataPoolConfig>,
+    pub index: IndexConfig,
+    pub data_pool: Box<dyn DataPoolConfig>,
 }
 
 pub struct Table {

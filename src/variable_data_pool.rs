@@ -1,6 +1,8 @@
 use bincode;
-use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 use super::data_pool::*;
 use super::fixed_data_pool::*;
@@ -61,7 +63,8 @@ fn split_scale_logarithmically(
     Ok(result)
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct VariableDataPoolConfig {
     pub directory: PathBuf,
     pub max_element_size: usize,
@@ -99,7 +102,7 @@ pub struct Container {
     pub data: Vec<u8>,
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl DataPoolConfig for VariableDataPoolConfig {
     fn new_data_pool(&self) -> Result<Box<dyn DataPool>, String> {
         Ok(Box::new(VariableDataPool::new(self)?))
