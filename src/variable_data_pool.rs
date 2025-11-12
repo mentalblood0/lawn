@@ -104,7 +104,7 @@ pub struct Container {
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl DataPoolConfig for VariableDataPoolConfig {
-    fn new_data_pool(&self) -> Result<Box<dyn DataPool>, String> {
+    fn new_data_pool(&self) -> Result<Box<dyn DataPool + Send + Sync>, String> {
         Ok(Box::new(VariableDataPool::new(self)?))
     }
 }

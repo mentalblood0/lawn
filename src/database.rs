@@ -1,0 +1,122 @@
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, RwLock},
+};
+
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
+use crate::table::{Table, TableConfig};
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct DatabaseConfig {
+    pub tables: Vec<TableConfig>,
+}
+
+pub struct Database {
+    pub tables: Vec<Table>,
+}
+
+impl Database {
+    pub fn new(config: DatabaseConfig) -> Result<Self, String> {
+        let mut tables: Vec<Table> = Vec::new();
+        for table_config in config.tables {
+            tables.push(Table::new(table_config)?);
+        }
+        Ok(Self { tables })
+    }
+}
+
+pub struct Transaction {
+    database: Arc<RwLock<Database>>,
+    changes_for_tables: Vec<BTreeMap<Vec<u8>, Vec<u8>>>,
+}
+
+impl Transaction {
+    fn new(database: Arc<RwLock<Database>>) -> Self {
+        let tables_count = database.read().unwrap().tables.len();
+        Self {
+            database,
+            changes_for_tables: vec![const { BTreeMap::new() }; tables_count],
+        }
+    }
+
+    fn set(
+        &mut self,
+        table_index: usize,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> Result<&mut Self, String> {
+        self.changes_for_tables
+            .get_mut(table_index)
+            .ok_or(format!("No table at index {table_index}"))?
+            .insert(key, value);
+        Ok(self)
+    }
+
+    fn commit(&mut self) -> Result<(), String> {
+        let mut database_for_write = self
+            .database
+            .write()
+            .map_err(|error| format!("Can not write to database: {error}"))?;
+        for (table_index, table_changes) in self.changes_for_tables.iter_mut().enumerate() {
+            database_for_write.tables[table_index].merge(table_changes);
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        path::{Path, PathBuf},
+        thread,
+    };
+
+    use super::*;
+    use crate::{
+        data_pool::DataPoolConfig,
+        index::{Index, IndexConfig},
+        table::{Table, TableConfig},
+        variable_data_pool::VariableDataPoolConfig,
+    };
+
+    #[test]
+    fn test_transactions() {
+        let mut database = Arc::new(RwLock::new(
+            Database::new(DatabaseConfig {
+                tables: vec![TableConfig {
+                    index: IndexConfig {
+                        path: Path::new("/tmp/lawn/test/database/0/index.idx").to_path_buf(),
+                        container_size: 4 as u8,
+                    },
+                    data_pool: Box::new(VariableDataPoolConfig {
+                        directory: Path::new("/tmp/lawn/test/database/0/data_pool").to_path_buf(),
+                        max_element_size: 65536 as usize,
+                    }),
+                }],
+            })
+            .unwrap(),
+        ));
+
+        let mut threads_handles = vec![];
+
+        threads_handles.push(thread::spawn(move || {
+            let database_clone = Arc::clone(&database);
+            let mut transaction = Transaction::new(database_clone);
+            transaction
+                .set(
+                    0 as usize,
+                    "key".as_bytes().to_vec(),
+                    "value".as_bytes().to_vec(),
+                )
+                .unwrap()
+                .commit()
+                .unwrap();
+        }));
+
+        for thread_handle in threads_handles {
+            thread_handle.join().unwrap();
+        }
+    }
+}

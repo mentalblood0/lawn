@@ -14,16 +14,20 @@ pub struct TableConfig {
 
 pub struct Table {
     pub index: Index,
-    pub data_pool: Box<dyn DataPool>,
+    pub data_pool: Box<dyn DataPool + Send + Sync>,
     memtable: BTreeMap<Vec<u8>, Vec<u8>>,
 }
 
 impl Table {
     pub fn new(config: TableConfig) -> Result<Self, String> {
-        Ok(Table {
+        Ok(Self {
             index: Index::new(config.index)?,
             data_pool: config.data_pool.new_data_pool()?,
             memtable: BTreeMap::new(),
         })
+    }
+
+    pub fn merge(&mut self, changes: &mut BTreeMap<Vec<u8>, Vec<u8>>) {
+        self.memtable.append(changes);
     }
 }

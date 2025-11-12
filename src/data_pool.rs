@@ -3,7 +3,7 @@ use typetag;
 
 #[cfg_attr(feature = "serde", typetag::serde(tag = "type"))]
 pub trait DataPoolConfig {
-    fn new_data_pool(&self) -> Result<Box<dyn DataPool>, String>;
+    fn new_data_pool(&self) -> Result<Box<dyn DataPool + Send + Sync>, String>;
 }
 
 pub trait DataPool {

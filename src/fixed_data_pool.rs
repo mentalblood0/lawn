@@ -27,7 +27,7 @@ pub struct FixedDataPool {
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl DataPoolConfig for FixedDataPoolConfig {
-    fn new_data_pool(&self) -> Result<Box<dyn DataPool>, String> {
+    fn new_data_pool(&self) -> Result<Box<dyn DataPool + Send + Sync>, String> {
         Ok(Box::new(FixedDataPool::new(self)?))
     }
 }
