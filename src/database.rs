@@ -109,6 +109,17 @@ impl<'a> WriteTransaction<'a> {
     }
 }
 
+pub fn lock_all_writes_and_read(
+    database: &Arc<RwLock<Database>>,
+    f: fn(ReadTransaction) -> (),
+) -> () {
+    f(ReadTransaction::new(&Arc::clone(database)))
+}
+
+pub fn lock_all_and_write(database: &Arc<RwLock<Database>>, f: fn(WriteTransaction) -> ()) -> () {
+    f(WriteTransaction::new(&Arc::clone(database)))
+}
+
 pub fn lock_all_writes_and_spawn_read(
     database: &Arc<RwLock<Database>>,
     f: fn(ReadTransaction) -> (),

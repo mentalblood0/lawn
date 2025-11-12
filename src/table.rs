@@ -37,7 +37,7 @@ impl Table {
 
     pub fn clear(&mut self) -> Result<(), String> {
         self.index.clear()?;
-        self.data_pool.clear();
+        self.data_pool.clear()?;
         self.memtable.clear();
         Ok(())
     }
