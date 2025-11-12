@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 #[cfg(feature = "serde")]
@@ -34,16 +34,16 @@ impl Database {
     }
 }
 
-pub struct Transaction {
-    database: Arc<RwLock<Database>>,
+pub struct WriteTransaction<'a> {
+    database: RwLockWriteGuard<'a, Database>,
     changes_for_tables: Vec<BTreeMap<Vec<u8>, Vec<u8>>>,
 }
 
-impl Transaction {
-    pub fn new(database: Arc<RwLock<Database>>) -> Self {
-        let tables_count = database.read().unwrap().tables.len();
+impl<'a> WriteTransaction<'a> {
+    pub fn new(database_lock: &'a RwLock<Database>) -> Self {
+        let tables_count = database_lock.read().unwrap().tables.len();
         Self {
-            database,
+            database: database_lock.write().unwrap(),
             changes_for_tables: vec![const { BTreeMap::new() }; tables_count],
         }
     }
@@ -71,8 +71,6 @@ impl Transaction {
             Some(result_from_changes) => Ok(Some(result_from_changes.clone())),
             None => Ok(self
                 .database
-                .read()
-                .map_err(|error| format!("Can not read from database: {error}"))?
                 .tables
                 .get(table_index)
                 .ok_or(format!("No table at index {table_index}"))?
@@ -84,12 +82,8 @@ impl Transaction {
     }
 
     pub fn commit(&mut self) -> Result<(), String> {
-        let mut database_for_write = self
-            .database
-            .write()
-            .map_err(|error| format!("Can not write to database: {error}"))?;
         for (table_index, table_changes) in self.changes_for_tables.iter_mut().enumerate() {
-            database_for_write.tables[table_index].merge(table_changes);
+            self.database.tables[table_index].merge(table_changes);
         }
         Ok(())
     }
@@ -130,7 +124,7 @@ mod tests {
         {
             let database_clone = Arc::clone(&database);
             threads_handles.push(thread::spawn(move || {
-                let transaction = Transaction::new(database_clone);
+                let transaction = WriteTransaction::new(&database_clone);
                 loop {
                     if transaction
                         .get(0 as usize, &"key".as_bytes().to_vec())
@@ -145,7 +139,7 @@ mod tests {
         {
             let database_clone = Arc::clone(&database);
             threads_handles.push(thread::spawn(move || {
-                let mut transaction = Transaction::new(database_clone);
+                let mut transaction = WriteTransaction::new(&database_clone);
                 transaction
                     .set(
                         0 as usize,
