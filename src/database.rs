@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeMap,
-    sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
+    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
+    thread::{self, JoinHandle},
 };
 
 #[cfg(feature = "serde")]
@@ -108,14 +109,30 @@ impl<'a> WriteTransaction<'a> {
     }
 }
 
+pub fn lock_all_writes_and_spawn_read(
+    database: &Arc<RwLock<Database>>,
+    f: fn(ReadTransaction) -> (),
+) -> JoinHandle<()> {
+    let database_clone = Arc::clone(database);
+    thread::spawn(move || f(ReadTransaction::new(&database_clone)))
+}
+
+pub fn lock_all_and_spawn_write(
+    database: &Arc<RwLock<Database>>,
+    f: fn(WriteTransaction) -> (),
+) -> JoinHandle<()> {
+    let database_clone = Arc::clone(database);
+    thread::spawn(move || f(WriteTransaction::new(&database_clone)))
+}
+
 #[cfg(test)]
 mod tests {
-    use std::{path::Path, sync::Arc, thread};
-
     use super::*;
+
     use crate::{
         index::IndexConfig, table::TableConfig, variable_data_pool::VariableDataPoolConfig,
     };
+    use std::{path::Path, sync::Arc, time::Duration};
 
     #[test]
     fn test_transactions() {
@@ -140,36 +157,27 @@ mod tests {
 
         let mut threads_handles = vec![];
 
-        {
-            let database_clone = Arc::clone(&database);
-            threads_handles.push(thread::spawn(move || {
-                loop {
-                    let transaction = ReadTransaction::new(&database_clone);
-                    if transaction
-                        .get(0 as usize, &"key".as_bytes().to_vec())
-                        .unwrap()
-                        .is_some()
-                    {
-                        break;
-                    }
-                }
-            }));
-        }
-        {
-            let database_clone = Arc::clone(&database);
-            threads_handles.push(thread::spawn(move || {
-                let mut transaction = WriteTransaction::new(&database_clone);
+        threads_handles.push(lock_all_and_spawn_write(&database, |mut transaction| {
+            transaction
+                .set(
+                    0 as usize,
+                    "key".as_bytes().to_vec(),
+                    "value".as_bytes().to_vec(),
+                )
+                .unwrap()
+                .commit()
+                .unwrap();
+        }));
+        thread::sleep(Duration::new(0, 1000000));
+        threads_handles.push(lock_all_writes_and_spawn_read(&database, |transaction| {
+            assert_eq!(
                 transaction
-                    .set(
-                        0 as usize,
-                        "key".as_bytes().to_vec(),
-                        "value".as_bytes().to_vec(),
-                    )
+                    .get(0 as usize, &"key".as_bytes().to_vec())
                     .unwrap()
-                    .commit()
-                    .unwrap();
-            }));
-        }
+                    .unwrap(),
+                &"value".as_bytes().to_vec()
+            );
+        }));
 
         for thread_handle in threads_handles {
             thread_handle.join().unwrap();
