@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
+    sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 #[cfg(feature = "serde")]
@@ -34,16 +34,38 @@ impl Database {
     }
 }
 
+pub struct ReadTransaction<'a> {
+    database_lock_guard: RwLockReadGuard<'a, Database>,
+}
+
+impl<'a> ReadTransaction<'a> {
+    pub fn new(database_lock: &'a RwLock<Database>) -> Self {
+        Self {
+            database_lock_guard: database_lock.read().unwrap(),
+        }
+    }
+
+    pub fn get(&self, table_index: usize, key: &Vec<u8>) -> Result<Option<&Vec<u8>>, String> {
+        Ok(self
+            .database_lock_guard
+            .tables
+            .get(table_index)
+            .ok_or(format!("No table at index {table_index}"))?
+            .get(key))
+    }
+}
+
 pub struct WriteTransaction<'a> {
-    database: RwLockWriteGuard<'a, Database>,
+    database_lock_guard: RwLockWriteGuard<'a, Database>,
     changes_for_tables: Vec<BTreeMap<Vec<u8>, Vec<u8>>>,
 }
 
 impl<'a> WriteTransaction<'a> {
     pub fn new(database_lock: &'a RwLock<Database>) -> Self {
-        let tables_count = database_lock.read().unwrap().tables.len();
+        let lock_guard = database_lock.write().unwrap();
+        let tables_count = lock_guard.tables.len();
         Self {
-            database: database_lock.write().unwrap(),
+            database_lock_guard: lock_guard,
             changes_for_tables: vec![const { BTreeMap::new() }; tables_count],
         }
     }
@@ -61,29 +83,26 @@ impl<'a> WriteTransaction<'a> {
         Ok(self)
     }
 
-    pub fn get(&self, table_index: usize, key: &Vec<u8>) -> Result<Option<Vec<u8>>, String> {
+    pub fn get(&self, table_index: usize, key: &Vec<u8>) -> Result<Option<&Vec<u8>>, String> {
         match self
             .changes_for_tables
             .get(table_index)
             .ok_or(format!("No table at index {table_index}"))?
             .get(key)
         {
-            Some(result_from_changes) => Ok(Some(result_from_changes.clone())),
+            Some(result_from_changes) => Ok(Some(result_from_changes)),
             None => Ok(self
-                .database
+                .database_lock_guard
                 .tables
                 .get(table_index)
                 .ok_or(format!("No table at index {table_index}"))?
-                .get(key)
-                .map_or(None, |result_from_memtable| {
-                    Some(result_from_memtable.clone())
-                })),
+                .get(key)),
         }
     }
 
     pub fn commit(&mut self) -> Result<(), String> {
         for (table_index, table_changes) in self.changes_for_tables.iter_mut().enumerate() {
-            self.database.tables[table_index].merge(table_changes);
+            self.database_lock_guard.tables[table_index].merge(table_changes);
         }
         Ok(())
     }
@@ -91,7 +110,7 @@ impl<'a> WriteTransaction<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::{path::Path, thread};
+    use std::{path::Path, sync::Arc, thread};
 
     use super::*;
     use crate::{
@@ -124,8 +143,8 @@ mod tests {
         {
             let database_clone = Arc::clone(&database);
             threads_handles.push(thread::spawn(move || {
-                let transaction = WriteTransaction::new(&database_clone);
                 loop {
+                    let transaction = ReadTransaction::new(&database_clone);
                     if transaction
                         .get(0 as usize, &"key".as_bytes().to_vec())
                         .unwrap()
