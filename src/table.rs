@@ -30,4 +30,11 @@ impl Table {
     pub fn merge(&mut self, changes: &mut BTreeMap<Vec<u8>, Vec<u8>>) {
         self.memtable.append(changes);
     }
+
+    pub fn clear(&mut self) -> Result<(), String> {
+        self.index.clear()?;
+        self.data_pool.clear();
+        self.memtable.clear();
+        Ok(())
+    }
 }

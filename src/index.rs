@@ -17,6 +17,14 @@ pub struct Index {
 
 impl Index {
     pub fn new(config: IndexConfig) -> Result<Self, String> {
+        if let Some(path_parent_directory) = config.path.parent() {
+            std::fs::create_dir_all(path_parent_directory).map_err(|error| {
+                format!(
+                    "Can not create parent directories for path {}: {error}",
+                    &config.path.display()
+                )
+            })?;
+        }
         let file = fs::OpenOptions::new()
             .create(true)
             .read(true)
@@ -29,5 +37,12 @@ impl Index {
                 )
             })?;
         Ok(Index { config, file: file })
+    }
+
+    pub fn clear(&mut self) -> Result<(), String> {
+        self.file
+            .set_len(0)
+            .map_err(|error| format!("Can not truncate file {:?}: {error}", self.file))?;
+        Ok(())
     }
 }

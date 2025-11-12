@@ -25,6 +25,13 @@ impl Database {
         }
         Ok(Self { tables })
     }
+
+    pub fn clear(&mut self) -> Result<&mut Self, String> {
+        for table in self.tables.iter_mut() {
+            table.clear()?;
+        }
+        Ok(self)
+    }
 }
 
 pub struct Transaction {
@@ -33,7 +40,7 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    fn new(database: Arc<RwLock<Database>>) -> Self {
+    pub fn new(database: Arc<RwLock<Database>>) -> Self {
         let tables_count = database.read().unwrap().tables.len();
         Self {
             database,
@@ -41,7 +48,7 @@ impl Transaction {
         }
     }
 
-    fn set(
+    pub fn set(
         &mut self,
         table_index: usize,
         key: Vec<u8>,
@@ -54,7 +61,7 @@ impl Transaction {
         Ok(self)
     }
 
-    fn commit(&mut self) -> Result<(), String> {
+    pub fn commit(&mut self) -> Result<(), String> {
         let mut database_for_write = self
             .database
             .write()
@@ -98,6 +105,9 @@ mod tests {
             })
             .unwrap(),
         ));
+        {
+            database.write().unwrap().clear().unwrap();
+        }
 
         let mut threads_handles = vec![];
 
