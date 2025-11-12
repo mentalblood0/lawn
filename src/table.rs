@@ -31,6 +31,10 @@ impl Table {
         self.memtable.append(changes);
     }
 
+    pub fn get(&self, key: &Vec<u8>) -> Option<&Vec<u8>> {
+        self.memtable.get(key)
+    }
+
     pub fn clear(&mut self) -> Result<(), String> {
         self.index.clear()?;
         self.data_pool.clear();

@@ -61,6 +61,28 @@ impl Transaction {
         Ok(self)
     }
 
+    pub fn get(&self, table_index: usize, key: &Vec<u8>) -> Result<Option<Vec<u8>>, String> {
+        match self
+            .changes_for_tables
+            .get(table_index)
+            .ok_or(format!("No table at index {table_index}"))?
+            .get(key)
+        {
+            Some(result_from_changes) => Ok(Some(result_from_changes.clone())),
+            None => Ok(self
+                .database
+                .read()
+                .map_err(|error| format!("Can not read from database: {error}"))?
+                .tables
+                .get(table_index)
+                .ok_or(format!("No table at index {table_index}"))?
+                .get(key)
+                .map_or(None, |result_from_memtable| {
+                    Some(result_from_memtable.clone())
+                })),
+        }
+    }
+
     pub fn commit(&mut self) -> Result<(), String> {
         let mut database_for_write = self
             .database
@@ -75,22 +97,16 @@ impl Transaction {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        path::{Path, PathBuf},
-        thread,
-    };
+    use std::{path::Path, thread};
 
     use super::*;
     use crate::{
-        data_pool::DataPoolConfig,
-        index::{Index, IndexConfig},
-        table::{Table, TableConfig},
-        variable_data_pool::VariableDataPoolConfig,
+        index::IndexConfig, table::TableConfig, variable_data_pool::VariableDataPoolConfig,
     };
 
     #[test]
     fn test_transactions() {
-        let mut database = Arc::new(RwLock::new(
+        let database = Arc::new(RwLock::new(
             Database::new(DatabaseConfig {
                 tables: vec![TableConfig {
                     index: IndexConfig {
@@ -111,19 +127,36 @@ mod tests {
 
         let mut threads_handles = vec![];
 
-        threads_handles.push(thread::spawn(move || {
+        {
             let database_clone = Arc::clone(&database);
-            let mut transaction = Transaction::new(database_clone);
-            transaction
-                .set(
-                    0 as usize,
-                    "key".as_bytes().to_vec(),
-                    "value".as_bytes().to_vec(),
-                )
-                .unwrap()
-                .commit()
-                .unwrap();
-        }));
+            threads_handles.push(thread::spawn(move || {
+                let transaction = Transaction::new(database_clone);
+                loop {
+                    if transaction
+                        .get(0 as usize, &"key".as_bytes().to_vec())
+                        .unwrap()
+                        .is_some()
+                    {
+                        break;
+                    }
+                }
+            }));
+        }
+        {
+            let database_clone = Arc::clone(&database);
+            threads_handles.push(thread::spawn(move || {
+                let mut transaction = Transaction::new(database_clone);
+                transaction
+                    .set(
+                        0 as usize,
+                        "key".as_bytes().to_vec(),
+                        "value".as_bytes().to_vec(),
+                    )
+                    .unwrap()
+                    .commit()
+                    .unwrap();
+            }));
+        }
 
         for thread_handle in threads_handles {
             thread_handle.join().unwrap();
