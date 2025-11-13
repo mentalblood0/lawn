@@ -2,7 +2,6 @@ use std::{
     collections::{BTreeMap, HashMap},
     sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
     thread::{self, JoinHandle},
-    time::Duration,
 };
 
 #[cfg(feature = "serde")]
@@ -66,15 +65,12 @@ impl<'a> WriteTransaction<'a> {
         key: Vec<u8>,
         value: Vec<u8>,
     ) -> Result<&mut Self, String> {
-        if self.changes_for_tables.contains_key(table_name) {
-            self.changes_for_tables
-                .get_mut(table_name)
-                .ok_or(format!("No table named '{table_name}'"))?
-                .insert(key, value);
-        } else {
-            self.changes_for_tables
-                .insert(table_name.clone(), BTreeMap::from_iter([(key, value)]));
-        }
+        self.changes_for_tables
+            .entry(table_name.clone())
+            .and_modify(|changes_for_table| {
+                changes_for_table.insert(key.clone(), value.clone());
+            })
+            .or_insert_with(|| BTreeMap::from_iter([(key.clone(), value.clone())]));
         Ok(self)
     }
 
