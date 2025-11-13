@@ -1,5 +1,6 @@
 use bincode;
-use std::io::{BufWriter, Write};
+use std::collections::HashMap;
+use std::io::Write;
 use std::path::PathBuf;
 use std::{collections::BTreeMap, fs};
 
@@ -24,7 +25,7 @@ struct KeyValueChangeRecord {
 
 #[derive(bincode::Encode, bincode::Decode)]
 struct TableChangeRecord {
-    table_index: usize,
+    table_name: String,
     keyvalues_changes: Vec<KeyValueChangeRecord>,
 }
 
@@ -59,15 +60,14 @@ impl Log {
 
     pub fn write(
         &mut self,
-        changes_for_tables: &Vec<BTreeMap<Vec<u8>, Vec<u8>>>,
+        changes_for_tables: &HashMap<String, BTreeMap<Vec<u8>, Vec<u8>>>,
     ) -> Result<(), String> {
         let buffer = bincode::encode_to_vec(
             TransactionRecord {
                 tables_changes: changes_for_tables
                     .iter()
-                    .enumerate()
-                    .map(|(table_index, table_changes)| TableChangeRecord {
-                        table_index,
+                    .map(|(table_name, table_changes)| TableChangeRecord {
+                        table_name: table_name.clone(),
                         keyvalues_changes: table_changes
                             .iter()
                             .map(|(key, value)| KeyValueChangeRecord {
@@ -81,7 +81,9 @@ impl Log {
             bincode::config::standard(),
         )
         .map_err(|error| format!("Can not encode transaction to log record: {error}"))?;
-        self.file.write_all(&buffer.as_slice());
+        self.file
+            .write_all(&buffer.as_slice())
+            .map_err(|error| format!("Can not write transaction log record to file: {error}"))?;
         Ok(())
     }
 

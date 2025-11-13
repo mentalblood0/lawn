@@ -1,7 +1,8 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
     thread::{self, JoinHandle},
+    time::Duration,
 };
 
 #[cfg(feature = "serde")]
@@ -12,12 +13,12 @@ use crate::table;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct DatabaseConfig {
-    pub tables: Vec<table::TableConfig>,
+    pub tables: HashMap<String, table::TableConfig>,
     pub log: LogConfig,
 }
 
 struct DatabaseLockableInternals {
-    tables: Vec<table::Table>,
+    tables: HashMap<String, table::Table>,
     log: Log,
 }
 
@@ -34,69 +35,73 @@ impl<'a> ReadTransaction<'a> {
         })
     }
 
-    fn get(&self, table_index: usize, key: &Vec<u8>) -> Result<Option<&Vec<u8>>, String> {
+    fn get(&self, table_name: &String, key: &Vec<u8>) -> Result<Option<&Vec<u8>>, String> {
         Ok(self
             .database_locked_internals
             .tables
-            .get(table_index)
-            .ok_or(format!("No table at index {table_index}"))?
+            .get(table_name)
+            .ok_or(format!("No table named '{table_name}'"))?
             .get(key))
     }
 }
 
 pub struct WriteTransaction<'a> {
     database_locked_internals: RwLockWriteGuard<'a, DatabaseLockableInternals>,
-    changes_for_tables: Vec<BTreeMap<Vec<u8>, Vec<u8>>>,
+    changes_for_tables: HashMap<String, BTreeMap<Vec<u8>, Vec<u8>>>,
 }
 
 impl<'a> WriteTransaction<'a> {
     fn new(database_lock: &'a RwLock<DatabaseLockableInternals>) -> Result<Self, String> {
-        let locked_internals = database_lock
-            .write()
-            .map_err(|error| format!("Can not acquire write lock on database: {error}"))?;
-        let tables_count = locked_internals.tables.len();
         Ok(Self {
-            database_locked_internals: locked_internals,
-            changes_for_tables: vec![const { BTreeMap::new() }; tables_count],
+            database_locked_internals: database_lock
+                .write()
+                .map_err(|error| format!("Can not acquire write lock on database: {error}"))?,
+            changes_for_tables: HashMap::new(),
         })
     }
 
     fn set(
         &mut self,
-        table_index: usize,
+        table_name: &String,
         key: Vec<u8>,
         value: Vec<u8>,
     ) -> Result<&mut Self, String> {
-        self.changes_for_tables
-            .get_mut(table_index)
-            .ok_or(format!("No table at index {table_index}"))?
-            .insert(key, value);
+        if self.changes_for_tables.contains_key(table_name) {
+            self.changes_for_tables
+                .get_mut(table_name)
+                .ok_or(format!("No table named '{table_name}'"))?
+                .insert(key, value);
+        } else {
+            self.changes_for_tables
+                .insert(table_name.clone(), BTreeMap::from_iter([(key, value)]));
+        }
         Ok(self)
     }
 
-    fn get(&self, table_index: usize, key: &Vec<u8>) -> Result<Option<&Vec<u8>>, String> {
-        match self
-            .changes_for_tables
-            .get(table_index)
-            .ok_or(format!("No table at index {table_index}"))?
-            .get(key)
-        {
-            Some(result_from_changes) => Ok(Some(result_from_changes)),
-            None => Ok(self
-                .database_locked_internals
-                .tables
-                .get(table_index)
-                .ok_or(format!("No table at index {table_index}"))?
-                .get(key)),
+    fn get(&self, table_name: &String, key: &Vec<u8>) -> Result<Option<&Vec<u8>>, String> {
+        if let Some(changes_for_table) = self.changes_for_tables.get(table_name) {
+            if let Some(result_from_changes) = changes_for_table.get(key) {
+                return Ok(Some(result_from_changes));
+            }
         }
+        Ok(self
+            .database_locked_internals
+            .tables
+            .get(table_name)
+            .ok_or(format!("No table named '{table_name}'"))?
+            .get(key))
     }
 
     fn commit(&mut self) -> Result<(), String> {
         self.database_locked_internals
             .log
             .write(&self.changes_for_tables)?;
-        for (table_index, table_changes) in self.changes_for_tables.iter_mut().enumerate() {
-            self.database_locked_internals.tables[table_index].merge(table_changes);
+        for (table_name, table_changes) in self.changes_for_tables.iter_mut() {
+            self.database_locked_internals
+                .tables
+                .get_mut(table_name)
+                .ok_or_else(|| format!("No table named '{table_name}'"))?
+                .merge(table_changes);
         }
         Ok(())
     }
@@ -108,9 +113,9 @@ pub struct Database {
 
 impl Database {
     pub fn new(config: DatabaseConfig) -> Result<Self, String> {
-        let mut tables: Vec<table::Table> = Vec::new();
-        for table_config in config.tables {
-            tables.push(table::Table::new(table_config)?);
+        let mut tables: HashMap<String, table::Table> = HashMap::new();
+        for (table_name, table_config) in config.tables {
+            tables.insert(table_name, table::Table::new(table_config)?);
         }
         Ok(Self {
             lockable_internals: Arc::new(RwLock::new(DatabaseLockableInternals {
@@ -138,7 +143,7 @@ impl Database {
             .write()
             .map_err(|error| format!("Can not acquire write lock on database: {error}"))?;
 
-        for table in locked_internals.tables.iter_mut() {
+        for (_, table) in locked_internals.tables.iter_mut() {
             table.clear()?;
         }
         locked_internals.log.clear()?;
@@ -173,17 +178,25 @@ mod tests {
 
     #[test]
     fn test_transactions_concurrency() {
+        const THREADS_COUNT: usize = 10;
+        const INCREMENTS_PER_THREAD_COUNT: usize = 100_000;
+        const FINAL_VALUE: usize = THREADS_COUNT * INCREMENTS_PER_THREAD_COUNT;
+        const TABLE_NAME: &str = "test";
+
         let database = Database::new(DatabaseConfig {
-            tables: vec![TableConfig {
-                index: IndexConfig {
-                    path: Path::new("/tmp/lawn/test/database/0/index.idx").to_path_buf(),
-                    container_size: 4 as u8,
+            tables: HashMap::from_iter([(
+                TABLE_NAME.to_string(),
+                TableConfig {
+                    index: IndexConfig {
+                        path: Path::new("/tmp/lawn/test/database/0/index.idx").to_path_buf(),
+                        container_size: 4 as u8,
+                    },
+                    data_pool: Box::new(VariableDataPoolConfig {
+                        directory: Path::new("/tmp/lawn/test/database/0/data_pool").to_path_buf(),
+                        max_element_size: 65536 as usize,
+                    }),
                 },
-                data_pool: Box::new(VariableDataPoolConfig {
-                    directory: Path::new("/tmp/lawn/test/database/0/data_pool").to_path_buf(),
-                    max_element_size: 65536 as usize,
-                }),
-            }],
+            )]),
             log: LogConfig {
                 path: Path::new("/tmp/lawn/test/database/log.dat").to_path_buf(),
             },
@@ -194,18 +207,17 @@ mod tests {
             .lock_all_and_clear()
             .unwrap()
             .lock_all_and_write(|mut transaction| {
-                let key = "key".as_bytes().to_vec();
                 transaction
-                    .set(0 as usize, key, (0 as usize).to_le_bytes().to_vec())
+                    .set(
+                        &TABLE_NAME.to_string(),
+                        "key".as_bytes().to_vec(),
+                        (0 as usize).to_le_bytes().to_vec(),
+                    )
                     .unwrap()
                     .commit()
                     .unwrap();
             })
             .unwrap();
-
-        const THREADS_COUNT: usize = 10;
-        const INCREMENTS_PER_THREAD_COUNT: usize = 100_000;
-        const FINAL_VALUE: usize = THREADS_COUNT * INCREMENTS_PER_THREAD_COUNT;
 
         let threads_handles: Vec<JoinHandle<Result<(), String>>> = (0..THREADS_COUNT)
             .map(|_| {
@@ -214,11 +226,11 @@ mod tests {
                     for _ in 0..INCREMENTS_PER_THREAD_COUNT {
                         transaction
                             .set(
-                                0 as usize,
+                                &TABLE_NAME.to_string(),
                                 key.clone(),
                                 (usize::from_le_bytes(
                                     transaction
-                                        .get(0 as usize, &key)
+                                        .get(&TABLE_NAME.to_string(), &key)
                                         .unwrap()
                                         .unwrap()
                                         .clone()
@@ -244,7 +256,7 @@ mod tests {
             .lock_all_writes_and_read(|transaction| {
                 assert_eq!(
                     transaction
-                        .get(0 as usize, &"key".as_bytes().to_vec())
+                        .get(&TABLE_NAME.to_string(), &"key".as_bytes().to_vec())
                         .unwrap()
                         .unwrap(),
                     &FINAL_VALUE.to_le_bytes().to_vec()
