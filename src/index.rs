@@ -36,7 +36,7 @@ impl Index {
                     config.path.display()
                 )
             })?;
-        Ok(Index { config, file: file })
+        Ok(Index { config, file })
     }
 
     pub fn clear(&mut self) -> Result<(), String> {

@@ -7,15 +7,18 @@ use std::{
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::table::{Table, TableConfig};
+use crate::log::{Log, LogConfig};
+use crate::table;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct DatabaseConfig {
-    pub tables: Vec<TableConfig>,
+    pub tables: Vec<table::TableConfig>,
+    pub log: LogConfig,
 }
 
-pub struct DatabaseLockableInternals {
-    pub tables: Vec<Table>,
+struct DatabaseLockableInternals {
+    tables: Vec<table::Table>,
+    log: Log,
 }
 
 pub struct ReadTransaction<'a> {
@@ -23,7 +26,7 @@ pub struct ReadTransaction<'a> {
 }
 
 impl<'a> ReadTransaction<'a> {
-    pub fn new(database_lock: &'a RwLock<DatabaseLockableInternals>) -> Result<Self, String> {
+    fn new(database_lock: &'a RwLock<DatabaseLockableInternals>) -> Result<Self, String> {
         Ok(Self {
             database_locked_internals: database_lock
                 .read()
@@ -31,7 +34,7 @@ impl<'a> ReadTransaction<'a> {
         })
     }
 
-    pub fn get(&self, table_index: usize, key: &Vec<u8>) -> Result<Option<&Vec<u8>>, String> {
+    fn get(&self, table_index: usize, key: &Vec<u8>) -> Result<Option<&Vec<u8>>, String> {
         Ok(self
             .database_locked_internals
             .tables
@@ -47,7 +50,7 @@ pub struct WriteTransaction<'a> {
 }
 
 impl<'a> WriteTransaction<'a> {
-    pub fn new(database_lock: &'a RwLock<DatabaseLockableInternals>) -> Result<Self, String> {
+    fn new(database_lock: &'a RwLock<DatabaseLockableInternals>) -> Result<Self, String> {
         let locked_internals = database_lock
             .write()
             .map_err(|error| format!("Can not acquire write lock on database: {error}"))?;
@@ -58,7 +61,7 @@ impl<'a> WriteTransaction<'a> {
         })
     }
 
-    pub fn set(
+    fn set(
         &mut self,
         table_index: usize,
         key: Vec<u8>,
@@ -71,7 +74,7 @@ impl<'a> WriteTransaction<'a> {
         Ok(self)
     }
 
-    pub fn get(&self, table_index: usize, key: &Vec<u8>) -> Result<Option<&Vec<u8>>, String> {
+    fn get(&self, table_index: usize, key: &Vec<u8>) -> Result<Option<&Vec<u8>>, String> {
         match self
             .changes_for_tables
             .get(table_index)
@@ -88,7 +91,10 @@ impl<'a> WriteTransaction<'a> {
         }
     }
 
-    pub fn commit(&mut self) -> Result<(), String> {
+    fn commit(&mut self) -> Result<(), String> {
+        self.database_locked_internals
+            .log
+            .write(&self.changes_for_tables)?;
         for (table_index, table_changes) in self.changes_for_tables.iter_mut().enumerate() {
             self.database_locked_internals.tables[table_index].merge(table_changes);
         }
@@ -97,17 +103,20 @@ impl<'a> WriteTransaction<'a> {
 }
 
 pub struct Database {
-    pub lockable_internals: Arc<RwLock<DatabaseLockableInternals>>,
+    lockable_internals: Arc<RwLock<DatabaseLockableInternals>>,
 }
 
 impl Database {
     pub fn new(config: DatabaseConfig) -> Result<Self, String> {
-        let mut tables: Vec<Table> = Vec::new();
+        let mut tables: Vec<table::Table> = Vec::new();
         for table_config in config.tables {
-            tables.push(Table::new(table_config)?);
+            tables.push(table::Table::new(table_config)?);
         }
         Ok(Self {
-            lockable_internals: Arc::new(RwLock::new(DatabaseLockableInternals { tables })),
+            lockable_internals: Arc::new(RwLock::new(DatabaseLockableInternals {
+                tables,
+                log: Log::new(config.log)?,
+            })),
         })
     }
 
@@ -132,6 +141,7 @@ impl Database {
         for table in locked_internals.tables.iter_mut() {
             table.clear()?;
         }
+        locked_internals.log.clear()?;
         Ok(self)
     }
 
@@ -174,6 +184,9 @@ mod tests {
                     max_element_size: 65536 as usize,
                 }),
             }],
+            log: LogConfig {
+                path: Path::new("/tmp/lawn/test/database/log.dat").to_path_buf(),
+            },
         })
         .unwrap();
 
