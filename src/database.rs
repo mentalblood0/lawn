@@ -143,10 +143,10 @@ mod tests {
     use crate::{
         index::IndexConfig, table::TableConfig, variable_data_pool::VariableDataPoolConfig,
     };
-    use std::{path::Path, sync::Arc, time::Duration};
+    use std::{path::Path, sync::Arc};
 
     #[test]
-    fn test_transactions() {
+    fn test_transactions_concurrency() {
         let database = Arc::new(RwLock::new(
             Database::new(DatabaseConfig {
                 tables: vec![TableConfig {
@@ -166,32 +166,59 @@ mod tests {
             database.write().unwrap().clear().unwrap();
         }
 
-        let mut threads_handles = vec![];
-
-        threads_handles.push(lock_all_and_spawn_write(&database, |mut transaction| {
+        lock_all_and_write(&database, |mut transaction| {
+            let key = "key".as_bytes().to_vec();
             transaction
-                .set(
-                    0 as usize,
-                    "key".as_bytes().to_vec(),
-                    "value".as_bytes().to_vec(),
-                )
+                .set(0 as usize, key, (0 as usize).to_le_bytes().to_vec())
                 .unwrap()
                 .commit()
                 .unwrap();
-        }));
-        thread::sleep(Duration::new(0, 1000000));
-        threads_handles.push(lock_all_writes_and_spawn_read(&database, |transaction| {
+        });
+
+        const THREADS_COUNT: usize = 10;
+        const INCREMENTS_PER_THREAD_COUNT: usize = 100_000;
+        const FINAL_VALUE: usize = THREADS_COUNT * INCREMENTS_PER_THREAD_COUNT;
+
+        let mut threads_handles = vec![];
+        for _ in 0..THREADS_COUNT {
+            threads_handles.push(lock_all_and_spawn_write(&database, |mut transaction| {
+                let key = "key".as_bytes().to_vec();
+                for _ in 0..INCREMENTS_PER_THREAD_COUNT {
+                    transaction
+                        .set(
+                            0 as usize,
+                            key.clone(),
+                            (usize::from_le_bytes(
+                                transaction
+                                    .get(0 as usize, &key)
+                                    .unwrap()
+                                    .unwrap()
+                                    .clone()
+                                    .as_slice()
+                                    .try_into()
+                                    .unwrap(),
+                            ) + 1)
+                                .to_le_bytes()
+                                .to_vec(),
+                        )
+                        .unwrap()
+                        .commit()
+                        .unwrap();
+                }
+            }));
+        }
+        for thread_handle in threads_handles {
+            thread_handle.join().unwrap();
+        }
+
+        lock_all_writes_and_read(&database, |transaction| {
             assert_eq!(
                 transaction
                     .get(0 as usize, &"key".as_bytes().to_vec())
                     .unwrap()
                     .unwrap(),
-                &"value".as_bytes().to_vec()
+                &FINAL_VALUE.to_le_bytes().to_vec()
             );
-        }));
-
-        for thread_handle in threads_handles {
-            thread_handle.join().unwrap();
-        }
+        });
     }
 }
