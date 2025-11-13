@@ -14,8 +14,12 @@ pub struct DatabaseConfig {
     pub tables: Vec<TableConfig>,
 }
 
-pub struct Database {
+pub struct DatabaseLockableInternals {
     pub tables: Vec<Table>,
+}
+
+pub struct Database {
+    pub lockable_internals: Arc<RwLock<DatabaseLockableInternals>>,
 }
 
 impl Database {
@@ -24,31 +28,26 @@ impl Database {
         for table_config in config.tables {
             tables.push(Table::new(table_config)?);
         }
-        Ok(Self { tables })
-    }
-
-    pub fn clear(&mut self) -> Result<&mut Self, String> {
-        for table in self.tables.iter_mut() {
-            table.clear()?;
-        }
-        Ok(self)
+        Ok(Self {
+            lockable_internals: Arc::new(RwLock::new(DatabaseLockableInternals { tables })),
+        })
     }
 }
 
 pub struct ReadTransaction<'a> {
-    database_lock_guard: RwLockReadGuard<'a, Database>,
+    database_locked_internals: RwLockReadGuard<'a, DatabaseLockableInternals>,
 }
 
 impl<'a> ReadTransaction<'a> {
-    pub fn new(database_lock: &'a RwLock<Database>) -> Self {
+    pub fn new(database_lock: &'a RwLock<DatabaseLockableInternals>) -> Self {
         Self {
-            database_lock_guard: database_lock.read().unwrap(),
+            database_locked_internals: database_lock.read().unwrap(),
         }
     }
 
     pub fn get(&self, table_index: usize, key: &Vec<u8>) -> Result<Option<&Vec<u8>>, String> {
         Ok(self
-            .database_lock_guard
+            .database_locked_internals
             .tables
             .get(table_index)
             .ok_or(format!("No table at index {table_index}"))?
@@ -57,16 +56,16 @@ impl<'a> ReadTransaction<'a> {
 }
 
 pub struct WriteTransaction<'a> {
-    database_lock_guard: RwLockWriteGuard<'a, Database>,
+    database_locked_internals: RwLockWriteGuard<'a, DatabaseLockableInternals>,
     changes_for_tables: Vec<BTreeMap<Vec<u8>, Vec<u8>>>,
 }
 
 impl<'a> WriteTransaction<'a> {
-    pub fn new(database_lock: &'a RwLock<Database>) -> Self {
+    pub fn new(database_lock: &'a RwLock<DatabaseLockableInternals>) -> Self {
         let lock_guard = database_lock.write().unwrap();
         let tables_count = lock_guard.tables.len();
         Self {
-            database_lock_guard: lock_guard,
+            database_locked_internals: lock_guard,
             changes_for_tables: vec![const { BTreeMap::new() }; tables_count],
         }
     }
@@ -93,7 +92,7 @@ impl<'a> WriteTransaction<'a> {
         {
             Some(result_from_changes) => Ok(Some(result_from_changes)),
             None => Ok(self
-                .database_lock_guard
+                .database_locked_internals
                 .tables
                 .get(table_index)
                 .ok_or(format!("No table at index {table_index}"))?
@@ -103,36 +102,44 @@ impl<'a> WriteTransaction<'a> {
 
     pub fn commit(&mut self) -> Result<(), String> {
         for (table_index, table_changes) in self.changes_for_tables.iter_mut().enumerate() {
-            self.database_lock_guard.tables[table_index].merge(table_changes);
+            self.database_locked_internals.tables[table_index].merge(table_changes);
         }
         Ok(())
     }
+
+    pub fn clear_immediately(&mut self) -> Result<&mut Self, String> {
+        for table in self.database_locked_internals.tables.iter_mut() {
+            table.clear()?;
+        }
+        Ok(self)
+    }
 }
 
-pub fn lock_all_writes_and_read(
-    database: &Arc<RwLock<Database>>,
-    f: fn(ReadTransaction) -> (),
-) -> () {
-    f(ReadTransaction::new(&Arc::clone(database)))
+pub fn lock_all_writes_and_read(database: &Database, f: fn(ReadTransaction) -> ()) -> () {
+    f(ReadTransaction::new(&Arc::clone(
+        &database.lockable_internals,
+    )))
 }
 
-pub fn lock_all_and_write(database: &Arc<RwLock<Database>>, f: fn(WriteTransaction) -> ()) -> () {
-    f(WriteTransaction::new(&Arc::clone(database)))
+pub fn lock_all_and_write(database: &Database, f: fn(WriteTransaction) -> ()) -> () {
+    f(WriteTransaction::new(&Arc::clone(
+        &database.lockable_internals,
+    )))
 }
 
 pub fn lock_all_writes_and_spawn_read(
-    database: &Arc<RwLock<Database>>,
+    database: &Database,
     f: fn(ReadTransaction) -> (),
 ) -> JoinHandle<()> {
-    let database_clone = Arc::clone(database);
-    thread::spawn(move || f(ReadTransaction::new(&database_clone)))
+    let locked_internals = Arc::clone(&database.lockable_internals);
+    thread::spawn(move || f(ReadTransaction::new(&locked_internals)))
 }
 
 pub fn lock_all_and_spawn_write(
-    database: &Arc<RwLock<Database>>,
+    database: &Database,
     f: fn(WriteTransaction) -> (),
 ) -> JoinHandle<()> {
-    let database_clone = Arc::clone(database);
+    let database_clone = Arc::clone(&database.lockable_internals);
     thread::spawn(move || f(WriteTransaction::new(&database_clone)))
 }
 
@@ -143,30 +150,26 @@ mod tests {
     use crate::{
         index::IndexConfig, table::TableConfig, variable_data_pool::VariableDataPoolConfig,
     };
-    use std::{path::Path, sync::Arc};
+    use std::path::Path;
 
     #[test]
     fn test_transactions_concurrency() {
-        let database = Arc::new(RwLock::new(
-            Database::new(DatabaseConfig {
-                tables: vec![TableConfig {
-                    index: IndexConfig {
-                        path: Path::new("/tmp/lawn/test/database/0/index.idx").to_path_buf(),
-                        container_size: 4 as u8,
-                    },
-                    data_pool: Box::new(VariableDataPoolConfig {
-                        directory: Path::new("/tmp/lawn/test/database/0/data_pool").to_path_buf(),
-                        max_element_size: 65536 as usize,
-                    }),
-                }],
-            })
-            .unwrap(),
-        ));
-        {
-            database.write().unwrap().clear().unwrap();
-        }
+        let database = Database::new(DatabaseConfig {
+            tables: vec![TableConfig {
+                index: IndexConfig {
+                    path: Path::new("/tmp/lawn/test/database/0/index.idx").to_path_buf(),
+                    container_size: 4 as u8,
+                },
+                data_pool: Box::new(VariableDataPoolConfig {
+                    directory: Path::new("/tmp/lawn/test/database/0/data_pool").to_path_buf(),
+                    max_element_size: 65536 as usize,
+                }),
+            }],
+        })
+        .unwrap();
 
         lock_all_and_write(&database, |mut transaction| {
+            transaction.clear_immediately().unwrap();
             let key = "key".as_bytes().to_vec();
             transaction
                 .set(0 as usize, key, (0 as usize).to_le_bytes().to_vec())
