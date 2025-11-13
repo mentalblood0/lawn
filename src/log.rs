@@ -1,6 +1,6 @@
 use bincode;
 use std::collections::HashMap;
-use std::io::Write;
+use std::io::{BufReader, Write};
 use std::path::PathBuf;
 use std::{collections::BTreeMap, fs};
 
@@ -85,6 +85,47 @@ impl Log {
             .write_all(&buffer.as_slice())
             .map_err(|error| format!("Can not write transaction log record to file: {error}"))?;
         Ok(())
+    }
+
+    pub fn read(&self) -> Result<HashMap<String, BTreeMap<Vec<u8>, Vec<u8>>>, String> {
+        let mut result: HashMap<String, BTreeMap<Vec<u8>, Vec<u8>>> = HashMap::new();
+        let file = fs::File::open(&self.config.path).map_err(|error| {
+            format!(
+                "Can not open file at path {} for read: {error}",
+                &self.config.path.display()
+            )
+        })?;
+        let mut reader = BufReader::new(file);
+        loop {
+            let transactcion_record: TransactionRecord =
+                match bincode::decode_from_std_read(&mut reader, bincode::config::standard()) {
+                    Ok(transaction_record) => transaction_record,
+                    Err(_) => break,
+                };
+            for table_changes_record in transactcion_record.tables_changes {
+                result
+                    .entry(table_changes_record.table_name.clone())
+                    .and_modify(|changes_for_table| {
+                        for keyvalue_change in table_changes_record.keyvalues_changes.iter() {
+                            changes_for_table.insert(
+                                keyvalue_change.key.clone(),
+                                keyvalue_change.value.clone().unwrap(),
+                            );
+                        }
+                    })
+                    .or_insert_with(|| {
+                        BTreeMap::from_iter(table_changes_record.keyvalues_changes.iter().map(
+                            |keyvalue_change| {
+                                (
+                                    keyvalue_change.key.clone(),
+                                    keyvalue_change.value.clone().unwrap(),
+                                )
+                            },
+                        ))
+                    });
+            }
+        }
+        Ok(result)
     }
 
     pub fn clear(&mut self) -> Result<(), String> {

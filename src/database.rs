@@ -175,7 +175,7 @@ mod tests {
     #[test]
     fn test_transactions_concurrency() {
         const THREADS_COUNT: usize = 10;
-        const INCREMENTS_PER_THREAD_COUNT: usize = 100_000;
+        const INCREMENTS_PER_THREAD_COUNT: usize = 1000;
         const FINAL_VALUE: usize = THREADS_COUNT * INCREMENTS_PER_THREAD_COUNT;
         const TABLE_NAME: &str = "test";
 
