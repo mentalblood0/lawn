@@ -194,34 +194,35 @@ mod tests {
         const INCREMENTS_PER_THREAD_COUNT: usize = 100_000;
         const FINAL_VALUE: usize = THREADS_COUNT * INCREMENTS_PER_THREAD_COUNT;
 
-        let mut threads_handles = vec![];
-        for _ in 0..THREADS_COUNT {
-            threads_handles.push(database.lock_all_and_spawn_write(|mut transaction| {
-                let key = "key".as_bytes().to_vec();
-                for _ in 0..INCREMENTS_PER_THREAD_COUNT {
-                    transaction
-                        .set(
-                            0 as usize,
-                            key.clone(),
-                            (usize::from_le_bytes(
-                                transaction
-                                    .get(0 as usize, &key)
-                                    .unwrap()
-                                    .unwrap()
-                                    .clone()
-                                    .as_slice()
-                                    .try_into()
-                                    .unwrap(),
-                            ) + 1)
-                                .to_le_bytes()
-                                .to_vec(),
-                        )
-                        .unwrap()
-                        .commit()
-                        .unwrap();
-                }
-            }));
-        }
+        let threads_handles: Vec<JoinHandle<Result<(), String>>> = (0..THREADS_COUNT)
+            .map(|_| {
+                database.lock_all_and_spawn_write(|mut transaction| {
+                    let key = "key".as_bytes().to_vec();
+                    for _ in 0..INCREMENTS_PER_THREAD_COUNT {
+                        transaction
+                            .set(
+                                0 as usize,
+                                key.clone(),
+                                (usize::from_le_bytes(
+                                    transaction
+                                        .get(0 as usize, &key)
+                                        .unwrap()
+                                        .unwrap()
+                                        .clone()
+                                        .as_slice()
+                                        .try_into()
+                                        .unwrap(),
+                                ) + 1)
+                                    .to_le_bytes()
+                                    .to_vec(),
+                            )
+                            .unwrap()
+                            .commit()
+                            .unwrap();
+                    }
+                })
+            })
+            .collect();
         for thread_handle in threads_handles {
             thread_handle.join().unwrap().unwrap();
         }
