@@ -15,7 +15,7 @@ pub struct TableConfig {
 pub struct Table {
     pub index: Index,
     pub data_pool: Box<dyn DataPool + Send + Sync>,
-    memtable: BTreeMap<Vec<u8>, Vec<u8>>,
+    memtable: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
 }
 
 impl Table {
@@ -27,12 +27,15 @@ impl Table {
         })
     }
 
-    pub fn merge(&mut self, changes: &mut BTreeMap<Vec<u8>, Vec<u8>>) {
+    pub fn merge(&mut self, changes: &mut BTreeMap<Vec<u8>, Option<Vec<u8>>>) {
         self.memtable.append(changes);
     }
 
-    pub fn get(&self, key: &Vec<u8>) -> Option<&Vec<u8>> {
-        self.memtable.get(key)
+    pub fn get(&self, key: &Vec<u8>) -> &Option<Vec<u8>> {
+        match self.memtable.get(key) {
+            Some(value) => value,
+            None => &None,
+        }
     }
 
     pub fn clear(&mut self) -> Result<(), String> {

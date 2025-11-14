@@ -34,7 +34,7 @@ impl<'a> ReadTransaction<'a> {
         })
     }
 
-    fn get(&self, table_id: usize, key: &Vec<u8>) -> Result<Option<&Vec<u8>>, String> {
+    pub fn get(&self, table_id: usize, key: &Vec<u8>) -> Result<&Option<Vec<u8>>, String> {
         Ok(self
             .database_locked_internals
             .tables
@@ -46,7 +46,7 @@ impl<'a> ReadTransaction<'a> {
 
 pub struct WriteTransaction<'a> {
     database_locked_internals: RwLockWriteGuard<'a, DatabaseLockableInternals>,
-    changes_for_tables: Vec<BTreeMap<Vec<u8>, Vec<u8>>>,
+    changes_for_tables: Vec<BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
 }
 
 impl<'a> WriteTransaction<'a> {
@@ -61,7 +61,7 @@ impl<'a> WriteTransaction<'a> {
         })
     }
 
-    fn set(
+    pub fn set(
         &mut self,
         table_index: usize,
         key: Vec<u8>,
@@ -70,28 +70,34 @@ impl<'a> WriteTransaction<'a> {
         self.changes_for_tables
             .get_mut(table_index)
             .ok_or(format!("No table at index {table_index}"))?
-            .insert(key, value);
+            .insert(key, Some(value));
         Ok(self)
     }
 
-    fn get(&self, table_index: usize, key: &Vec<u8>) -> Result<Option<&Vec<u8>>, String> {
+    pub fn delete(&mut self, table_index: usize, key: Vec<u8>) -> Result<&mut Self, String> {
+        self.changes_for_tables
+            .get_mut(table_index)
+            .ok_or(format!("No table at index {table_index}"))?
+            .insert(key, None);
+        Ok(self)
+    }
+
+    pub fn get(&self, table_index: usize, key: &Vec<u8>) -> Result<&Option<Vec<u8>>, String> {
         match self
             .changes_for_tables
             .get(table_index)
             .ok_or(format!("No table at index {table_index}"))?
             .get(key)
         {
-            Some(result_from_changes) => Ok(Some(result_from_changes)),
-            None => Ok(self
-                .database_locked_internals
-                .tables
-                .get(table_index)
-                .ok_or(format!("No table at index {table_index}"))?
-                .get(key)),
+            Some(result_from_changes) => Ok(result_from_changes),
+            None => match self.database_locked_internals.tables.get(table_index) {
+                Some(table) => Ok(table.get(key)),
+                None => Ok(&None),
+            },
         }
     }
 
-    fn commit(&mut self) -> Result<(), String> {
+    pub fn commit(&mut self) -> Result<(), String> {
         self.database_locked_internals
             .log
             .write(&self.changes_for_tables)?;
@@ -223,6 +229,7 @@ mod tests {
                                     transaction
                                         .get(0, &key)
                                         .unwrap()
+                                        .clone()
                                         .unwrap()
                                         .clone()
                                         .as_slice()
@@ -249,8 +256,31 @@ mod tests {
                     transaction
                         .get(0, &"key".as_bytes().to_vec())
                         .unwrap()
+                        .clone()
                         .unwrap(),
-                    &FINAL_VALUE.to_le_bytes().to_vec()
+                    FINAL_VALUE.to_le_bytes().to_vec()
+                );
+            })
+            .unwrap();
+
+        database
+            .lock_all_and_write(|mut transaction| {
+                transaction
+                    .delete(0, "key".as_bytes().to_vec())
+                    .unwrap()
+                    .commit()
+                    .unwrap();
+            })
+            .unwrap();
+
+        database
+            .lock_all_writes_and_read(|transaction| {
+                assert_eq!(
+                    transaction
+                        .get(0, &"key".as_bytes().to_vec())
+                        .unwrap()
+                        .clone(),
+                    None
                 );
             })
             .unwrap();

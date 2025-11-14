@@ -59,7 +59,7 @@ impl Log {
 
     pub fn write(
         &mut self,
-        changes_for_tables: &Vec<BTreeMap<Vec<u8>, Vec<u8>>>,
+        changes_for_tables: &Vec<BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
     ) -> Result<(), String> {
         let buffer = bincode::encode_to_vec(
             TransactionRecord {
@@ -73,7 +73,7 @@ impl Log {
                             .iter()
                             .map(|(key, value)| KeyValueChangeRecord {
                                 key: key.clone(),
-                                value: Some(value.clone()),
+                                value: value.clone(),
                             })
                             .collect(),
                     })
