@@ -88,8 +88,8 @@ impl Log {
         Ok(())
     }
 
-    pub fn read(&self) -> Result<Vec<BTreeMap<Vec<u8>, Vec<u8>>>, String> {
-        let mut result: Vec<BTreeMap<Vec<u8>, Vec<u8>>> = Vec::new();
+    pub fn read(&self) -> Result<Vec<BTreeMap<Vec<u8>, Option<Vec<u8>>>>, String> {
+        let mut result: Vec<BTreeMap<Vec<u8>, Option<Vec<u8>>>> = Vec::new();
         let file = fs::File::open(&self.config.path).map_err(|error| {
             format!(
                 "Can not open file at path {} for read: {error}",
@@ -111,9 +111,7 @@ impl Log {
                     table_changes_record
                         .keyvalues_changes
                         .into_iter()
-                        .map(|keyvalue_change| {
-                            (keyvalue_change.key, keyvalue_change.value.unwrap())
-                        }),
+                        .map(|keyvalue_change| (keyvalue_change.key, keyvalue_change.value)),
                 );
             }
         }

@@ -138,6 +138,22 @@ impl Database {
         Ok(self)
     }
 
+    pub fn lock_all_and_recover(&self) -> Result<&Self, String> {
+        let mut locked_internals = self
+            .lockable_internals
+            .write()
+            .map_err(|error| format!("Can not acquire write lock on database: {error}"))?;
+
+        for (table_id, memtable) in locked_internals.log.read()?.into_iter().enumerate() {
+            locked_internals
+                .tables
+                .get_mut(table_id)
+                .ok_or_else(|| format!("No table with id {table_id}"))?
+                .memtable = memtable;
+        }
+        Ok(self)
+    }
+
     pub fn lock_all_and_clear(&self) -> Result<&Self, String> {
         let mut locked_internals = self
             .lockable_internals
@@ -250,7 +266,25 @@ mod tests {
             thread_handle.join().unwrap().unwrap();
         }
 
+        let database = Database::new(DatabaseConfig {
+            tables: vec![TableConfig {
+                index: IndexConfig {
+                    path: Path::new("/tmp/lawn/test/database/0/index.idx").to_path_buf(),
+                    container_size: 4 as u8,
+                },
+                data_pool: Box::new(VariableDataPoolConfig {
+                    directory: Path::new("/tmp/lawn/test/database/0/data_pool").to_path_buf(),
+                    max_element_size: 65536 as usize,
+                }),
+            }],
+            log: LogConfig {
+                path: Path::new("/tmp/lawn/test/database/log.dat").to_path_buf(),
+            },
+        })
+        .unwrap();
         database
+            .lock_all_and_recover()
+            .unwrap()
             .lock_all_writes_and_read(|transaction| {
                 assert_eq!(
                     transaction
@@ -261,9 +295,7 @@ mod tests {
                     FINAL_VALUE.to_le_bytes().to_vec()
                 );
             })
-            .unwrap();
-
-        database
+            .unwrap()
             .lock_all_and_write(|mut transaction| {
                 transaction
                     .delete(0, "key".as_bytes().to_vec())
@@ -271,9 +303,7 @@ mod tests {
                     .commit()
                     .unwrap();
             })
-            .unwrap();
-
-        database
+            .unwrap()
             .lock_all_writes_and_read(|transaction| {
                 assert_eq!(
                     transaction

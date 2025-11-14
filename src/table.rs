@@ -15,7 +15,7 @@ pub struct TableConfig {
 pub struct Table {
     pub index: Index,
     pub data_pool: Box<dyn DataPool + Send + Sync>,
-    memtable: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
+    pub memtable: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
 }
 
 impl Table {
