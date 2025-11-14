@@ -1,5 +1,4 @@
 use bincode;
-use std::collections::HashMap;
 use std::io::{BufReader, Write};
 use std::path::PathBuf;
 use std::{collections::BTreeMap, fs};
@@ -25,7 +24,7 @@ struct KeyValueChangeRecord {
 
 #[derive(bincode::Encode, bincode::Decode)]
 struct TableChangeRecord {
-    table_name: String,
+    table_id: usize,
     keyvalues_changes: Vec<KeyValueChangeRecord>,
 }
 
@@ -60,14 +59,15 @@ impl Log {
 
     pub fn write(
         &mut self,
-        changes_for_tables: &HashMap<String, BTreeMap<Vec<u8>, Vec<u8>>>,
+        changes_for_tables: &Vec<BTreeMap<Vec<u8>, Vec<u8>>>,
     ) -> Result<(), String> {
         let buffer = bincode::encode_to_vec(
             TransactionRecord {
                 tables_changes: changes_for_tables
                     .iter()
-                    .map(|(table_name, table_changes)| TableChangeRecord {
-                        table_name: table_name.clone(),
+                    .enumerate()
+                    .map(|(table_id, table_changes)| TableChangeRecord {
+                        table_id,
                         keyvalues_changes: table_changes
                             .iter()
                             .map(|(key, value)| KeyValueChangeRecord {
@@ -87,8 +87,8 @@ impl Log {
         Ok(())
     }
 
-    pub fn read(&self) -> Result<HashMap<String, BTreeMap<Vec<u8>, Vec<u8>>>, String> {
-        let mut result: HashMap<String, BTreeMap<Vec<u8>, Vec<u8>>> = HashMap::new();
+    pub fn read(&self) -> Result<Vec<BTreeMap<Vec<u8>, Vec<u8>>>, String> {
+        let mut result: Vec<BTreeMap<Vec<u8>, Vec<u8>>> = Vec::new();
         let file = fs::File::open(&self.config.path).map_err(|error| {
             format!(
                 "Can not open file at path {} for read: {error}",
@@ -103,26 +103,17 @@ impl Log {
                     Err(_) => break,
                 };
             for table_changes_record in transactcion_record.tables_changes {
-                result
-                    .entry(table_changes_record.table_name.clone())
-                    .and_modify(|changes_for_table| {
-                        for keyvalue_change in table_changes_record.keyvalues_changes.iter() {
-                            changes_for_table.insert(
-                                keyvalue_change.key.clone(),
-                                keyvalue_change.value.clone().unwrap(),
-                            );
-                        }
-                    })
-                    .or_insert_with(|| {
-                        BTreeMap::from_iter(table_changes_record.keyvalues_changes.iter().map(
-                            |keyvalue_change| {
-                                (
-                                    keyvalue_change.key.clone(),
-                                    keyvalue_change.value.clone().unwrap(),
-                                )
-                            },
-                        ))
-                    });
+                while result.len() <= table_changes_record.table_id {
+                    result.push(BTreeMap::new());
+                }
+                result[table_changes_record.table_id].extend(
+                    table_changes_record
+                        .keyvalues_changes
+                        .into_iter()
+                        .map(|keyvalue_change| {
+                            (keyvalue_change.key, keyvalue_change.value.unwrap())
+                        }),
+                );
             }
         }
         Ok(result)
