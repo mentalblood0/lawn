@@ -66,6 +66,7 @@ impl Log {
                 tables_changes: changes_for_tables
                     .iter()
                     .enumerate()
+                    .filter(|(_, table_changes)| table_changes.len() > 0)
                     .map(|(table_id, table_changes)| TableChangeRecord {
                         table_id,
                         keyvalues_changes: table_changes
