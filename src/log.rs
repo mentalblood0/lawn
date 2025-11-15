@@ -1,5 +1,5 @@
 use bincode;
-use std::io::{BufReader, Seek, Write};
+use std::io::{BufReader, Write};
 use std::path::PathBuf;
 use std::{collections::BTreeMap, fs};
 
@@ -85,9 +85,6 @@ impl Log {
         self.file
             .write_all(&buffer.as_slice())
             .map_err(|error| format!("Can not write transaction log record to file: {error}"))?;
-        self.file
-            .flush()
-            .map_err(|error| format!("Can not flush transaction log record to file: {error}"))?;
         Ok(())
     }
 
@@ -104,13 +101,9 @@ impl Log {
             let transactcion_record: TransactionRecord =
                 match bincode::decode_from_std_read(&mut reader, bincode::config::standard()) {
                     Ok(transaction_record) => transaction_record,
-                    Err(error) => {
-                        dbg!(error);
-                        break;
-                    }
+                    Err(_) => break,
                 };
             for table_changes_record in transactcion_record.tables_changes {
-                dbg!(&table_changes_record);
                 while result.len() <= table_changes_record.table_id {
                     result.push(BTreeMap::new());
                 }
@@ -129,7 +122,6 @@ impl Log {
         self.file
             .set_len(0)
             .map_err(|error| format!("Can not truncate file {:?}: {error}", self.file))?;
-        self.file.flush().unwrap();
         Ok(())
     }
 }
