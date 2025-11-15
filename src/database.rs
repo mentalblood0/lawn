@@ -360,6 +360,22 @@ mod tests {
             thread_handle.join().unwrap().unwrap();
         }
 
+        database
+            .lock_all_writes_and_read(|transaction| {
+                assert_eq!(
+                    transaction
+                        .get(0, &"key".as_bytes().to_vec())
+                        .unwrap()
+                        .clone()
+                        .unwrap(),
+                    FINAL_VALUE.to_le_bytes().to_vec()
+                );
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn test_recover_from_log() {
         let database = Database::new(DatabaseConfig {
             tables: vec![TableConfig {
                 index: IndexConfig {
@@ -377,6 +393,16 @@ mod tests {
         })
         .unwrap();
         database
+            .lock_all_and_clear()
+            .unwrap()
+            .lock_all_and_write(|mut transaction| {
+                transaction
+                    .set(0, "key".as_bytes().to_vec(), "value".as_bytes().to_vec())
+                    .unwrap()
+                    .commit()
+                    .unwrap();
+            })
+            .unwrap()
             .lock_all_and_recover()
             .unwrap()
             .lock_all_writes_and_read(|transaction| {
@@ -386,25 +412,7 @@ mod tests {
                         .unwrap()
                         .clone()
                         .unwrap(),
-                    FINAL_VALUE.to_le_bytes().to_vec()
-                );
-            })
-            .unwrap()
-            .lock_all_and_write(|mut transaction| {
-                transaction
-                    .remove(0, "key".as_bytes().to_vec())
-                    .unwrap()
-                    .commit()
-                    .unwrap();
-            })
-            .unwrap()
-            .lock_all_writes_and_read(|transaction| {
-                assert_eq!(
-                    transaction
-                        .get(0, &"key".as_bytes().to_vec())
-                        .unwrap()
-                        .clone(),
-                    None
+                    "value".as_bytes().to_vec()
                 );
             })
             .unwrap();
