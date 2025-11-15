@@ -202,9 +202,8 @@ mod tests {
     use std::path::Path;
     use std::sync::Arc;
 
-    #[test]
-    fn test_generative() {
-        let database = Database::new(DatabaseConfig {
+    fn new_default_database() -> Database {
+        Database::new(DatabaseConfig {
             tables: vec![TableConfig {
                 index: IndexConfig {
                     path: Path::new("/tmp/lawn/test/database/0/index.idx").to_path_buf(),
@@ -219,7 +218,12 @@ mod tests {
                 path: Path::new("/tmp/lawn/test/database/log.dat").to_path_buf(),
             },
         })
-        .unwrap();
+        .unwrap()
+    }
+
+    #[test]
+    fn test_generative() {
+        let database = new_default_database();
         database.lock_all_and_clear().unwrap();
 
         let mut previously_added_keyvalues: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
@@ -293,23 +297,7 @@ mod tests {
         const INCREMENTS_PER_THREAD_COUNT: usize = 1000;
         const FINAL_VALUE: usize = THREADS_COUNT * INCREMENTS_PER_THREAD_COUNT;
 
-        let database = Database::new(DatabaseConfig {
-            tables: vec![TableConfig {
-                index: IndexConfig {
-                    path: Path::new("/tmp/lawn/test/database/0/index.idx").to_path_buf(),
-                    container_size: 4 as u8,
-                },
-                data_pool: Box::new(VariableDataPoolConfig {
-                    directory: Path::new("/tmp/lawn/test/database/0/data_pool").to_path_buf(),
-                    max_element_size: 65536 as usize,
-                }),
-            }],
-            log: LogConfig {
-                path: Path::new("/tmp/lawn/test/database/log.dat").to_path_buf(),
-            },
-        })
-        .unwrap();
-
+        let database = new_default_database();
         database
             .lock_all_and_clear()
             .unwrap()
@@ -377,23 +365,7 @@ mod tests {
     #[test]
     fn test_recover_from_log() {
         {
-            let database = Database::new(DatabaseConfig {
-                tables: vec![TableConfig {
-                    index: IndexConfig {
-                        path: Path::new("/tmp/lawn/test/database/0/index.idx").to_path_buf(),
-                        container_size: 4 as u8,
-                    },
-                    data_pool: Box::new(VariableDataPoolConfig {
-                        directory: Path::new("/tmp/lawn/test/database/0/data_pool").to_path_buf(),
-                        max_element_size: 65536 as usize,
-                    }),
-                }],
-                log: LogConfig {
-                    path: Path::new("/tmp/lawn/test/database/log.dat").to_path_buf(),
-                },
-            })
-            .unwrap();
-            database
+            new_default_database()
                 .lock_all_and_clear()
                 .unwrap()
                 .lock_all_and_write(|mut transaction| {
@@ -406,23 +378,7 @@ mod tests {
                 .unwrap();
         }
         {
-            let database = Database::new(DatabaseConfig {
-                tables: vec![TableConfig {
-                    index: IndexConfig {
-                        path: Path::new("/tmp/lawn/test/database/0/index.idx").to_path_buf(),
-                        container_size: 4 as u8,
-                    },
-                    data_pool: Box::new(VariableDataPoolConfig {
-                        directory: Path::new("/tmp/lawn/test/database/0/data_pool").to_path_buf(),
-                        max_element_size: 65536 as usize,
-                    }),
-                }],
-                log: LogConfig {
-                    path: Path::new("/tmp/lawn/test/database/log.dat").to_path_buf(),
-                },
-            })
-            .unwrap();
-            database
+            new_default_database()
                 .lock_all_and_recover()
                 .unwrap()
                 .lock_all_writes_and_read(|transaction| {
