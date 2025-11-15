@@ -150,30 +150,30 @@ impl DataPool for FixedDataPool {
     fn update(
         &mut self,
         data_to_add: &Vec<Vec<u8>>,
-        pointers_to_data_to_delete: &Vec<u64>,
+        pointers_to_data_to_remove: &Vec<u64>,
     ) -> Result<Vec<u64>, String> {
         let mut result = Vec::with_capacity(data_to_add.len());
 
         let mut replaced = 0 as usize;
-        while replaced < data_to_add.len() && replaced < pointers_to_data_to_delete.len() {
-            let pointer = pointers_to_data_to_delete[replaced];
+        while replaced < data_to_add.len() && replaced < pointers_to_data_to_remove.len() {
+            let pointer = pointers_to_data_to_remove[replaced];
             self.set(pointer, &data_to_add[replaced])?;
             result.push(pointer);
             replaced += 1;
         }
-        if replaced < pointers_to_data_to_delete.len() {
-            self.set(pointers_to_data_to_delete[replaced], &self.head.clone())?;
-            for pointer_index in replaced + 1..pointers_to_data_to_delete.len() {
+        if replaced < pointers_to_data_to_remove.len() {
+            self.set(pointers_to_data_to_remove[replaced], &self.head.clone())?;
+            for pointer_index in replaced + 1..pointers_to_data_to_remove.len() {
                 self.set(
-                    pointers_to_data_to_delete[pointer_index],
-                    &self.pointer_to_container(pointers_to_data_to_delete[pointer_index - 1]),
+                    pointers_to_data_to_remove[pointer_index],
+                    &self.pointer_to_container(pointers_to_data_to_remove[pointer_index - 1]),
                 )?;
             }
             self.set_head(
                 &self.pointer_to_container(
-                    *pointers_to_data_to_delete
+                    *pointers_to_data_to_remove
                         .last()
-                        .ok_or("Can not get last pointer to data to delete".to_string())?,
+                        .ok_or("Can not get last pointer to data to remove".to_string())?,
                 ),
             )?;
         }
@@ -254,17 +254,17 @@ mod tests {
                     data
                 })
                 .collect();
-            let pointers_to_data_to_delete: Vec<u64> = previously_added_data
+            let pointers_to_data_to_remove: Vec<u64> = previously_added_data
                 .keys()
                 .take(rng.generate_range(0..=previously_added_data.len()))
                 .cloned()
                 .collect();
-            for pointer in &pointers_to_data_to_delete {
+            for pointer in &pointers_to_data_to_remove {
                 previously_added_data.remove(&pointer);
             }
 
             let pointers_to_added_data = fixed_data_pool
-                .update(&data_to_add, &pointers_to_data_to_delete)
+                .update(&data_to_add, &pointers_to_data_to_remove)
                 .unwrap();
             pointers_to_added_data
                 .iter()

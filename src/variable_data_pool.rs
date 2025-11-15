@@ -133,7 +133,7 @@ impl DataPool for VariableDataPool {
     fn update(
         &mut self,
         data_to_add: &Vec<Vec<u8>>,
-        ids_of_data_to_delete: &Vec<u64>,
+        ids_of_data_to_remove: &Vec<u64>,
     ) -> Result<Vec<u64>, String> {
         let mut container_size_index_to_encoded_data_to_add: [Vec<Vec<u8>>;
             CONTAINERS_SIZES_COUNT] = [const { Vec::new() }; CONTAINERS_SIZES_COUNT];
@@ -155,11 +155,11 @@ impl DataPool for VariableDataPool {
             container_size_index_to_encoded_data_to_add[container_size_index].push(encoded_data);
         }
 
-        let mut container_size_index_to_pointers_to_delete: [Vec<u64>; CONTAINERS_SIZES_COUNT] =
+        let mut container_size_index_to_pointers_to_remove: [Vec<u64>; CONTAINERS_SIZES_COUNT] =
             [const { Vec::new() }; CONTAINERS_SIZES_COUNT];
-        for id in ids_of_data_to_delete {
+        for id in ids_of_data_to_remove {
             let parsed_id = Id::from(*id);
-            container_size_index_to_pointers_to_delete[parsed_id.container_size_index as usize]
+            container_size_index_to_pointers_to_remove[parsed_id.container_size_index as usize]
                 .push(parsed_id.pointer);
         }
 
@@ -167,14 +167,14 @@ impl DataPool for VariableDataPool {
         for container_size_index in 0..CONTAINERS_SIZES_COUNT {
             let encoded_data_to_add =
                 &container_size_index_to_encoded_data_to_add[container_size_index];
-            let pointers_to_data_to_delete =
-                &container_size_index_to_pointers_to_delete[container_size_index];
-            if encoded_data_to_add.len() == 0 && pointers_to_data_to_delete.len() == 0 {
+            let pointers_to_data_to_remove =
+                &container_size_index_to_pointers_to_remove[container_size_index];
+            if encoded_data_to_add.len() == 0 && pointers_to_data_to_remove.len() == 0 {
                 continue;
             }
             let encoded_data_to_add_pointers = self.container_size_index_to_fixed_data_pool
                 [container_size_index]
-                .update(encoded_data_to_add, pointers_to_data_to_delete)?;
+                .update(encoded_data_to_add, pointers_to_data_to_remove)?;
             for (encoded_data_to_add_index, pointer) in
                 encoded_data_to_add_pointers.iter().enumerate()
             {
@@ -250,17 +250,17 @@ mod tests {
                     data
                 })
                 .collect();
-            let ids_of_data_to_delete: Vec<u64> = previously_added_data
+            let ids_of_data_to_remove: Vec<u64> = previously_added_data
                 .keys()
                 .take(rng.generate_range(0..=previously_added_data.len()))
                 .cloned()
                 .collect();
-            for id in &ids_of_data_to_delete {
+            for id in &ids_of_data_to_remove {
                 previously_added_data.remove(&id);
             }
 
             let ids_of_added_data = variable_data_pool
-                .update(&data_to_add, &ids_of_data_to_delete)
+                .update(&data_to_add, &ids_of_data_to_remove)
                 .unwrap();
             ids_of_added_data
                 .iter()

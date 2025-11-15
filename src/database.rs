@@ -74,7 +74,7 @@ impl<'a> WriteTransaction<'a> {
         Ok(self)
     }
 
-    pub fn delete(&mut self, table_index: usize, key: Vec<u8>) -> Result<&mut Self, String> {
+    pub fn remove(&mut self, table_index: usize, key: Vec<u8>) -> Result<&mut Self, String> {
         self.changes_for_tables
             .get_mut(table_index)
             .ok_or(format!("No table at index {table_index}"))?
@@ -126,12 +126,18 @@ impl Database {
         })
     }
 
-    pub fn lock_all_writes_and_read(&self, f: fn(ReadTransaction) -> ()) -> Result<&Self, String> {
-        f(ReadTransaction::new(&Arc::clone(&self.lockable_internals))?);
+    pub fn lock_all_writes_and_read<F>(&self, closure: F) -> Result<&Self, String>
+    where
+        F: Fn(ReadTransaction) -> (),
+    {
+        closure(ReadTransaction::new(&Arc::clone(&self.lockable_internals))?);
         Ok(self)
     }
 
-    pub fn lock_all_and_write(&self, f: fn(WriteTransaction) -> ()) -> Result<&Self, String> {
+    pub fn lock_all_and_write<F>(&self, f: F) -> Result<&Self, String>
+    where
+        F: Fn(WriteTransaction) -> (),
+    {
         f(WriteTransaction::new(&Arc::clone(
             &self.lockable_internals,
         ))?);
@@ -191,7 +197,95 @@ mod tests {
     use crate::{
         index::IndexConfig, table::TableConfig, variable_data_pool::VariableDataPoolConfig,
     };
+    use nanorand::{Rng, WyRand};
+    use std::collections::HashMap;
     use std::path::Path;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_generative() {
+        let database = Database::new(DatabaseConfig {
+            tables: vec![TableConfig {
+                index: IndexConfig {
+                    path: Path::new("/tmp/lawn/test/database/0/index.idx").to_path_buf(),
+                    container_size: 4 as u8,
+                },
+                data_pool: Box::new(VariableDataPoolConfig {
+                    directory: Path::new("/tmp/lawn/test/database/0/data_pool").to_path_buf(),
+                    max_element_size: 65536 as usize,
+                }),
+            }],
+            log: LogConfig {
+                path: Path::new("/tmp/lawn/test/database/log.dat").to_path_buf(),
+            },
+        })
+        .unwrap();
+        database.lock_all_and_clear().unwrap();
+
+        let mut previously_added_keyvalues: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
+        let mut rng = WyRand::new_seed(0);
+
+        for _ in 0..10000 {
+            let action_id = if previously_added_keyvalues.is_empty() {
+                1
+            } else {
+                rng.generate_range(1..=2)
+            };
+            match action_id {
+                1 => {
+                    let key: Vec<u8> = {
+                        let mut result = vec![0u8; rng.generate_range(1..2)];
+                        rng.fill(&mut result);
+                        result
+                    };
+                    let value: Vec<u8> = {
+                        let mut result = vec![0u8; rng.generate_range(1..2)];
+                        rng.fill(&mut result);
+                        result
+                    };
+                    previously_added_keyvalues.insert(key.clone(), value.clone());
+                    database
+                        .lock_all_and_write(|mut transaction| {
+                            transaction
+                                .set(0, key.clone(), value.clone())
+                                .unwrap()
+                                .commit()
+                                .unwrap();
+                        })
+                        .unwrap();
+                }
+                2 => {
+                    let key_to_remove: Vec<u8> = previously_added_keyvalues
+                        .keys()
+                        .nth(rng.generate_range(0..previously_added_keyvalues.len()))
+                        .unwrap()
+                        .clone();
+                    previously_added_keyvalues.remove(&key_to_remove);
+                    database
+                        .lock_all_and_write(|mut transaction| {
+                            transaction
+                                .remove(0, key_to_remove.clone())
+                                .unwrap()
+                                .commit()
+                                .unwrap();
+                        })
+                        .unwrap();
+                }
+                _ => {}
+            }
+            let previously_added_keyvalues_arc = Arc::new(&previously_added_keyvalues).clone();
+            database
+                .lock_all_writes_and_read(|transaction| {
+                    for (key, value) in previously_added_keyvalues_arc.iter() {
+                        assert_eq!(
+                            transaction.get(0, &key).unwrap().clone(),
+                            Some(value.clone())
+                        );
+                    }
+                })
+                .unwrap();
+        }
+    }
 
     #[test]
     fn test_transactions_concurrency() {
@@ -298,7 +392,7 @@ mod tests {
             .unwrap()
             .lock_all_and_write(|mut transaction| {
                 transaction
-                    .delete(0, "key".as_bytes().to_vec())
+                    .remove(0, "key".as_bytes().to_vec())
                     .unwrap()
                     .commit()
                     .unwrap();

@@ -18,7 +18,7 @@ fn variable_data_pool(bencher: divan::Bencher) {
     const PATH: &str = "/tmp/lawn/benchmark/variable_data_pool";
 
     bencher.bench(|| {
-        let mut variable_data_pool = VariableDataPool::new(VariableDataPoolConfig {
+        let mut variable_data_pool = VariableDataPool::new(&VariableDataPoolConfig {
             directory: Path::new(PATH).to_path_buf(),
             max_element_size: 65536,
         })
@@ -37,17 +37,17 @@ fn variable_data_pool(bencher: divan::Bencher) {
                     data
                 })
                 .collect();
-            let ids_of_data_to_delete: Vec<u64> = previously_added_data
+            let ids_of_data_to_remove: Vec<u64> = previously_added_data
                 .keys()
                 .take(rng.generate_range(0..=previously_added_data.len()))
                 .cloned()
                 .collect();
-            for id in &ids_of_data_to_delete {
+            for id in &ids_of_data_to_remove {
                 previously_added_data.remove(&id);
             }
 
             let ids_of_added_data = variable_data_pool
-                .update(&data_to_add, &ids_of_data_to_delete)
+                .update(&data_to_add, &ids_of_data_to_remove)
                 .unwrap();
             ids_of_added_data
                 .iter()
