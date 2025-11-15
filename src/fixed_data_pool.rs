@@ -209,6 +209,9 @@ impl DataPool for FixedDataPool {
                 self.set_head(&new_head)?;
             }
         }
+        if self.empty && !result.is_empty() {
+            self.empty = false;
+        }
 
         Ok(result)
     }

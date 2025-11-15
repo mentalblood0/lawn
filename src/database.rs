@@ -364,34 +364,33 @@ mod tests {
 
     #[test]
     fn test_recover_from_log() {
-        {
-            new_default_database()
-                .lock_all_and_clear()
-                .unwrap()
-                .lock_all_and_write(|mut transaction| {
+        println!("test_recover_from_log");
+        new_default_database()
+            .lock_all_and_clear()
+            .unwrap()
+            .lock_all_and_write(|mut transaction| {
+                transaction
+                    .set(0, "key".as_bytes().to_vec(), "value".as_bytes().to_vec())
+                    .unwrap()
+                    .commit()
+                    .unwrap();
+            })
+            .unwrap();
+        println!("recovering...");
+        new_default_database()
+            .lock_all_and_recover()
+            .unwrap()
+            .lock_all_writes_and_read(|transaction| {
+                assert_eq!(
                     transaction
-                        .set(0, "key".as_bytes().to_vec(), "value".as_bytes().to_vec())
+                        .get(0, &"key".as_bytes().to_vec())
                         .unwrap()
-                        .commit()
-                        .unwrap();
-                })
-                .unwrap();
-        }
-        {
-            new_default_database()
-                .lock_all_and_recover()
-                .unwrap()
-                .lock_all_writes_and_read(|transaction| {
-                    assert_eq!(
-                        transaction
-                            .get(0, &"key".as_bytes().to_vec())
-                            .unwrap()
-                            .clone()
-                            .unwrap(),
-                        "value".as_bytes().to_vec()
-                    );
-                })
-                .unwrap();
-        }
+                        .clone()
+                        .unwrap(),
+                    "value".as_bytes().to_vec()
+                );
+            })
+            .unwrap();
+        println!("recovered");
     }
 }

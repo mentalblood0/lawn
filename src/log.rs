@@ -1,5 +1,5 @@
 use bincode;
-use std::io::{BufReader, Write};
+use std::io::{BufReader, Seek, Write};
 use std::path::PathBuf;
 use std::{collections::BTreeMap, fs};
 
@@ -16,19 +16,19 @@ pub struct Log {
     file: fs::File,
 }
 
-#[derive(bincode::Encode, bincode::Decode)]
+#[derive(bincode::Encode, bincode::Decode, Debug)]
 struct KeyValueChangeRecord {
     key: Vec<u8>,
     value: Option<Vec<u8>>,
 }
 
-#[derive(bincode::Encode, bincode::Decode)]
+#[derive(bincode::Encode, bincode::Decode, Debug)]
 struct TableChangeRecord {
     table_id: usize,
     keyvalues_changes: Vec<KeyValueChangeRecord>,
 }
 
-#[derive(bincode::Encode, bincode::Decode)]
+#[derive(bincode::Encode, bincode::Decode, Debug)]
 struct TransactionRecord {
     tables_changes: Vec<TableChangeRecord>,
 }
@@ -85,6 +85,9 @@ impl Log {
         self.file
             .write_all(&buffer.as_slice())
             .map_err(|error| format!("Can not write transaction log record to file: {error}"))?;
+        self.file
+            .flush()
+            .map_err(|error| format!("Can not flush transaction log record to file: {error}"))?;
         Ok(())
     }
 
@@ -101,9 +104,13 @@ impl Log {
             let transactcion_record: TransactionRecord =
                 match bincode::decode_from_std_read(&mut reader, bincode::config::standard()) {
                     Ok(transaction_record) => transaction_record,
-                    Err(_) => break,
+                    Err(error) => {
+                        dbg!(error);
+                        break;
+                    }
                 };
             for table_changes_record in transactcion_record.tables_changes {
+                dbg!(&table_changes_record);
                 while result.len() <= table_changes_record.table_id {
                     result.push(BTreeMap::new());
                 }
@@ -122,6 +129,7 @@ impl Log {
         self.file
             .set_len(0)
             .map_err(|error| format!("Can not truncate file {:?}: {error}", self.file))?;
+        self.file.flush().unwrap();
         Ok(())
     }
 }
