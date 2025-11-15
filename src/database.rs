@@ -376,45 +376,66 @@ mod tests {
 
     #[test]
     fn test_recover_from_log() {
-        let database = Database::new(DatabaseConfig {
-            tables: vec![TableConfig {
-                index: IndexConfig {
-                    path: Path::new("/tmp/lawn/test/database/0/index.idx").to_path_buf(),
-                    container_size: 4 as u8,
+        {
+            let database = Database::new(DatabaseConfig {
+                tables: vec![TableConfig {
+                    index: IndexConfig {
+                        path: Path::new("/tmp/lawn/test/database/0/index.idx").to_path_buf(),
+                        container_size: 4 as u8,
+                    },
+                    data_pool: Box::new(VariableDataPoolConfig {
+                        directory: Path::new("/tmp/lawn/test/database/0/data_pool").to_path_buf(),
+                        max_element_size: 65536 as usize,
+                    }),
+                }],
+                log: LogConfig {
+                    path: Path::new("/tmp/lawn/test/database/log.dat").to_path_buf(),
                 },
-                data_pool: Box::new(VariableDataPoolConfig {
-                    directory: Path::new("/tmp/lawn/test/database/0/data_pool").to_path_buf(),
-                    max_element_size: 65536 as usize,
-                }),
-            }],
-            log: LogConfig {
-                path: Path::new("/tmp/lawn/test/database/log.dat").to_path_buf(),
-            },
-        })
-        .unwrap();
-        database
-            .lock_all_and_clear()
-            .unwrap()
-            .lock_all_and_write(|mut transaction| {
-                transaction
-                    .set(0, "key".as_bytes().to_vec(), "value".as_bytes().to_vec())
-                    .unwrap()
-                    .commit()
-                    .unwrap();
-            })
-            .unwrap()
-            .lock_all_and_recover()
-            .unwrap()
-            .lock_all_writes_and_read(|transaction| {
-                assert_eq!(
-                    transaction
-                        .get(0, &"key".as_bytes().to_vec())
-                        .unwrap()
-                        .clone()
-                        .unwrap(),
-                    "value".as_bytes().to_vec()
-                );
             })
             .unwrap();
+            database
+                .lock_all_and_clear()
+                .unwrap()
+                .lock_all_and_write(|mut transaction| {
+                    transaction
+                        .set(0, "key".as_bytes().to_vec(), "value".as_bytes().to_vec())
+                        .unwrap()
+                        .commit()
+                        .unwrap();
+                })
+                .unwrap();
+        }
+        {
+            let database = Database::new(DatabaseConfig {
+                tables: vec![TableConfig {
+                    index: IndexConfig {
+                        path: Path::new("/tmp/lawn/test/database/0/index.idx").to_path_buf(),
+                        container_size: 4 as u8,
+                    },
+                    data_pool: Box::new(VariableDataPoolConfig {
+                        directory: Path::new("/tmp/lawn/test/database/0/data_pool").to_path_buf(),
+                        max_element_size: 65536 as usize,
+                    }),
+                }],
+                log: LogConfig {
+                    path: Path::new("/tmp/lawn/test/database/log.dat").to_path_buf(),
+                },
+            })
+            .unwrap();
+            database
+                .lock_all_and_recover()
+                .unwrap()
+                .lock_all_writes_and_read(|transaction| {
+                    assert_eq!(
+                        transaction
+                            .get(0, &"key".as_bytes().to_vec())
+                            .unwrap()
+                            .clone()
+                            .unwrap(),
+                        "value".as_bytes().to_vec()
+                    );
+                })
+                .unwrap();
+        }
     }
 }
