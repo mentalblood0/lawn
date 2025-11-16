@@ -5,6 +5,8 @@ use std::{fs, os::unix::fs::FileExt};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+use crate::variable_data_pool;
+
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct IndexConfig {
     pub path: PathBuf,
@@ -96,6 +98,26 @@ impl Index {
                 records_count,
                 bytes_on_disk,
             })
+        }
+    }
+
+    pub fn get(&self, record_index: u64) -> Result<Option<variable_data_pool::Id>, String> {
+        let mut buffer = vec![0 as u8; self.header.record_size as usize];
+        if self
+            .file
+            .read_exact_at(
+                &mut buffer,
+                self.header_size as u64 + record_index * self.header.record_size as u64,
+            )
+            .is_ok()
+        {
+            let result: variable_data_pool::Id =
+                bincode::decode_from_slice(&mut buffer, bincode::config::standard())
+                    .map_err(|error| format!("Can not decode data id from index record: {error}"))?
+                    .0;
+            Ok(Some(result))
+        } else {
+            Ok(None)
         }
     }
 

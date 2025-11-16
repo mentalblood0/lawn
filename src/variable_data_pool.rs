@@ -76,8 +76,8 @@ pub struct VariableDataPool {
     container_size_index_to_fixed_data_pool: [FixedDataPool; CONTAINERS_SIZES_COUNT],
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct Id {
+#[derive(Debug, Clone, PartialEq, Eq, Hash, bincode::Encode, bincode::Decode)]
+pub struct Id {
     pub container_size_index: u8,
     pub pointer: u64,
 }
