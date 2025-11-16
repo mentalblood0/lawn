@@ -213,7 +213,6 @@ mod tests {
                         .join("0")
                         .join("index.idx")
                         .to_path_buf(),
-                    container_size: 4 as u8,
                 },
                 data_pool: Box::new(VariableDataPoolConfig {
                     directory: database_dir

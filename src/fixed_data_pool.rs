@@ -17,8 +17,8 @@ pub struct FixedDataPoolConfig {
 #[derive(Debug)]
 pub struct FixedDataPool {
     pub config: FixedDataPoolConfig,
-    pub containers_allocated: u64,
-    pub bytesize_on_disk: u64,
+    containers_allocated: u64,
+    bytesize_on_disk: u64,
     file: fs::File,
     head_size: u8,
     head: Vec<u8>,
@@ -82,12 +82,12 @@ impl FixedDataPool {
         Ok(result)
     }
 
-    fn initialize_empty_file(&mut self) -> Result<&Self, String> {
+    fn initialize_empty_file(&mut self) -> Result<(), String> {
         self.set_head(&vec![0; self.head_size as usize])?;
         self.bytesize_on_disk = self.head_size as u64;
         self.containers_allocated = 0;
         self.empty = true;
-        Ok(self)
+        Ok(())
     }
 
     fn set_head(&mut self, value: &Vec<u8>) -> Result<&Self, String> {

@@ -16,19 +16,19 @@ pub struct Log {
     file: fs::File,
 }
 
-#[derive(bincode::Encode, bincode::Decode, Debug)]
+#[derive(bincode::Encode, bincode::Decode)]
 struct KeyValueChangeRecord {
     key: Vec<u8>,
     value: Option<Vec<u8>>,
 }
 
-#[derive(bincode::Encode, bincode::Decode, Debug)]
+#[derive(bincode::Encode, bincode::Decode)]
 struct TableChangeRecord {
     table_id: usize,
     keyvalues_changes: Vec<KeyValueChangeRecord>,
 }
 
-#[derive(bincode::Encode, bincode::Decode, Debug)]
+#[derive(bincode::Encode, bincode::Decode)]
 struct TransactionRecord {
     tables_changes: Vec<TableChangeRecord>,
 }
