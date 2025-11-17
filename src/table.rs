@@ -58,7 +58,7 @@ impl Table {
                     .get(record_index)?
                     .ok_or(format!("Can not get data_id at index {record_index}"))?;
                 let data_record = self.get_from_index_by_id(data_record_id)?;
-                if &data_record.key < key {
+                if &data_record.key > key {
                     Ok(Direction::Low(()))
                 } else {
                     Ok(Direction::High(()))
@@ -102,7 +102,6 @@ impl Middles {
     }
 }
 
-#[derive(Debug)]
 struct Middle {
     left_index: usize,
     middle_index: usize,
@@ -135,6 +134,47 @@ impl Iterator for Middles {
             None => None,
         }
     }
+}
+
+fn sparse_merge<F, A, B>(
+    big_size: u64,
+    mut big_get_element: F,
+    small: Vec<Vec<u8>>,
+) -> Result<Vec<u64>, String>
+where
+    F: FnMut(u64) -> Result<Option<Vec<u8>>, String>,
+{
+    let mut result_insert_indexes: Vec<Option<u64>> = vec![None; small.len()];
+    for middle in Middles::new(small.len()) {
+        let element_to_insert = &small[middle.middle_index];
+
+        let left_bound =
+            result_insert_indexes[std::cmp::max(0, middle.left_index - 1)].unwrap_or(0);
+        let right_bound = result_insert_indexes
+            [std::cmp::min(middle.right_index + 1, result_insert_indexes.len() - 1)]
+        .unwrap_or(big_size - 1);
+
+        let insert_index = binary_search((left_bound, ()), (right_bound, ()), |element_index| {
+            match big_get_element(element_index)? {
+                Some(current) => {
+                    if current >= *element_to_insert {
+                        Ok(Direction::Low(()))
+                    } else {
+                        Ok(Direction::High(()))
+                    }
+                }
+                None => Ok(Direction::Low(())),
+            }
+        })?
+        .1
+        .0;
+
+        result_insert_indexes[middle.middle_index] = Some(insert_index);
+    }
+    Ok(result_insert_indexes
+        .into_iter()
+        .map(Option::unwrap)
+        .collect())
 }
 
 #[cfg(test)]
