@@ -53,11 +53,10 @@ impl Table {
             (0 as u64, ()),
             (self.index.get_records_count(), ()),
             |record_index| {
-                let data_record_id = u64::from(
-                    self.index
-                        .get(record_index)?
-                        .ok_or(format!("Can not get data_id at index {record_index}"))?,
-                );
+                let data_record_id = self
+                    .index
+                    .get(record_index)?
+                    .ok_or(format!("Can not get data_id at index {record_index}"))?;
                 let data_record = self.get_from_index_by_id(data_record_id)?;
                 if &data_record.key < key {
                     Ok(Direction::Low(()))

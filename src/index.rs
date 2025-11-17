@@ -101,7 +101,7 @@ impl Index {
         }
     }
 
-    pub fn get(&self, record_index: u64) -> Result<Option<variable_data_pool::Id>, String> {
+    pub fn get(&self, record_index: u64) -> Result<Option<u64>, String> {
         let mut buffer = vec![0 as u8; self.header.record_size as usize];
         if self
             .file
@@ -111,10 +111,10 @@ impl Index {
             )
             .is_ok()
         {
-            let result: variable_data_pool::Id =
-                bincode::decode_from_slice(&mut buffer, bincode::config::standard())
-                    .map_err(|error| format!("Can not decode data id from index record: {error}"))?
-                    .0;
+            let mut result: u64 = 0;
+            for byte in buffer[..std::cmp::min(8, buffer.len())].iter() {
+                result = (result << 8) + *byte as u64;
+            }
             Ok(Some(result))
         } else {
             Ok(None)
