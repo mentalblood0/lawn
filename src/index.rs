@@ -121,6 +121,10 @@ impl Index {
         }
     }
 
+    pub fn get_records_count(&self) -> u64 {
+        self.records_count
+    }
+
     pub fn clear(&mut self) -> Result<(), String> {
         self.file
             .set_len(0)

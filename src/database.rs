@@ -34,13 +34,12 @@ impl<'a> ReadTransaction<'a> {
         })
     }
 
-    pub fn get(&self, table_id: usize, key: &Vec<u8>) -> Result<&Option<Vec<u8>>, String> {
-        Ok(self
-            .database_locked_internals
+    pub fn get(&self, table_id: usize, key: &Vec<u8>) -> Result<Option<Vec<u8>>, String> {
+        self.database_locked_internals
             .tables
             .get(table_id)
             .ok_or(format!("No table with id {table_id}"))?
-            .get(key))
+            .get(key)
     }
 }
 
@@ -82,17 +81,17 @@ impl<'a> WriteTransaction<'a> {
         Ok(self)
     }
 
-    pub fn get(&self, table_index: usize, key: &Vec<u8>) -> Result<&Option<Vec<u8>>, String> {
+    pub fn get(&self, table_index: usize, key: &Vec<u8>) -> Result<Option<Vec<u8>>, String> {
         match self
             .changes_for_tables
             .get(table_index)
             .ok_or(format!("No table at index {table_index}"))?
             .get(key)
         {
-            Some(result_from_changes) => Ok(result_from_changes),
+            Some(result_from_changes) => Ok(result_from_changes.clone()),
             None => match self.database_locked_internals.tables.get(table_index) {
-                Some(table) => Ok(table.get(key)),
-                None => Ok(&None),
+                Some(table) => table.get(key),
+                None => Ok(None),
             },
         }
     }
