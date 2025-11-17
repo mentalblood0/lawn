@@ -5,8 +5,6 @@ use std::{fs, os::unix::fs::FileExt};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::variable_data_pool;
-
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct IndexConfig {
     pub path: PathBuf,

@@ -1,5 +1,5 @@
 use bincode;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -86,5 +86,64 @@ impl Table {
         self.data_pool.clear()?;
         self.memtable.clear();
         Ok(())
+    }
+}
+
+struct Middles {
+    source_size: usize,
+    queue: VecDeque<(usize, usize)>,
+}
+
+impl Middles {
+    fn new(source_size: usize) -> Self {
+        let mut queue: VecDeque<(usize, usize)> = VecDeque::new();
+        queue.push_back((0, source_size - 1));
+        Self { source_size, queue }
+    }
+}
+
+#[derive(Debug)]
+struct Middle {
+    left_index: usize,
+    middle_index: usize,
+    right_index: usize,
+}
+
+impl Iterator for Middles {
+    type Item = Middle;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.queue.pop_front() {
+            Some((left_index, right_index)) => {
+                let middle_index = (left_index + right_index) / 2;
+                let result = Middle {
+                    left_index,
+                    middle_index,
+                    right_index,
+                };
+
+                if left_index + 1 <= middle_index {
+                    self.queue.push_back((left_index, middle_index - 1));
+                }
+
+                if middle_index + 1 <= right_index {
+                    self.queue.push_back((middle_index + 1, right_index));
+                }
+
+                Some(result)
+            }
+            None => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_middles() {
+        let middles: Vec<usize> = Middles::new(10).map(|middle| middle.middle_index).collect();
+        assert_eq!(middles, vec![4, 1, 7, 0, 2, 5, 8, 3, 6, 9]);
     }
 }
