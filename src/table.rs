@@ -181,6 +181,38 @@ where
 mod tests {
     use super::*;
 
+    fn insert_merge<F, A, B>(
+        big_size: u64,
+        mut big_get_element: F,
+        small: Vec<Vec<u8>>,
+    ) -> Result<Vec<u64>, String>
+    where
+        F: FnMut(u64) -> Result<Option<Vec<u8>>, String>,
+    {
+        let mut result: Vec<u64> = Vec::with_capacity(small.len());
+        for (i, element_to_insert) in small.iter().enumerate() {
+            result.push(
+                binary_search(
+                    (0, ()),
+                    (big_size - 1, ()),
+                    |element_index| match big_get_element(element_index)? {
+                        Some(current) => {
+                            if current >= *element_to_insert {
+                                Ok(Direction::Low(()))
+                            } else {
+                                Ok(Direction::High(()))
+                            }
+                        }
+                        None => Ok(Direction::Low(())),
+                    },
+                )?
+                .1
+                .0,
+            );
+        }
+        Ok(result)
+    }
+
     #[test]
     fn test_middles() {
         let middles: Vec<usize> = Middles::new(10).map(|middle| middle.middle_index).collect();
