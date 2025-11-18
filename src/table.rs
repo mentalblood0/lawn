@@ -194,6 +194,41 @@ mod tests {
 
     use pretty_assertions::assert_eq;
 
+    #[test]
+    fn test_binary_search() {
+        let source: Vec<usize> = (0..10).collect();
+        let mut result: Vec<usize> = Vec::with_capacity(source.len());
+
+        for element_to_find in &source {
+            let search_result = binary_search(
+                (0, source.first().unwrap()),
+                (&source.len() - 1, source.last().unwrap()),
+                |element_index| {
+                    let current = &source[element_index];
+                    if current <= element_to_find {
+                        Ok(Direction::Low(current))
+                    } else {
+                        Ok(Direction::High(current))
+                    }
+                },
+            )
+            .unwrap();
+            result.push(if search_result.0.1 == element_to_find {
+                search_result.0.0
+            } else {
+                search_result.1.0
+            });
+        }
+
+        assert_eq!(result, source);
+    }
+
+    #[test]
+    fn test_middles() {
+        let middles: Vec<usize> = Middles::new(10).map(|middle| middle.middle_index).collect();
+        assert_eq!(middles, vec![4, 1, 7, 0, 2, 5, 8, 3, 6, 9]);
+    }
+
     fn insert_merge<F, T>(
         big_len: u64,
         mut big_get_element: F,
@@ -229,41 +264,6 @@ mod tests {
     }
 
     #[test]
-    fn test_middles() {
-        let middles: Vec<usize> = Middles::new(10).map(|middle| middle.middle_index).collect();
-        assert_eq!(middles, vec![4, 1, 7, 0, 2, 5, 8, 3, 6, 9]);
-    }
-
-    #[test]
-    fn test_binary_search() {
-        let source: Vec<usize> = (0..10).collect();
-        let mut result: Vec<usize> = Vec::with_capacity(source.len());
-
-        for element_to_find in &source {
-            let search_result = binary_search(
-                (0, source.first().unwrap()),
-                (&source.len() - 1, source.last().unwrap()),
-                |element_index| {
-                    let current = &source[element_index];
-                    if current <= element_to_find {
-                        Ok(Direction::Low(current))
-                    } else {
-                        Ok(Direction::High(current))
-                    }
-                },
-            )
-            .unwrap();
-            result.push(if search_result.0.1 == element_to_find {
-                search_result.0.0
-            } else {
-                search_result.1.0
-            });
-        }
-
-        assert_eq!(result, source);
-    }
-
-    #[test]
     fn test_insert_merge() {
         const ELEMENT_SIZE: usize = 16;
 
@@ -274,16 +274,21 @@ mod tests {
         let mut small: Vec<usize> = (0..10).map(|_| rng.generate()).collect();
         small.sort();
 
-        let insert_indexes = insert_merge(
+        let mut insert_indexes: Vec<(usize, u64)> = insert_merge(
             big.len() as u64,
             |element_index| Ok(big.get(element_index as usize).cloned()),
             &small,
         )
-        .unwrap();
+        .unwrap()
+        .iter()
+        .enumerate()
+        .map(|(element_index, insert_index)| (small[element_index], *insert_index))
+        .collect();
+        insert_indexes.sort_by_key(|(element, insert_index)| *insert_index);
+
         let mut result = big.clone();
-        for (element_index, insert_index) in insert_indexes.iter().enumerate() {
-            dbg!(&element_index, &insert_index);
-            result.insert(*insert_index as usize, small[element_index].clone());
+        for (element, insert_index) in insert_indexes.iter().rev() {
+            result.insert(*insert_index as usize, element.clone());
         }
 
         let mut correct_result = [big, small].concat();
