@@ -136,10 +136,10 @@ impl Iterator for Middles {
     }
 }
 
-fn sparse_merge<F, A, B>(
-    big_size: u64,
+fn sparse_merge<F>(
+    big_len: u64,
     mut big_get_element: F,
-    small: Vec<Vec<u8>>,
+    small: &Vec<Vec<u8>>,
 ) -> Result<Vec<u64>, String>
 where
     F: FnMut(u64) -> Result<Option<Vec<u8>>, String>,
@@ -148,11 +148,15 @@ where
     for middle in Middles::new(small.len()) {
         let element_to_insert = &small[middle.middle_index];
 
-        let left_bound =
-            result_insert_indexes[std::cmp::max(0, middle.left_index - 1)].unwrap_or(0);
+        let left_bound = result_insert_indexes[if middle.left_index > 1 {
+            middle.left_index - 1
+        } else {
+            0
+        }]
+        .unwrap_or(0);
         let right_bound = result_insert_indexes
             [std::cmp::min(middle.right_index + 1, result_insert_indexes.len() - 1)]
-        .unwrap_or(big_size - 1);
+        .unwrap_or(big_len - 1);
 
         let insert_index = binary_search((left_bound, ()), (right_bound, ()), |element_index| {
             match big_get_element(element_index)? {
@@ -180,11 +184,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nanorand::{Rng, WyRand};
 
-    fn insert_merge<F, A, B>(
-        big_size: u64,
+    fn insert_merge<F>(
+        big_len: u64,
         mut big_get_element: F,
-        small: Vec<Vec<u8>>,
+        small: &Vec<Vec<u8>>,
     ) -> Result<Vec<u64>, String>
     where
         F: FnMut(u64) -> Result<Option<Vec<u8>>, String>,
@@ -194,7 +199,7 @@ mod tests {
             result.push(
                 binary_search(
                     (0, ()),
-                    (big_size - 1, ()),
+                    (big_len - 1, ()),
                     |element_index| match big_get_element(element_index)? {
                         Some(current) => {
                             if current >= *element_to_insert {
@@ -217,5 +222,40 @@ mod tests {
     fn test_middles() {
         let middles: Vec<usize> = Middles::new(10).map(|middle| middle.middle_index).collect();
         assert_eq!(middles, vec![4, 1, 7, 0, 2, 5, 8, 3, 6, 9]);
+    }
+
+    #[test]
+    fn test_sparse_merge() {
+        const ELEMENT_SIZE: usize = 16;
+
+        let mut rng = WyRand::new_seed(0);
+
+        let big: Vec<Vec<u8>> = (0..1000)
+            .map(|_| {
+                let mut data = vec![0u8; ELEMENT_SIZE];
+                rng.fill(&mut data);
+                data
+            })
+            .collect();
+        let small: Vec<Vec<u8>> = (0..100)
+            .map(|_| {
+                let mut data = vec![0u8; ELEMENT_SIZE];
+                rng.fill(&mut data);
+                data
+            })
+            .collect();
+
+        let correct_result = insert_merge(
+            big.len() as u64,
+            |element_index| Ok(big.get(element_index as usize).cloned()),
+            &small,
+        );
+        let result = sparse_merge(
+            big.len() as u64,
+            |element_index| Ok(big.get(element_index as usize).cloned()),
+            &small,
+        );
+
+        assert_eq!(result, correct_result);
     }
 }
