@@ -4,9 +4,9 @@ use std::collections::{BTreeMap, VecDeque};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::binary_search::{Direction, binary_search};
 use crate::data_pool::{DataPool, DataPoolConfig};
 use crate::index::{Index, IndexConfig};
+use crate::partition_point::PartitionPoint;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TableConfig {
@@ -49,29 +49,18 @@ impl Table {
     }
 
     fn get_from_index(&self, key: &Vec<u8>) -> Result<Option<Vec<u8>>, String> {
-        let low_and_high = binary_search(
-            (0 as u64, ()),
-            (self.index.get_records_count(), ()),
-            |record_index| {
+        Ok(
+            PartitionPoint::new(0, self.index.get_records_count(), |record_index| {
                 let data_record_id = self
                     .index
                     .get(record_index)?
                     .ok_or(format!("Can not get data_id at index {record_index}"))?;
                 let data_record = self.get_from_index_by_id(data_record_id)?;
-                if &data_record.key > key {
-                    Ok(Direction::Low(()))
-                } else {
-                    Ok(Direction::High(()))
-                }
-            },
-        )?;
-        let result_data_record_id = low_and_high.1.0;
-        let result_data_record = self.get_from_index_by_id(result_data_record_id)?;
-        if &result_data_record.key == key {
-            Ok(Some(result_data_record.value))
-        } else {
-            Ok(None)
-        }
+                Ok((data_record.key.cmp(key), data_record.value))
+            })?
+            .filter(|partition_point| partition_point.is_exact)
+            .map(|partition_point| partition_point.first_satisfying.value),
+        )
     }
 
     pub fn get(&self, key: &Vec<u8>) -> Result<Option<Vec<u8>>, String> {
@@ -144,6 +133,7 @@ fn sparse_merge<F, T>(
 where
     F: FnMut(u64) -> Result<Option<T>, String>,
     T: Ord,
+    T: std::fmt::Debug,
 {
     let mut result_insert_indexes: Vec<Option<u64>> = vec![None; small.len()];
     for middle in Middles::new(small.len()) {
@@ -160,25 +150,13 @@ where
         .unwrap_or(big_len - 1);
 
         result_insert_indexes[middle.middle_index] = Some({
-            let search_result = binary_search(
-                (left_bound, big_get_element(left_bound)?.unwrap()),
-                (right_bound, big_get_element(right_bound)?.unwrap()),
-                |element_index| {
-                    let current = big_get_element(element_index)?.unwrap();
-                    if current <= *element_to_insert {
-                        Ok(Direction::Low(current))
-                    } else {
-                        Ok(Direction::High(current))
-                    }
-                },
-            )?;
-            let result = if &search_result.0.1 == element_to_insert {
-                search_result.0.0
-            } else {
-                search_result.1.0
-            };
-            dbg!(search_result.0.0, search_result.1.0, result);
-            result
+            PartitionPoint::new(left_bound, right_bound, |element_index| {
+                let current = big_get_element(element_index)?.unwrap();
+                Ok((current.cmp(element_to_insert), current))
+            })?
+            .map_or(left_bound, |partition_point| {
+                partition_point.first_satisfying.index
+            })
         });
     }
     Ok(result_insert_indexes
@@ -196,28 +174,20 @@ mod tests {
 
     #[test]
     fn test_binary_search() {
-        let source: Vec<usize> = (0..10).collect();
-        let mut result: Vec<usize> = Vec::with_capacity(source.len());
+        let source: Vec<u64> = (0..10).collect();
+        let mut result: Vec<u64> = Vec::with_capacity(source.len());
 
         for element_to_find in &source {
-            let search_result = binary_search(
-                (0, source.first().unwrap()),
-                (&source.len() - 1, source.last().unwrap()),
-                |element_index| {
-                    let current = &source[element_index];
-                    if current <= element_to_find {
-                        Ok(Direction::Low(current))
-                    } else {
-                        Ok(Direction::High(current))
-                    }
-                },
-            )
-            .unwrap();
-            result.push(if search_result.0.1 == element_to_find {
-                search_result.0.0
-            } else {
-                search_result.1.0
-            });
+            result.push(
+                PartitionPoint::new(0, (&source.len() - 1) as u64, |element_index| {
+                    let current = source[element_index as usize];
+                    Ok((current.cmp(element_to_find), current))
+                })
+                .unwrap()
+                .map_or(*source.last().unwrap(), |partition_point| {
+                    partition_point.first_satisfying.index
+                }),
+            );
         }
 
         assert_eq!(result, source);
@@ -241,23 +211,11 @@ mod tests {
         let mut result: Vec<u64> = Vec::with_capacity(small.len());
         for element_to_insert in small.iter() {
             result.push({
-                let search_result = binary_search(
-                    (0, big_get_element(0)?.unwrap()),
-                    (big_len - 1, big_get_element(big_len - 1)?.unwrap()),
-                    |element_index| {
-                        let current = big_get_element(element_index)?.unwrap();
-                        if current <= *element_to_insert {
-                            Ok(Direction::Low(current))
-                        } else {
-                            Ok(Direction::High(current))
-                        }
-                    },
-                )?;
-                if &search_result.0.1 == element_to_insert {
-                    search_result.0.0
-                } else {
-                    search_result.1.0
-                }
+                PartitionPoint::new(0, big_len - 1, |element_index| {
+                    let current = big_get_element(element_index)?.unwrap();
+                    Ok((current.cmp(element_to_insert), current))
+                })?
+                .map_or(0, |partition_point| partition_point.first_satisfying.index)
             });
         }
         Ok(result)
@@ -269,9 +227,9 @@ mod tests {
 
         let mut rng = WyRand::new_seed(0);
 
-        let mut big: Vec<usize> = (0..100).map(|_| rng.generate()).collect();
+        let mut big: Vec<usize> = (0..1000).map(|_| rng.generate()).collect();
         big.sort();
-        let mut small: Vec<usize> = (0..10).map(|_| rng.generate()).collect();
+        let mut small: Vec<usize> = (0..100).map(|_| rng.generate()).collect();
         small.sort();
 
         let mut insert_indexes: Vec<(usize, u64)> = insert_merge(
