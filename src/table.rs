@@ -199,62 +199,6 @@ mod tests {
         assert_eq!(middles, vec![4, 1, 7, 0, 2, 5, 8, 3, 6, 9]);
     }
 
-    fn insert_merge<F, T>(
-        big_len: u64,
-        mut big_get_element: F,
-        small: &Vec<T>,
-    ) -> Result<Vec<u64>, String>
-    where
-        F: FnMut(u64) -> Result<Option<T>, String>,
-        T: Ord,
-    {
-        let mut result: Vec<u64> = Vec::with_capacity(small.len());
-        for element_to_insert in small.iter() {
-            result.push({
-                PartitionPoint::new(0, big_len - 1, |element_index| {
-                    let current = big_get_element(element_index)?.unwrap();
-                    Ok((current.cmp(element_to_insert), current))
-                })?
-                .map_or(0, |partition_point| partition_point.first_satisfying.index)
-            });
-        }
-        Ok(result)
-    }
-
-    #[test]
-    fn test_insert_merge() {
-        const ELEMENT_SIZE: usize = 16;
-
-        let mut rng = WyRand::new_seed(0);
-
-        let mut big: Vec<usize> = (0..1000).map(|_| rng.generate()).collect();
-        big.sort();
-        let mut small: Vec<usize> = (0..100).map(|_| rng.generate()).collect();
-        small.sort();
-
-        let mut insert_indexes: Vec<(usize, u64)> = insert_merge(
-            big.len() as u64,
-            |element_index| Ok(big.get(element_index as usize).cloned()),
-            &small,
-        )
-        .unwrap()
-        .iter()
-        .enumerate()
-        .map(|(element_index, insert_index)| (small[element_index], *insert_index))
-        .collect();
-        insert_indexes.sort_by_key(|(element, insert_index)| *insert_index);
-
-        let mut result = big.clone();
-        for (element, insert_index) in insert_indexes.iter().rev() {
-            result.insert(*insert_index as usize, element.clone());
-        }
-
-        let mut correct_result = [big, small].concat();
-        correct_result.sort();
-
-        assert_eq!(result, correct_result);
-    }
-
     #[test]
     fn test_sparse_merge() {
         const ELEMENT_SIZE: usize = 16;
