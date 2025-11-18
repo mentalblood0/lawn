@@ -136,13 +136,14 @@ impl Iterator for Middles {
     }
 }
 
-fn sparse_merge<F>(
+fn sparse_merge<F, T>(
     big_len: u64,
     mut big_get_element: F,
-    small: &Vec<Vec<u8>>,
+    small: &Vec<T>,
 ) -> Result<Vec<u64>, String>
 where
-    F: FnMut(u64) -> Result<Option<Vec<u8>>, String>,
+    F: FnMut(u64) -> Result<Option<T>, String>,
+    T: Ord,
 {
     let mut result_insert_indexes: Vec<Option<u64>> = vec![None; small.len()];
     for middle in Middles::new(small.len()) {
@@ -193,13 +194,14 @@ mod tests {
 
     use pretty_assertions::assert_eq;
 
-    fn insert_merge<F>(
+    fn insert_merge<F, T>(
         big_len: u64,
         mut big_get_element: F,
-        small: &Vec<Vec<u8>>,
+        small: &Vec<T>,
     ) -> Result<Vec<u64>, String>
     where
-        F: FnMut(u64) -> Result<Option<Vec<u8>>, String>,
+        F: FnMut(u64) -> Result<Option<T>, String>,
+        T: Ord,
     {
         let mut result: Vec<u64> = Vec::with_capacity(small.len());
         for element_to_insert in small.iter() {
@@ -262,38 +264,30 @@ mod tests {
     }
 
     #[test]
-    fn test_sparse_merge() {
+    fn test_insert_merge() {
         const ELEMENT_SIZE: usize = 16;
 
         let mut rng = WyRand::new_seed(0);
 
-        let mut big: Vec<Vec<u8>> = (0..1000)
-            .map(|_| {
-                let mut data = vec![0u8; ELEMENT_SIZE];
-                rng.fill(&mut data);
-                data
-            })
-            .collect();
+        let mut big: Vec<usize> = (0..100).map(|_| rng.generate()).collect();
         big.sort();
-        let mut small: Vec<Vec<u8>> = (0..100)
-            .map(|_| {
-                let mut data = vec![0u8; ELEMENT_SIZE];
-                rng.fill(&mut data);
-                data
-            })
-            .collect();
+        let mut small: Vec<usize> = (0..10).map(|_| rng.generate()).collect();
         small.sort();
 
-        let correct_result = insert_merge(
+        let insert_indexes = insert_merge(
             big.len() as u64,
             |element_index| Ok(big.get(element_index as usize).cloned()),
             &small,
-        );
-        let result = sparse_merge(
-            big.len() as u64,
-            |element_index| Ok(big.get(element_index as usize).cloned()),
-            &small,
-        );
+        )
+        .unwrap();
+        let mut result = big.clone();
+        for (element_index, insert_index) in insert_indexes.iter().enumerate() {
+            dbg!(&element_index, &insert_index);
+            result.insert(*insert_index as usize, small[element_index].clone());
+        }
+
+        let mut correct_result = [big, small].concat();
+        correct_result.sort();
 
         assert_eq!(result, correct_result);
     }
