@@ -296,4 +296,38 @@ mod tests {
 
         assert_eq!(result, correct_result);
     }
+
+    #[test]
+    fn test_sparse_merge() {
+        const ELEMENT_SIZE: usize = 16;
+
+        let mut rng = WyRand::new_seed(0);
+
+        let mut big: Vec<usize> = (0..100).map(|_| rng.generate()).collect();
+        big.sort();
+        let mut small: Vec<usize> = (0..20).map(|_| rng.generate()).collect();
+        small.sort();
+
+        let mut insert_indexes: Vec<(usize, u64)> = sparse_merge(
+            big.len() as u64,
+            |element_index| Ok(big.get(element_index as usize).cloned()),
+            &small,
+        )
+        .unwrap()
+        .iter()
+        .enumerate()
+        .map(|(element_index, insert_index)| (small[element_index], *insert_index))
+        .collect();
+        insert_indexes.sort_by_key(|(element, insert_index)| *insert_index);
+
+        let mut result = big.clone();
+        for (element, insert_index) in insert_indexes.iter().rev() {
+            result.insert(*insert_index as usize, element.clone());
+        }
+
+        let mut correct_result = [big, small].concat();
+        correct_result.sort();
+
+        assert_eq!(result, correct_result);
+    }
 }
