@@ -154,7 +154,7 @@ where
                 let current = big_get_element(element_index)?.unwrap();
                 Ok((current.cmp(element_to_insert), current))
             })?
-            .map_or(left_bound, |partition_point| {
+            .map_or(right_bound, |partition_point| {
                 partition_point.first_satisfying.index
             })
         });
@@ -261,9 +261,9 @@ mod tests {
 
         let mut rng = WyRand::new_seed(0);
 
-        let mut big: Vec<usize> = (0..100).map(|_| rng.generate()).collect();
+        let mut big: Vec<usize> = (0..1000).map(|_| rng.generate()).collect();
         big.sort();
-        let mut small: Vec<usize> = (0..20).map(|_| rng.generate()).collect();
+        let mut small: Vec<usize> = (0..100).map(|_| rng.generate()).collect();
         small.sort();
 
         let mut insert_indexes: Vec<(usize, u64)> = sparse_merge(
