@@ -15,6 +15,7 @@ serde = ["dep:serde", "dep:serde-saphyr", "dep:typetag"]
 [dev-dependencies]
 nanorand = "0.8.0"
 divan = "0.1.21"
+pretty_assertions = "1.4.1"
 
 [[bench]]
 name = "main"

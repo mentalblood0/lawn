@@ -235,6 +235,8 @@ mod tests {
     use std::collections::HashMap;
     use std::path::Path;
 
+    use pretty_assertions::assert_eq;
+
     #[test]
     fn test_generative() {
         const CONTAINER_SIZE: usize = 16;

@@ -220,6 +220,8 @@ mod tests {
     use std::collections::HashMap;
     use std::path::Path;
 
+    use pretty_assertions::assert_eq;
+
     #[test]
     fn test_splitting_scale() {
         for max_value in (CONTAINERS_SIZES_COUNT..(2 as usize).pow(16)).step_by(19) {

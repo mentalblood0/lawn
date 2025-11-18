@@ -201,6 +201,8 @@ mod tests {
     use std::path::Path;
     use std::sync::Arc;
 
+    use pretty_assertions::assert_eq;
+
     fn new_default_database(test_name_for_isolation: String) -> Database {
         let database_dir =
             Path::new(format!("/tmp/lawn/test/{test_name_for_isolation}").as_str()).to_path_buf();

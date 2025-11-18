@@ -158,22 +158,27 @@ where
             [std::cmp::min(middle.right_index + 1, result_insert_indexes.len() - 1)]
         .unwrap_or(big_len - 1);
 
-        let insert_index = binary_search((left_bound, ()), (right_bound, ()), |element_index| {
-            match big_get_element(element_index)? {
-                Some(current) => {
-                    if current >= *element_to_insert {
-                        Ok(Direction::Low(()))
+        result_insert_indexes[middle.middle_index] = Some({
+            let search_result = binary_search(
+                (left_bound, big_get_element(left_bound)?.unwrap()),
+                (right_bound, big_get_element(right_bound)?.unwrap()),
+                |element_index| {
+                    let current = big_get_element(element_index)?.unwrap();
+                    if current <= *element_to_insert {
+                        Ok(Direction::Low(current))
                     } else {
-                        Ok(Direction::High(()))
+                        Ok(Direction::High(current))
                     }
-                }
-                None => Ok(Direction::Low(())),
-            }
-        })?
-        .1
-        .0;
-
-        result_insert_indexes[middle.middle_index] = Some(insert_index);
+                },
+            )?;
+            let result = if &search_result.0.1 == element_to_insert {
+                search_result.0.0
+            } else {
+                search_result.1.0
+            };
+            dbg!(search_result.0.0, search_result.1.0, result);
+            result
+        });
     }
     Ok(result_insert_indexes
         .into_iter()
@@ -186,6 +191,8 @@ mod tests {
     use super::*;
     use nanorand::{Rng, WyRand};
 
+    use pretty_assertions::assert_eq;
+
     fn insert_merge<F>(
         big_len: u64,
         mut big_get_element: F,
@@ -195,25 +202,26 @@ mod tests {
         F: FnMut(u64) -> Result<Option<Vec<u8>>, String>,
     {
         let mut result: Vec<u64> = Vec::with_capacity(small.len());
-        for (i, element_to_insert) in small.iter().enumerate() {
-            result.push(
-                binary_search(
-                    (0, ()),
-                    (big_len - 1, ()),
-                    |element_index| match big_get_element(element_index)? {
-                        Some(current) => {
-                            if current >= *element_to_insert {
-                                Ok(Direction::Low(()))
-                            } else {
-                                Ok(Direction::High(()))
-                            }
+        for element_to_insert in small.iter() {
+            result.push({
+                let search_result = binary_search(
+                    (0, big_get_element(0)?.unwrap()),
+                    (big_len - 1, big_get_element(big_len - 1)?.unwrap()),
+                    |element_index| {
+                        let current = big_get_element(element_index)?.unwrap();
+                        if current <= *element_to_insert {
+                            Ok(Direction::Low(current))
+                        } else {
+                            Ok(Direction::High(current))
                         }
-                        None => Ok(Direction::Low(())),
                     },
-                )?
-                .1
-                .0,
-            );
+                )?;
+                if &search_result.0.1 == element_to_insert {
+                    search_result.0.0
+                } else {
+                    search_result.1.0
+                }
+            });
         }
         Ok(result)
     }
@@ -225,25 +233,56 @@ mod tests {
     }
 
     #[test]
+    fn test_binary_search() {
+        let source: Vec<usize> = (0..10).collect();
+        let mut result: Vec<usize> = Vec::with_capacity(source.len());
+
+        for element_to_find in &source {
+            let search_result = binary_search(
+                (0, source.first().unwrap()),
+                (&source.len() - 1, source.last().unwrap()),
+                |element_index| {
+                    let current = &source[element_index];
+                    if current <= element_to_find {
+                        Ok(Direction::Low(current))
+                    } else {
+                        Ok(Direction::High(current))
+                    }
+                },
+            )
+            .unwrap();
+            result.push(if search_result.0.1 == element_to_find {
+                search_result.0.0
+            } else {
+                search_result.1.0
+            });
+        }
+
+        assert_eq!(result, source);
+    }
+
+    #[test]
     fn test_sparse_merge() {
         const ELEMENT_SIZE: usize = 16;
 
         let mut rng = WyRand::new_seed(0);
 
-        let big: Vec<Vec<u8>> = (0..1000)
+        let mut big: Vec<Vec<u8>> = (0..1000)
             .map(|_| {
                 let mut data = vec![0u8; ELEMENT_SIZE];
                 rng.fill(&mut data);
                 data
             })
             .collect();
-        let small: Vec<Vec<u8>> = (0..100)
+        big.sort();
+        let mut small: Vec<Vec<u8>> = (0..100)
             .map(|_| {
                 let mut data = vec![0u8; ELEMENT_SIZE];
                 rng.fill(&mut data);
                 data
             })
             .collect();
+        small.sort();
 
         let correct_result = insert_merge(
             big.len() as u64,
