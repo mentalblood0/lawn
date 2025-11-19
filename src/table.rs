@@ -121,6 +121,11 @@ impl Table {
             &memtable_records,
         )?;
 
+        let mut memtable_records_to_add: Vec<MemtableRecord> = Vec::new();
+        let mut ids_to_delete: Vec<u64> = Vec::new();
+
+        for (current_record_index, merge_location) in insert_indices.iter().enumerate().rev() {}
+
         Ok(())
     }
 }
@@ -273,29 +278,16 @@ mod tests {
         small.sort();
         small.dedup();
 
-        let mut insert_indices: Vec<(u8, MergeLocation)> = sparse_merge(
+        let mut insert_indices: Vec<MergeLocation> = sparse_merge(
             big.len() as u64,
             |element_index| Ok(big.get(element_index as usize).cloned()),
             &small,
         )
-        .unwrap()
-        .into_iter()
-        .enumerate()
-        .map(|(element_index, merge_location)| (small[element_index], merge_location))
-        .collect();
-        insert_indices.sort_by_key(|(element, merge_location)| merge_location.index);
+        .unwrap();
 
         let mut result = big.clone();
-        let mut previous_element: Option<u8> = None;
-        for (element, merge_location) in insert_indices.iter().rev() {
-            if previous_element
-                .and_then(|previous_element| Some(previous_element == *element))
-                .unwrap_or(false)
-            {
-                continue;
-            }
-            previous_element = Some(*element);
-            dbg!(&element, &merge_location);
+        for (element_index, merge_location) in insert_indices.iter().enumerate().rev() {
+            let element = small[element_index];
             if merge_location.replace {
                 result[merge_location.index as usize] = element.clone();
             } else {
