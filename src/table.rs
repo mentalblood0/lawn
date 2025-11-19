@@ -115,10 +115,13 @@ impl Table {
                     "Can not get data record id at index {data_record_id_index}"
                 ))?;
                 let data_record = self.get_from_index_by_id(data_record_id)?;
-                Ok(Some(MemtableRecord {
-                    key: data_record.key,
-                    value: Some(data_record.value),
-                }))
+                Ok(Some((
+                    MemtableRecord {
+                        key: data_record.key,
+                        value: Some(data_record.value),
+                    },
+                    data_record_id,
+                )))
             },
             &memtable_records,
         )?;
@@ -126,15 +129,15 @@ impl Table {
         let mut memtable_records_to_add: Vec<&MemtableRecord> = Vec::new();
         let mut ids_to_delete: Vec<u64> = Vec::new();
 
-        for (current_record_index, merge_location) in insert_indices.iter().enumerate().rev() {
-            let current_record = &memtable_records[current_record_index];
-            match current_record.value {
-                Some(value) => {
-                    memtable_records_to_add.push(current_record);
-                }
-                None => {}
-            };
-        }
+        // for (current_record_index, merge_location) in insert_indices.iter().enumerate().rev() {
+        //     let current_record = &memtable_records[current_record_index];
+        //     match current_record.value {
+        //         Some(value) => {
+        //             memtable_records_to_add.push(current_record);
+        //         }
+        //         None => {}
+        //     };
+        // }
 
         Ok(())
     }
@@ -188,21 +191,23 @@ impl Iterator for Middles {
 }
 
 #[derive(Clone, Debug)]
-struct MergeLocation {
+struct MergeLocation<A: Clone + Ord> {
     index: u64,
     replace: bool,
+    additional_data: A,
 }
 
-fn sparse_merge<F, T>(
+fn sparse_merge<F, T, A>(
     big_len: u64,
     mut big_get_element: F,
     small: &Vec<T>,
-) -> Result<Vec<MergeLocation>, String>
+) -> Result<Vec<MergeLocation<A>>, String>
 where
-    F: FnMut(u64) -> Result<Option<T>, String>,
+    F: FnMut(u64) -> Result<Option<(T, A)>, String>,
     T: Ord,
+    A: Clone + Ord,
 {
-    let mut result_insert_indices: Vec<Option<MergeLocation>> = vec![None; small.len()];
+    let mut result_insert_indices: Vec<Option<MergeLocation<A>>> = vec![None; small.len()];
     for middle in Middles::new(small.len()) {
         let element_to_insert = &small[middle.middle_index];
 
@@ -223,12 +228,13 @@ where
         result_insert_indices[middle.middle_index] = Some({
             PartitionPoint::new(left_bound, right_bound, |element_index| {
                 let current = big_get_element(element_index)?.unwrap();
-                Ok((current.cmp(element_to_insert), current))
+                Ok((current.0.cmp(element_to_insert), current.0, current.1))
             })?
             .map_or(
                 MergeLocation {
                     index: right_bound,
                     replace: false,
+                    additional_data: ,
                 },
                 |partition_point| MergeLocation {
                     index: partition_point.first_satisfying.index,
