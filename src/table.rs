@@ -203,7 +203,7 @@ where
             [std::cmp::min(middle.right_index + 1, result_insert_indices.len() - 1)]
         .clone()
         .map(|merge_location| merge_location.index)
-        .unwrap_or(big_len - 1);
+        .unwrap_or(big_len);
 
         result_insert_indices[middle.middle_index] = Some({
             PartitionPoint::new(left_bound, right_bound, |element_index| {
