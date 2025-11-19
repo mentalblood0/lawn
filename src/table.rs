@@ -1,4 +1,5 @@
 use bincode;
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, VecDeque};
 
 #[cfg(feature = "serde")]
@@ -24,6 +25,31 @@ pub struct Table {
 struct DataRecord {
     key: Vec<u8>,
     value: Vec<u8>,
+}
+
+struct MemtableRecord {
+    key: Vec<u8>,
+    value: Option<Vec<u8>>,
+}
+
+impl PartialEq for MemtableRecord {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key
+    }
+}
+
+impl Eq for MemtableRecord {}
+
+impl PartialOrd for MemtableRecord {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.key.cmp(&other.key))
+    }
+}
+
+impl Ord for MemtableRecord {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.key.cmp(&other.key)
+    }
 }
 
 impl Table {
@@ -76,6 +102,27 @@ impl Table {
         self.memtable.clear();
         Ok(())
     }
+
+    pub fn checkpoint(&mut self) -> Result<(), String> {
+        let mut memtable_records: Vec<MemtableRecord> = std::mem::take(&mut self.memtable)
+            .into_iter()
+            .map(|(key, value)| MemtableRecord { key, value })
+            .collect();
+
+        let insert_indices = sparse_merge(
+            self.index.get_records_count(),
+            |element_id| {
+                let data_record = self.get_from_index_by_id(element_id)?;
+                Ok(Some(MemtableRecord {
+                    key: data_record.key,
+                    value: Some(data_record.value),
+                }))
+            },
+            &memtable_records,
+        )?;
+
+        Ok(())
+    }
 }
 
 struct Middles {
@@ -125,41 +172,57 @@ impl Iterator for Middles {
     }
 }
 
+#[derive(Clone, Debug)]
+struct MergeLocation {
+    index: u64,
+    replace: bool,
+}
+
 fn sparse_merge<F, T>(
     big_len: u64,
     mut big_get_element: F,
     small: &Vec<T>,
-) -> Result<Vec<u64>, String>
+) -> Result<Vec<MergeLocation>, String>
 where
     F: FnMut(u64) -> Result<Option<T>, String>,
     T: Ord,
-    T: std::fmt::Debug,
 {
-    let mut result_insert_indexes: Vec<Option<u64>> = vec![None; small.len()];
+    let mut result_insert_indices: Vec<Option<MergeLocation>> = vec![None; small.len()];
     for middle in Middles::new(small.len()) {
         let element_to_insert = &small[middle.middle_index];
 
-        let left_bound = result_insert_indexes[if middle.left_index > 1 {
+        let left_bound = result_insert_indices[if middle.left_index > 1 {
             middle.left_index - 1
         } else {
             0
         }]
+        .clone()
+        .map(|merge_location| merge_location.index)
         .unwrap_or(0);
-        let right_bound = result_insert_indexes
-            [std::cmp::min(middle.right_index + 1, result_insert_indexes.len() - 1)]
+        let right_bound = result_insert_indices
+            [std::cmp::min(middle.right_index + 1, result_insert_indices.len() - 1)]
+        .clone()
+        .map(|merge_location| merge_location.index)
         .unwrap_or(big_len - 1);
 
-        result_insert_indexes[middle.middle_index] = Some({
+        result_insert_indices[middle.middle_index] = Some({
             PartitionPoint::new(left_bound, right_bound, |element_index| {
                 let current = big_get_element(element_index)?.unwrap();
                 Ok((current.cmp(element_to_insert), current))
             })?
-            .map_or(right_bound, |partition_point| {
-                partition_point.first_satisfying.index
-            })
+            .map_or(
+                MergeLocation {
+                    index: right_bound,
+                    replace: false,
+                },
+                |partition_point| MergeLocation {
+                    index: partition_point.first_satisfying.index,
+                    replace: partition_point.is_exact,
+                },
+            )
         });
     }
-    Ok(result_insert_indexes
+    Ok(result_insert_indices
         .into_iter()
         .map(Option::unwrap)
         .collect())
@@ -201,34 +264,48 @@ mod tests {
 
     #[test]
     fn test_sparse_merge() {
-        const ELEMENT_SIZE: usize = 16;
-
         let mut rng = WyRand::new_seed(0);
 
-        let mut big: Vec<usize> = (0..1000).map(|_| rng.generate()).collect();
+        let mut big: Vec<u8> = (0..256).map(|_| rng.generate()).collect();
         big.sort();
-        let mut small: Vec<usize> = (0..100).map(|_| rng.generate()).collect();
+        big.dedup();
+        let mut small: Vec<u8> = (0..256).map(|_| rng.generate()).collect();
         small.sort();
+        small.dedup();
 
-        let mut insert_indexes: Vec<(usize, u64)> = sparse_merge(
+        let mut insert_indices: Vec<(u8, MergeLocation)> = sparse_merge(
             big.len() as u64,
             |element_index| Ok(big.get(element_index as usize).cloned()),
             &small,
         )
         .unwrap()
-        .iter()
+        .into_iter()
         .enumerate()
-        .map(|(element_index, insert_index)| (small[element_index], *insert_index))
+        .map(|(element_index, merge_location)| (small[element_index], merge_location))
         .collect();
-        insert_indexes.sort_by_key(|(element, insert_index)| *insert_index);
+        insert_indices.sort_by_key(|(element, merge_location)| merge_location.index);
 
         let mut result = big.clone();
-        for (element, insert_index) in insert_indexes.iter().rev() {
-            result.insert(*insert_index as usize, element.clone());
+        let mut previous_element: Option<u8> = None;
+        for (element, merge_location) in insert_indices.iter().rev() {
+            if previous_element
+                .and_then(|previous_element| Some(previous_element == *element))
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            previous_element = Some(*element);
+            dbg!(&element, &merge_location);
+            if merge_location.replace {
+                result[merge_location.index as usize] = element.clone();
+            } else {
+                result.insert(merge_location.index as usize, element.clone());
+            }
         }
 
         let mut correct_result = [big, small].concat();
         correct_result.sort();
+        correct_result.dedup();
 
         assert_eq!(result, correct_result);
     }

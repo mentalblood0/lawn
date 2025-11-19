@@ -137,7 +137,7 @@ impl DataPool for VariableDataPool {
     ) -> Result<Vec<u64>, String> {
         let mut container_size_index_to_encoded_data_to_add: [Vec<Vec<u8>>;
             CONTAINERS_SIZES_COUNT] = [const { Vec::new() }; CONTAINERS_SIZES_COUNT];
-        let mut container_size_index_to_data_to_add_initial_indexes: [Vec<usize>;
+        let mut container_size_index_to_data_to_add_initial_indices: [Vec<usize>;
             CONTAINERS_SIZES_COUNT] = [const { Vec::new() }; CONTAINERS_SIZES_COUNT];
         for (initial_index, data) in data_to_add.iter().enumerate() {
             let encoded_data = bincode::encode_to_vec(
@@ -150,7 +150,7 @@ impl DataPool for VariableDataPool {
                 .partition_point(|fixed_data_pool| {
                     fixed_data_pool.config.container_size < encoded_data.len()
                 });
-            container_size_index_to_data_to_add_initial_indexes[container_size_index]
+            container_size_index_to_data_to_add_initial_indices[container_size_index]
                 .push(initial_index);
             container_size_index_to_encoded_data_to_add[container_size_index].push(encoded_data);
         }
@@ -178,7 +178,7 @@ impl DataPool for VariableDataPool {
             for (encoded_data_to_add_index, pointer) in
                 encoded_data_to_add_pointers.iter().enumerate()
             {
-                let initial_index = container_size_index_to_data_to_add_initial_indexes
+                let initial_index = container_size_index_to_data_to_add_initial_indices
                     [container_size_index][encoded_data_to_add_index];
                 result[initial_index] = u64::from(Id {
                     container_size_index: container_size_index as u8,

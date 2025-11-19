@@ -47,7 +47,7 @@ impl<V> PartitionPoint<V> {
         }
 
         Ok(first_satisfying.map(|first_satisfying| Self {
-            first_satisfying: first_satisfying,
+            first_satisfying,
             is_exact,
         }))
     }
