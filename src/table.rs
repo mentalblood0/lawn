@@ -77,10 +77,9 @@ impl Table {
     fn get_from_index(&self, key: &Vec<u8>) -> Result<Option<Vec<u8>>, String> {
         Ok(
             PartitionPoint::new(0, self.index.get_records_count(), |record_index| {
-                let data_record_id = self
-                    .index
-                    .get(record_index)?
-                    .ok_or(format!("Can not get data_id at index {record_index}"))?;
+                let data_record_id = self.index.get(record_index)?.ok_or(format!(
+                    "Can not get data record id at index {record_index}"
+                ))?;
                 let data_record = self.get_from_index_by_id(data_record_id)?;
                 Ok((data_record.key.cmp(key), data_record.value))
             })?
@@ -111,8 +110,11 @@ impl Table {
 
         let insert_indices = sparse_merge(
             self.index.get_records_count(),
-            |element_id| {
-                let data_record = self.get_from_index_by_id(element_id)?;
+            |data_record_id_index| {
+                let data_record_id = self.index.get(data_record_id_index)?.ok_or(format!(
+                    "Can not get data record id at index {data_record_id_index}"
+                ))?;
+                let data_record = self.get_from_index_by_id(data_record_id)?;
                 Ok(Some(MemtableRecord {
                     key: data_record.key,
                     value: Some(data_record.value),
@@ -121,10 +123,18 @@ impl Table {
             &memtable_records,
         )?;
 
-        let mut memtable_records_to_add: Vec<MemtableRecord> = Vec::new();
+        let mut memtable_records_to_add: Vec<&MemtableRecord> = Vec::new();
         let mut ids_to_delete: Vec<u64> = Vec::new();
 
-        for (current_record_index, merge_location) in insert_indices.iter().enumerate().rev() {}
+        for (current_record_index, merge_location) in insert_indices.iter().enumerate().rev() {
+            let current_record = &memtable_records[current_record_index];
+            match current_record.value {
+                Some(value) => {
+                    memtable_records_to_add.push(current_record);
+                }
+                None => {}
+            };
+        }
 
         Ok(())
     }
