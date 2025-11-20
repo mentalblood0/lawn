@@ -1,6 +1,7 @@
 use bincode;
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::io::{BufReader, BufWriter, Read};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -157,8 +158,28 @@ impl Table {
             .data_pool
             .update(&memtable_records_to_add, &ids_to_delete);
 
-        for (record_index, new_id) in memtable_records_new_ids.iter().enumerate() {
-            let merge_location = memtable_records_to_add_merge_locations[record_index];
+        let new_index_file_path = self.index.config.path.with_extension("part");
+        let mut new_index_file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(&new_index_file_path)
+            .map_err(|error| {
+                format!(
+                    "Can not create file at path {} for writing: {error}",
+                    &new_index_file_path.display()
+                )
+            })?;
+        let mut new_index_writer = BufWriter::new(new_index_file);
+
+        let ids_to_delete_set: HashSet<u64> = ids_to_delete.into_iter().collect();
+        let mut memtable_records_new_ids_iter = memtable_records_new_ids.iter().enumerate();
+        for (old_index_data_id_index, old_index_data_id) in self.index.iter()?.enumerate() {
+            if ids_to_delete_set.contains(&old_index_data_id) {
+                continue;
+            }
+            for (record_index, new_id) in memtable_records_new_ids.iter().enumerate() {
+                let merge_location = memtable_records_to_add_merge_locations[record_index];
+            }
         }
 
         Ok(())

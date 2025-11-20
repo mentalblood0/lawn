@@ -1,4 +1,4 @@
-use std::io::{BufReader, BufWriter, Seek};
+use std::io::{BufReader, BufWriter, Read, Seek};
 use std::path::PathBuf;
 use std::{fs, os::unix::fs::FileExt};
 
@@ -110,8 +110,8 @@ impl Index {
             .is_ok()
         {
             let mut result: u64 = 0;
-            for byte in buffer[..std::cmp::min(8, buffer.len())].iter() {
-                result = (result << 8) + *byte as u64;
+            for byte in buffer {
+                result = (result << 8) + byte as u64;
             }
             Ok(Some(result))
         } else {
@@ -128,5 +128,55 @@ impl Index {
             .set_len(0)
             .map_err(|error| format!("Can not truncate file {:?}: {error}", self.file))?;
         Ok(())
+    }
+
+    pub fn iter(&self) -> Result<IndexIterator, String> {
+        let index_file = std::fs::OpenOptions::new()
+            .create(false)
+            .read(true)
+            .open(&self.config.path)
+            .map_err(|error| {
+                format!(
+                    "Can not open file at path {} for reading: {error}",
+                    &self.config.path.display()
+                )
+            })?;
+        Ok(IndexIterator {
+            reader: BufReader::new(index_file),
+            current_record_index: 0,
+            records_count: self.records_count,
+            buffer: vec![0 as u8; self.header.record_size as usize],
+        })
+    }
+}
+pub struct IndexIterator {
+    reader: BufReader<fs::File>,
+    current_record_index: u64,
+    records_count: u64,
+    buffer: Vec<u8>,
+}
+
+impl Iterator for IndexIterator {
+    type Item = u64;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_record_index == self.records_count - 1 {
+            return None;
+        }
+
+        match self
+            .reader
+            .read_exact(&mut self.buffer)
+            .map_err(|error| format!("Can not read index record (data id): {error}"))
+        {
+            Ok(_) => {
+                let mut result: u64 = 0;
+                for byte in &self.buffer {
+                    result = (result << 8) + *byte as u64;
+                }
+                Some(result)
+            }
+            Err(_) => None,
+        }
     }
 }
