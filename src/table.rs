@@ -103,6 +103,10 @@ impl Table {
     }
 
     pub fn checkpoint(&mut self) -> Result<(), String> {
+        if self.memtable.is_empty() {
+            return Ok(());
+        }
+
         let mut memtable_records: Vec<MemtableRecord> = std::mem::take(&mut self.memtable)
             .into_iter()
             .map(|(key, value)| MemtableRecord { key, value })
@@ -132,28 +136,30 @@ impl Table {
 
         for (current_record_index, merge_location) in merge_locations.into_iter().enumerate().rev()
         {
+            if merge_location.replace {
+                ids_to_delete.push(merge_location.additional_data);
+            }
             let current_record = &memtable_records[current_record_index];
-            match &current_record.value {
-                Some(value) => {
-                    let current_record_as_data_record_encoded = bincode::encode_to_vec(
-                        DataRecord {
-                            key: current_record.key.clone(),
-                            value: value.clone(),
-                        },
-                        bincode::config::standard(),
-                    )
-                    .map_err(|error| format!("Can not encode data record"))?;
-                    memtable_records_to_add.push(current_record_as_data_record_encoded);
-                }
-                None => {
-                    ids_to_delete.push(merge_location.additional_data);
-                }
+            if let Some(value) = &current_record.value {
+                let current_record_as_data_record_encoded = bincode::encode_to_vec(
+                    DataRecord {
+                        key: current_record.key.clone(),
+                        value: value.clone(),
+                    },
+                    bincode::config::standard(),
+                )
+                .map_err(|error| format!("Can not encode data record"))?;
+                memtable_records_to_add.push(current_record_as_data_record_encoded);
             };
         }
 
         let memtable_records_new_ids = self
             .data_pool
             .update(&memtable_records_to_add, &ids_to_delete);
+
+        for (record_index, new_id) in memtable_records_new_ids.iter().enumerate() {
+            let merge_location = memtable_records_to_add_merge_locations[record_index];
+        }
 
         Ok(())
     }
