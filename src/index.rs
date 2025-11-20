@@ -12,15 +12,15 @@ pub struct IndexConfig {
 
 #[derive(bincode::Encode, bincode::Decode)]
 struct IndexHeader {
-    record_size: u8,
+    pub record_size: u8,
 }
 
 pub struct Index {
     pub config: IndexConfig,
     file: fs::File,
-    header: IndexHeader,
+    pub header: IndexHeader,
     header_size: usize,
-    records_count: u64,
+    pub records_count: u64,
     bytes_on_disk: u64,
 }
 
@@ -117,10 +117,6 @@ impl Index {
         } else {
             Ok(None)
         }
-    }
-
-    pub fn get_records_count(&self) -> u64 {
-        self.records_count
     }
 
     pub fn clear(&mut self) -> Result<(), String> {

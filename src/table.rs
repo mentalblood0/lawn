@@ -1,7 +1,8 @@
 use bincode;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet, VecDeque};
-use std::io::{BufReader, BufWriter, Read};
+use std::fs::File;
+use std::io::{BufReader, BufWriter, Read, Write};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -53,6 +54,11 @@ impl Ord for MemtableRecord {
     }
 }
 
+fn write_data_id(writer: &mut BufWriter<File>, data_id: u64, record_size: u8) {
+    let data_id_encoded = data_id.to_le_bytes()[8 - record_size as usize..].to_vec();
+    writer.write_all(&data_id_encoded);
+}
+
 impl Table {
     pub fn new(config: TableConfig) -> Result<Self, String> {
         Ok(Self {
@@ -77,7 +83,7 @@ impl Table {
 
     fn get_from_index(&self, key: &Vec<u8>) -> Result<Option<Vec<u8>>, String> {
         Ok(
-            PartitionPoint::new(0, self.index.get_records_count(), |record_index| {
+            PartitionPoint::new(0, self.index.records_count, |record_index| {
                 let data_record_id = self.index.get(record_index)?.ok_or(format!(
                     "Can not get data record id at index {record_index}"
                 ))?;
@@ -114,7 +120,7 @@ impl Table {
             .collect();
 
         let merge_locations = sparse_merge(
-            self.index.get_records_count(),
+            self.index.records_count,
             |data_record_id_index| {
                 let data_record_id = self.index.get(data_record_id_index)?.ok_or(format!(
                     "Can not get data record id at index {data_record_id_index}"
@@ -156,7 +162,14 @@ impl Table {
 
         let memtable_records_new_ids = self
             .data_pool
-            .update(&memtable_records_to_add, &ids_to_delete);
+            .update(&memtable_records_to_add, &ids_to_delete)?;
+        let new_index_record_size = memtable_records_new_ids
+            .iter()
+            .max()
+            .and_then(|id| Some((*id as f64).log(256.0).ceil() as u8))
+            .or(Some(self.index.header.record_size))
+            .unwrap();
+        let mut new_index_record_buffer = vec![0 as u8; new_index_record_size as usize];
 
         let new_index_file_path = self.index.config.path.with_extension("part");
         let mut new_index_file = std::fs::OpenOptions::new()
@@ -172,13 +185,49 @@ impl Table {
         let mut new_index_writer = BufWriter::new(new_index_file);
 
         let ids_to_delete_set: HashSet<u64> = ids_to_delete.into_iter().collect();
-        let mut memtable_records_new_ids_iter = memtable_records_new_ids.iter().enumerate();
-        for (old_index_data_id_index, old_index_data_id) in self.index.iter()?.enumerate() {
-            if ids_to_delete_set.contains(&old_index_data_id) {
-                continue;
-            }
-            for (record_index, new_id) in memtable_records_new_ids.iter().enumerate() {
-                let merge_location = memtable_records_to_add_merge_locations[record_index];
+        let mut new_ids_iter = memtable_records_new_ids.iter().enumerate();
+        let mut old_ids_iter = self.index.iter()?.enumerate();
+        let mut current_new_id_option = new_ids_iter.next();
+        let mut current_old_id_option = old_ids_iter.next();
+        loop {
+            match (current_new_id_option, current_old_id_option) {
+                (
+                    Some((current_new_id_index, current_new_id)),
+                    Some((current_old_id_index, current_old_id)),
+                ) => {
+                    let current_new_id_merge_location = &merge_locations[current_new_id_index];
+                    match &current_old_id_index.cmp(&(current_new_id_merge_location.index as usize))
+                    {
+                        Ordering::Less => {
+                            if !ids_to_delete_set.contains(&current_old_id) {
+                                write_data_id(
+                                    &mut new_index_writer,
+                                    current_old_id,
+                                    new_index_record_size,
+                                );
+                                current_old_id_option = old_ids_iter.next();
+                            }
+                        }
+                        Ordering::Greater => {
+                            write_data_id(
+                                &mut new_index_writer,
+                                *current_new_id,
+                                new_index_record_size,
+                            );
+                            current_new_id_option = new_ids_iter.next();
+                        }
+                        Ordering::Equal => {
+                            if !ids_to_delete_set.contains(&current_old_id) {
+                                write_data_id(
+                                    &mut new_index_writer,
+                                    current_old_id,
+                                    new_index_record_size,
+                                );
+                                current_old_id_option = old_ids_iter.next();
+                            }
+                        }
+                    }
+                }
             }
         }
 
