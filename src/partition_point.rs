@@ -1,46 +1,49 @@
 use std::cmp::Ordering;
 
-pub struct Satisfying<V> {
+pub struct Satisfying<V, A> {
     pub index: u64,
     pub value: V,
+    pub additional_data: A,
 }
 
-pub struct PartitionPoint<V> {
-    pub first_satisfying: Satisfying<V>,
+pub struct PartitionPoint<V, A> {
+    pub first_satisfying: Satisfying<V, A>,
     pub is_exact: bool,
 }
 
-impl<V> PartitionPoint<V> {
+impl<V, A> PartitionPoint<V, A> {
     pub fn new<F>(
         mut from_index: u64,
         mut to_index: u64,
         mut target_compare: F,
     ) -> Result<Option<Self>, String>
     where
-        F: FnMut(u64) -> Result<(Ordering, V), String>,
+        F: FnMut(u64) -> Result<(Ordering, V, A), String>,
     {
-        let mut first_satisfying: Option<Satisfying<V>> = None;
+        let mut first_satisfying: Option<Satisfying<V, A>> = None;
         let mut is_exact: bool = false;
         while from_index < to_index {
             let mid = from_index + ((to_index - from_index) >> 1);
 
             match target_compare(mid)? {
-                (Ordering::Equal, value) => {
+                (Ordering::Equal, value, additional_data) => {
                     is_exact = true;
                     first_satisfying = Some(Satisfying {
                         index: mid,
                         value: value,
+                        additional_data,
                     });
                     to_index = mid;
                 }
-                (Ordering::Greater, value) => {
+                (Ordering::Greater, value, additional_data) => {
                     first_satisfying = Some(Satisfying {
                         index: mid,
                         value: value,
+                        additional_data,
                     });
                     to_index = mid;
                 }
-                (Ordering::Less, _) => {
+                (Ordering::Less, _, _) => {
                     from_index = mid + 1;
                 }
             }

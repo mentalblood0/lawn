@@ -81,7 +81,7 @@ impl Table {
                     "Can not get data record id at index {record_index}"
                 ))?;
                 let data_record = self.get_from_index_by_id(data_record_id)?;
-                Ok((data_record.key.cmp(key), data_record.value))
+                Ok((data_record.key.cmp(key), data_record.value, ()))
             })?
             .filter(|partition_point| partition_point.is_exact)
             .map(|partition_point| partition_point.first_satisfying.value),
@@ -108,7 +108,7 @@ impl Table {
             .map(|(key, value)| MemtableRecord { key, value })
             .collect();
 
-        let insert_indices = sparse_merge(
+        let merge_locations = sparse_merge(
             self.index.get_records_count(),
             |data_record_id_index| {
                 let data_record_id = self.index.get(data_record_id_index)?.ok_or(format!(
@@ -126,18 +126,34 @@ impl Table {
             &memtable_records,
         )?;
 
-        let mut memtable_records_to_add: Vec<&MemtableRecord> = Vec::new();
+        let mut memtable_records_to_add: Vec<Vec<u8>> = Vec::new();
+        let mut memtable_records_to_add_merge_locations: Vec<&MergeLocation<u64>> = Vec::new();
         let mut ids_to_delete: Vec<u64> = Vec::new();
 
-        // for (current_record_index, merge_location) in insert_indices.iter().enumerate().rev() {
-        //     let current_record = &memtable_records[current_record_index];
-        //     match current_record.value {
-        //         Some(value) => {
-        //             memtable_records_to_add.push(current_record);
-        //         }
-        //         None => {}
-        //     };
-        // }
+        for (current_record_index, merge_location) in merge_locations.into_iter().enumerate().rev()
+        {
+            let current_record = &memtable_records[current_record_index];
+            match &current_record.value {
+                Some(value) => {
+                    let current_record_as_data_record_encoded = bincode::encode_to_vec(
+                        DataRecord {
+                            key: current_record.key.clone(),
+                            value: value.clone(),
+                        },
+                        bincode::config::standard(),
+                    )
+                    .map_err(|error| format!("Can not encode data record"))?;
+                    memtable_records_to_add.push(current_record_as_data_record_encoded);
+                }
+                None => {
+                    ids_to_delete.push(merge_location.additional_data);
+                }
+            };
+        }
+
+        let memtable_records_new_ids = self
+            .data_pool
+            .update(&memtable_records_to_add, &ids_to_delete);
 
         Ok(())
     }
@@ -205,7 +221,7 @@ fn sparse_merge<F, T, A>(
 where
     F: FnMut(u64) -> Result<Option<(T, A)>, String>,
     T: Ord,
-    A: Clone + Ord,
+    A: Clone + Ord + Default,
 {
     let mut result_insert_indices: Vec<Option<MergeLocation<A>>> = vec![None; small.len()];
     for middle in Middles::new(small.len()) {
@@ -234,11 +250,12 @@ where
                 MergeLocation {
                     index: right_bound,
                     replace: false,
-                    additional_data: ,
+                    additional_data: A::default(),
                 },
                 |partition_point| MergeLocation {
                     index: partition_point.first_satisfying.index,
                     replace: partition_point.is_exact,
+                    additional_data: partition_point.first_satisfying.additional_data,
                 },
             )
         });
@@ -265,7 +282,7 @@ mod tests {
             result.push(
                 PartitionPoint::new(0, (&source.len() - 1) as u64, |element_index| {
                     let current = source[element_index as usize];
-                    Ok((current.cmp(element_to_find), current))
+                    Ok((current.cmp(element_to_find), current, ()))
                 })
                 .unwrap()
                 .map_or(*source.last().unwrap(), |partition_point| {
@@ -294,9 +311,14 @@ mod tests {
         small.sort();
         small.dedup();
 
-        let mut insert_indices: Vec<MergeLocation> = sparse_merge(
+        let mut insert_indices: Vec<MergeLocation<()>> = sparse_merge(
             big.len() as u64,
-            |element_index| Ok(big.get(element_index as usize).cloned()),
+            |element_index| {
+                Ok(big
+                    .get(element_index as usize)
+                    .cloned()
+                    .and_then(|element| Some((element, ()))))
+            },
             &small,
         )
         .unwrap();
