@@ -28,19 +28,29 @@ impl<V, A> PartitionPoint<V, A> {
             match target_compare(mid)? {
                 (Ordering::Equal, value, additional_data) => {
                     is_exact = true;
-                    first_satisfying = Some(Satisfying {
-                        index: mid,
-                        value: value,
-                        additional_data,
-                    });
+                    if first_satisfying
+                        .as_ref()
+                        .is_none_or(|first_satisfying| first_satisfying.index > mid)
+                    {
+                        first_satisfying = Some(Satisfying {
+                            index: mid,
+                            value: value,
+                            additional_data,
+                        });
+                    }
                     to_index = mid;
                 }
                 (Ordering::Greater, value, additional_data) => {
-                    first_satisfying = Some(Satisfying {
-                        index: mid,
-                        value: value,
-                        additional_data,
-                    });
+                    if first_satisfying
+                        .as_ref()
+                        .is_none_or(|first_satisfying| first_satisfying.index > mid)
+                    {
+                        first_satisfying = Some(Satisfying {
+                            index: mid,
+                            value: value,
+                            additional_data,
+                        });
+                    }
                     to_index = mid;
                 }
                 (Ordering::Less, _, _) => {

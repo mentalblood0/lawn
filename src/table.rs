@@ -481,18 +481,32 @@ mod tests {
         })
         .unwrap();
 
-        let keyvalues: Vec<(Vec<u8>, Option<Vec<u8>>)> =
-            vec![("key0", "value0"), ("key1", "value1"), ("key2", "value2")]
-                .into_iter()
-                .map(|(key, value)| (key.as_bytes().to_vec(), Some(value.as_bytes().to_vec())))
-                .collect();
-
-        for (key, value) in keyvalues.iter() {
-            table.memtable.insert(key.clone(), value.clone());
+        {
+            let keyvalues = vec![
+                (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
+                (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 2 as u8])),
+                (vec![0 as u8, 4 as u8], Some(vec![1 as u8, 4 as u8])),
+            ];
+            for (key, value) in keyvalues.iter() {
+                table.memtable.insert(key.clone(), value.clone());
+            }
+            table.checkpoint().unwrap();
+            for (key, value) in keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
         }
-        table.checkpoint().unwrap();
-        for (key, value) in keyvalues.iter() {
-            assert_eq!(table.get_from_index(&key).unwrap(), *value);
+        {
+            let keyvalues = vec![
+                (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),
+                (vec![0 as u8, 3 as u8], Some(vec![1 as u8, 3 as u8])),
+            ];
+            for (key, value) in keyvalues.iter() {
+                table.memtable.insert(key.clone(), value.clone());
+            }
+            table.checkpoint().unwrap();
+            for (key, value) in keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
         }
     }
 }
