@@ -49,6 +49,7 @@ impl Index {
             .metadata()
             .map_err(|error| format!("Can not get metadata of file {:?}: {error}", file))?
             .len() as u64;
+        dbg!(&bytes_on_disk);
         if bytes_on_disk == 0 {
             let header = IndexHeader { record_size: 2 };
             let bytes_on_disk = {
@@ -164,7 +165,7 @@ impl Iterator for IndexIterator {
     type Item = u64;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current_record_index == self.records_count - 1 {
+        if self.records_count - self.current_record_index <= 1 {
             return None;
         }
 

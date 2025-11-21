@@ -59,6 +59,7 @@ fn write_data_id(
     data_id: u64,
     record_size: u8,
 ) -> Result<(), String> {
+    dbg!(data_id, record_size);
     let data_id_encoded = data_id.to_le_bytes()[8 - record_size as usize..].to_vec();
     writer
         .write_all(&data_id_encoded)
@@ -177,8 +178,12 @@ impl Table {
             .unwrap_or(self.index.header.record_size);
 
         let new_index_file_path = self.index.config.path.with_extension("part");
+        Index::new(IndexConfig {
+            path: new_index_file_path.clone(),
+        })?;
         let new_index_file = std::fs::OpenOptions::new()
-            .create(true)
+            .create(false)
+            .append(true)
             .write(true)
             .open(&new_index_file_path)
             .map_err(|error| {
@@ -258,6 +263,7 @@ impl Table {
         new_index_writer
             .flush()
             .map_err(|error| format!("Can not flush new index file: {error}"))?;
+        println!("wrote");
         self.index = Index::new(IndexConfig {
             path: new_index_file_path,
         })?;
@@ -376,6 +382,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
+    use crate::variable_data_pool::VariableDataPoolConfig;
+
     use super::*;
     use nanorand::{Rng, WyRand};
 
@@ -446,5 +456,26 @@ mod tests {
         correct_result.dedup();
 
         assert_eq!(result, correct_result);
+    }
+
+    #[test]
+    fn test_checkpoint() {
+        let table_dir =
+            Path::new(format!("/tmp/lawn/test/test_checkpoint/").as_str()).to_path_buf();
+        let mut table = Table::new(TableConfig {
+            index: IndexConfig {
+                path: table_dir.join("index.idx").to_path_buf(),
+            },
+            data_pool: Box::new(VariableDataPoolConfig {
+                directory: table_dir.join("data_pool").to_path_buf(),
+                max_element_size: 65536 as usize,
+            }),
+        })
+        .unwrap();
+
+        table
+            .memtable
+            .insert("key".as_bytes().to_vec(), Some("value".as_bytes().to_vec()));
+        table.checkpoint().unwrap();
     }
 }
