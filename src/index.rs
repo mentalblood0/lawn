@@ -132,8 +132,8 @@ impl Index {
             .is_ok()
         {
             let mut result: u64 = 0;
-            for byte in buffer {
-                result = (result << 8) + byte as u64;
+            for byte in buffer.iter().rev() {
+                result = (result << 8) + *byte as u64;
             }
             Ok(Some(result))
         } else {

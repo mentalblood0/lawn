@@ -23,7 +23,7 @@ pub struct Table {
     pub memtable: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
 }
 
-#[derive(bincode::Encode, bincode::Decode)]
+#[derive(bincode::Encode, bincode::Decode, Debug)]
 struct DataRecord {
     key: Vec<u8>,
     value: Vec<u8>,
@@ -95,7 +95,7 @@ impl Table {
                     "Can not get data record id at index {record_index}"
                 ))?;
                 let data_record = self.get_from_index_by_id(data_record_id)?;
-                Ok((data_record.key.cmp(key), data_record.value, ()))
+                Ok((key.cmp(&data_record.key), data_record.value, ()))
             })?
             .filter(|partition_point| partition_point.is_exact)
             .map(|partition_point| partition_point.first_satisfying.value),
@@ -264,7 +264,6 @@ impl Table {
         new_index_writer
             .flush()
             .map_err(|error| format!("Can not flush new index file: {error}"))?;
-        println!("wrote");
 
         fs::rename(&new_index_file_path, &self.index.config.path).map_err(|error| {
             format!(
@@ -482,12 +481,18 @@ mod tests {
         })
         .unwrap();
 
-        let key = "key".as_bytes().to_vec();
-        let value = Some("value".as_bytes().to_vec());
-        table.memtable.insert(key.clone(), value.clone());
+        let keyvalues: Vec<(Vec<u8>, Option<Vec<u8>>)> =
+            vec![("key0", "value0"), ("key1", "value1"), ("key2", "value2")]
+                .into_iter()
+                .map(|(key, value)| (key.as_bytes().to_vec(), Some(value.as_bytes().to_vec())))
+                .collect();
 
+        for (key, value) in keyvalues.iter() {
+            table.memtable.insert(key.clone(), value.clone());
+        }
         table.checkpoint().unwrap();
-
-        assert_eq!(table.get_from_index(&key).unwrap(), value);
+        for (key, value) in keyvalues.iter() {
+            assert_eq!(table.get_from_index(&key).unwrap(), *value);
+        }
     }
 }

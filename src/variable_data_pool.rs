@@ -180,10 +180,11 @@ impl DataPool for VariableDataPool {
             {
                 let initial_index = container_size_index_to_data_to_add_initial_indices
                     [container_size_index][encoded_data_to_add_index];
-                result[initial_index] = u64::from(Id {
+                let id = Id {
                     container_size_index: container_size_index as u8,
                     pointer: *pointer,
-                });
+                };
+                result[initial_index] = u64::from(id.clone());
             }
         }
 
