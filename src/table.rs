@@ -1,14 +1,14 @@
 use bincode;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet, VecDeque};
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::data_pool::{DataPool, DataPoolConfig};
-use crate::index::{Index, IndexConfig};
+use crate::index::{Index, IndexConfig, IndexHeader};
 use crate::partition_point::PartitionPoint;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -59,8 +59,7 @@ fn write_data_id(
     data_id: u64,
     record_size: u8,
 ) -> Result<(), String> {
-    dbg!(data_id, record_size);
-    let data_id_encoded = data_id.to_le_bytes()[8 - record_size as usize..].to_vec();
+    let data_id_encoded = data_id.to_le_bytes()[..record_size as usize].to_vec();
     writer
         .write_all(&data_id_encoded)
         .map_err(|error| format!("Can not write data id to file: {error}"))?;
@@ -178,11 +177,8 @@ impl Table {
             .unwrap_or(self.index.header.record_size);
 
         let new_index_file_path = self.index.config.path.with_extension("part");
-        Index::new(IndexConfig {
-            path: new_index_file_path.clone(),
-        })?;
-        let new_index_file = std::fs::OpenOptions::new()
-            .create(false)
+        let mut new_index_file = std::fs::OpenOptions::new()
+            .create(true)
             .append(true)
             .write(true)
             .open(&new_index_file_path)
@@ -192,6 +188,12 @@ impl Table {
                     &new_index_file_path.display()
                 )
             })?;
+        Index::write_header(
+            &mut new_index_file,
+            &IndexHeader {
+                record_size: new_index_record_size,
+            },
+        )?;
         let mut new_index_writer = BufWriter::new(new_index_file);
 
         let ids_to_delete_set: HashSet<u64> = ids_to_delete.into_iter().collect();
@@ -259,13 +261,20 @@ impl Table {
                 (None, None) => break,
             }
         }
-
         new_index_writer
             .flush()
             .map_err(|error| format!("Can not flush new index file: {error}"))?;
         println!("wrote");
+
+        fs::rename(&new_index_file_path, &self.index.config.path).map_err(|error| {
+            format!(
+                "Can not overwrite old index at {} with new index at {}: {error}",
+                self.index.config.path.display(),
+                new_index_file_path.display()
+            )
+        })?;
         self.index = Index::new(IndexConfig {
-            path: new_index_file_path,
+            path: self.index.config.path.clone(),
         })?;
 
         Ok(())
@@ -473,9 +482,12 @@ mod tests {
         })
         .unwrap();
 
-        table
-            .memtable
-            .insert("key".as_bytes().to_vec(), Some("value".as_bytes().to_vec()));
+        let key = "key".as_bytes().to_vec();
+        let value = Some("value".as_bytes().to_vec());
+        table.memtable.insert(key.clone(), value.clone());
+
         table.checkpoint().unwrap();
+
+        assert_eq!(table.get_from_index(&key).unwrap(), value);
     }
 }

@@ -5,12 +5,13 @@ use std::{fs, os::unix::fs::FileExt};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct IndexConfig {
     pub path: PathBuf,
 }
 
-#[derive(bincode::Encode, bincode::Decode)]
+#[derive(bincode::Encode, bincode::Decode, Debug)]
 pub struct IndexHeader {
     pub record_size: u8,
 }
@@ -25,6 +26,16 @@ pub struct Index {
 }
 
 impl Index {
+    pub fn write_header(mut file: &fs::File, header: &IndexHeader) -> Result<u64, String> {
+        let mut writer = BufWriter::new(&mut file);
+        let result =
+            bincode::encode_into_std_write(&header, &mut writer, bincode::config::standard())
+                .map_err(|error| format!("Can not encode header: {error}",))? as u64;
+        writer
+            .flush()
+            .map_err(|error| format!("Can not flush new index file header: {error}"))?;
+        Ok(result)
+    }
     pub fn new(config: IndexConfig) -> Result<Self, String> {
         if let Some(path_parent_directory) = config.path.parent() {
             std::fs::create_dir_all(path_parent_directory).map_err(|error| {
@@ -49,7 +60,6 @@ impl Index {
             .metadata()
             .map_err(|error| format!("Can not get metadata of file {:?}: {error}", file))?
             .len() as u64;
-        dbg!(&bytes_on_disk);
         if bytes_on_disk == 0 {
             let header = IndexHeader { record_size: 2 };
             let bytes_on_disk = {
@@ -79,23 +89,26 @@ impl Index {
                 bytes_on_disk,
             })
         } else {
-            let header: IndexHeader = {
+            let (header, header_size): (IndexHeader, usize) = {
                 let mut reader = BufReader::new(&mut file);
-                bincode::decode_from_std_read(&mut reader, bincode::config::standard()).map_err(
-                    |error| {
+                let header =
+                    bincode::decode_from_std_read(&mut reader, bincode::config::standard())
+                        .map_err(|error| {
+                            format!(
+                                "Can not read header from file at path {}: {error}",
+                                config.path.display()
+                            )
+                        })?;
+                (
+                    header,
+                    reader.stream_position().map_err(|error| {
                         format!(
-                            "Can not read header from file at path {}: {error}",
+                            "Can not get position in file at path {}: {error}",
                             config.path.display()
                         )
-                    },
-                )?
-            };
-            let header_size = file.stream_position().map_err(|error| {
-                format!(
-                    "Can not get position in file at path {}: {error}",
-                    config.path.display()
+                    })? as usize,
                 )
-            })? as usize;
+            };
             let records_count = (bytes_on_disk - header_size as u64) / header.record_size as u64;
             Ok(Index {
                 config,
