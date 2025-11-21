@@ -1,4 +1,4 @@
-use std::io::{BufReader, BufWriter, Read, Seek};
+use std::io::{BufReader, BufWriter, Read, Seek, Write};
 use std::path::PathBuf;
 use std::{fs, os::unix::fs::FileExt};
 
@@ -11,7 +11,7 @@ pub struct IndexConfig {
 }
 
 #[derive(bincode::Encode, bincode::Decode)]
-struct IndexHeader {
+pub struct IndexHeader {
     pub record_size: u8,
 }
 
@@ -53,13 +53,21 @@ impl Index {
             let header = IndexHeader { record_size: 2 };
             let bytes_on_disk = {
                 let mut writer = BufWriter::new(&mut file);
-                bincode::encode_into_std_write(&header, &mut writer, bincode::config::standard())
-                    .map_err(|error| {
-                        format!(
-                            "Can not encode header to file at path {}: {error}",
-                            config.path.display()
-                        )
-                    })? as u64
+                let result = bincode::encode_into_std_write(
+                    &header,
+                    &mut writer,
+                    bincode::config::standard(),
+                )
+                .map_err(|error| {
+                    format!(
+                        "Can not encode header to file at path {}: {error}",
+                        config.path.display()
+                    )
+                })? as u64;
+                writer
+                    .flush()
+                    .map_err(|error| format!("Can not flush new index file header: {error}"))?;
+                result
             };
             Ok(Index {
                 config,

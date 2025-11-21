@@ -2,7 +2,7 @@ use bincode;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::io::{BufWriter, Write};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -54,9 +54,16 @@ impl Ord for MemtableRecord {
     }
 }
 
-fn write_data_id(writer: &mut BufWriter<File>, data_id: u64, record_size: u8) {
+fn write_data_id(
+    writer: &mut BufWriter<File>,
+    data_id: u64,
+    record_size: u8,
+) -> Result<(), String> {
     let data_id_encoded = data_id.to_le_bytes()[8 - record_size as usize..].to_vec();
-    writer.write_all(&data_id_encoded);
+    writer
+        .write_all(&data_id_encoded)
+        .map_err(|error| format!("Can not write data id to file: {error}"))?;
+    Ok(())
 }
 
 impl Table {
@@ -114,7 +121,7 @@ impl Table {
             return Ok(());
         }
 
-        let mut memtable_records: Vec<MemtableRecord> = std::mem::take(&mut self.memtable)
+        let memtable_records: Vec<MemtableRecord> = std::mem::take(&mut self.memtable)
             .into_iter()
             .map(|(key, value)| MemtableRecord { key, value })
             .collect();
@@ -141,8 +148,7 @@ impl Table {
         let mut memtable_records_to_add_merge_locations: Vec<&MergeLocation<u64>> = Vec::new();
         let mut ids_to_delete: Vec<u64> = Vec::new();
 
-        for (current_record_index, merge_location) in merge_locations.into_iter().enumerate().rev()
-        {
+        for (current_record_index, merge_location) in merge_locations.iter().enumerate().rev() {
             if merge_location.replace {
                 ids_to_delete.push(merge_location.additional_data);
             }
@@ -155,8 +161,9 @@ impl Table {
                     },
                     bincode::config::standard(),
                 )
-                .map_err(|error| format!("Can not encode data record"))?;
+                .map_err(|error| format!("Can not encode data record: {error}"))?;
                 memtable_records_to_add.push(current_record_as_data_record_encoded);
+                memtable_records_to_add_merge_locations.push(merge_location);
             };
         }
 
@@ -167,12 +174,10 @@ impl Table {
             .iter()
             .max()
             .and_then(|id| Some((*id as f64).log(256.0).ceil() as u8))
-            .or(Some(self.index.header.record_size))
-            .unwrap();
-        let mut new_index_record_buffer = vec![0 as u8; new_index_record_size as usize];
+            .unwrap_or(self.index.header.record_size);
 
         let new_index_file_path = self.index.config.path.with_extension("part");
-        let mut new_index_file = std::fs::OpenOptions::new()
+        let new_index_file = std::fs::OpenOptions::new()
             .create(true)
             .write(true)
             .open(&new_index_file_path)
@@ -204,7 +209,7 @@ impl Table {
                                     &mut new_index_writer,
                                     current_old_id,
                                     new_index_record_size,
-                                );
+                                )?;
                                 current_old_id_option = old_ids_iter.next();
                             }
                         }
@@ -213,7 +218,7 @@ impl Table {
                                 &mut new_index_writer,
                                 *current_new_id,
                                 new_index_record_size,
-                            );
+                            )?;
                             current_new_id_option = new_ids_iter.next();
                         }
                         Ordering::Equal => {
@@ -222,21 +227,46 @@ impl Table {
                                     &mut new_index_writer,
                                     current_old_id,
                                     new_index_record_size,
-                                );
+                                )?;
                                 current_old_id_option = old_ids_iter.next();
                             }
                         }
                     }
                 }
+                (Some((_, current_new_id)), None) => {
+                    write_data_id(
+                        &mut new_index_writer,
+                        *current_new_id,
+                        new_index_record_size,
+                    )?;
+                    current_new_id_option = new_ids_iter.next();
+                }
+                (None, Some((_, current_old_id))) => {
+                    if !ids_to_delete_set.contains(&current_old_id) {
+                        write_data_id(
+                            &mut new_index_writer,
+                            current_old_id,
+                            new_index_record_size,
+                        )?;
+                        current_old_id_option = old_ids_iter.next();
+                    }
+                }
+                (None, None) => break,
             }
         }
+
+        new_index_writer
+            .flush()
+            .map_err(|error| format!("Can not flush new index file: {error}"))?;
+        self.index = Index::new(IndexConfig {
+            path: new_index_file_path,
+        })?;
 
         Ok(())
     }
 }
 
 struct Middles {
-    source_size: usize,
     queue: VecDeque<(usize, usize)>,
 }
 
@@ -244,7 +274,7 @@ impl Middles {
     fn new(source_size: usize) -> Self {
         let mut queue: VecDeque<(usize, usize)> = VecDeque::new();
         queue.push_back((0, source_size - 1));
-        Self { source_size, queue }
+        Self { queue }
     }
 }
 
@@ -319,7 +349,8 @@ where
 
         result_insert_indices[middle.middle_index] = Some({
             PartitionPoint::new(left_bound, right_bound, |element_index| {
-                let current = big_get_element(element_index)?.unwrap();
+                let current = big_get_element(element_index)?
+                    .ok_or(format!("Can not get element at index {element_index}"))?;
                 Ok((current.0.cmp(element_to_insert), current.0, current.1))
             })?
             .map_or(
@@ -336,10 +367,11 @@ where
             )
         });
     }
-    Ok(result_insert_indices
-        .into_iter()
-        .map(Option::unwrap)
-        .collect())
+    let mut result: Vec<MergeLocation<A>> = Vec::with_capacity(result_insert_indices.len());
+    for insert_index in result_insert_indices.into_iter() {
+        result.push(insert_index.ok_or("Can not find where to insert element using sparse merge")?);
+    }
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -387,7 +419,7 @@ mod tests {
         small.sort();
         small.dedup();
 
-        let mut insert_indices: Vec<MergeLocation<()>> = sparse_merge(
+        let insert_indices: Vec<MergeLocation<()>> = sparse_merge(
             big.len() as u64,
             |element_index| {
                 Ok(big
