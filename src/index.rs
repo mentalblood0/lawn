@@ -149,7 +149,7 @@ impl Index {
     }
 
     pub fn iter(&self) -> Result<IndexIterator, String> {
-        let index_file = std::fs::OpenOptions::new()
+        let mut index_file = std::fs::OpenOptions::new()
             .create(false)
             .read(true)
             .open(&self.config.path)
@@ -159,6 +159,10 @@ impl Index {
                     &self.config.path.display()
                 )
             })?;
+        dbg!(&self.header_size);
+        index_file
+            .seek(std::io::SeekFrom::Start(self.header_size as u64))
+            .map_err(|error| format!("Can not seek in index file: {error}"))?;
         Ok(IndexIterator {
             reader: BufReader::new(index_file),
             current_record_index: 0,
@@ -188,10 +192,12 @@ impl Iterator for IndexIterator {
             .map_err(|error| format!("Can not read index record (data id): {error}"))
         {
             Ok(_) => {
+                dbg!(&self.buffer);
                 let mut result: u64 = 0;
-                for byte in &self.buffer {
+                for byte in self.buffer.iter().rev() {
                     result = (result << 8) + *byte as u64;
                 }
+                self.current_record_index += 1;
                 Some(result)
             }
             Err(_) => None,

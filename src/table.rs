@@ -170,6 +170,7 @@ impl Table {
         let memtable_records_new_ids = self
             .data_pool
             .update(&memtable_records_to_add, &ids_to_delete)?;
+        dbg!(&memtable_records_new_ids);
         let new_index_record_size = memtable_records_new_ids
             .iter()
             .max()
@@ -202,12 +203,14 @@ impl Table {
         let mut current_new_id_option = new_ids_iter.next();
         let mut current_old_id_option = old_ids_iter.next();
         loop {
+            dbg!("loop", current_old_id_option, current_new_id_option);
             match (current_new_id_option, current_old_id_option) {
                 (
                     Some((current_new_id_index, current_new_id)),
                     Some((current_old_id_index, current_old_id)),
                 ) => {
                     let current_new_id_merge_location = &merge_locations[current_new_id_index];
+                    dbg!(&current_new_id_merge_location);
                     match &current_old_id_index.cmp(&(current_new_id_merge_location.index as usize))
                     {
                         Ordering::Less => {
@@ -481,12 +484,13 @@ mod tests {
         })
         .unwrap();
 
+        let first_keyvalues = vec![
+            (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
+            (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 2 as u8])),
+            (vec![0 as u8, 4 as u8], Some(vec![1 as u8, 4 as u8])),
+        ];
         {
-            let keyvalues = vec![
-                (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
-                (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 2 as u8])),
-                (vec![0 as u8, 4 as u8], Some(vec![1 as u8, 4 as u8])),
-            ];
+            let keyvalues = &first_keyvalues;
             for (key, value) in keyvalues.iter() {
                 table.memtable.insert(key.clone(), value.clone());
             }
@@ -495,7 +499,7 @@ mod tests {
                 assert_eq!(table.get_from_index(&key).unwrap(), *value);
             }
         }
-        println!("after first checkpoint:");
+        println!("\n\n\n\nafter first checkpoint:");
         {
             let keyvalues = vec![
                 (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),
@@ -506,6 +510,9 @@ mod tests {
             }
             table.checkpoint().unwrap();
             for (key, value) in keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
+            for (key, value) in first_keyvalues.iter() {
                 assert_eq!(table.get_from_index(&key).unwrap(), *value);
             }
         }

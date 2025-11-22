@@ -152,12 +152,6 @@ impl DataPool for FixedDataPool {
         data_to_add: &Vec<Vec<u8>>,
         pointers_to_data_to_remove: &Vec<u64>,
     ) -> Result<Vec<u64>, String> {
-        dbg!(
-            "FixedDataPool::update",
-            data_to_add,
-            pointers_to_data_to_remove,
-            self.no_holes_left
-        );
         let mut result = Vec::with_capacity(data_to_add.len());
 
         let mut replaced = 0 as usize;
@@ -190,7 +184,6 @@ impl DataPool for FixedDataPool {
                     ..(self.containers_allocated + data_to_add.len() as u64 - pointer_index as u64)
                 {
                     result.push(pointer);
-                    dbg!("no_holes_left, push", &pointer);
                 }
                 let mut data_to_add_left: Vec<u8> =
                     vec![0; (data_to_add.len() - pointer_index) * self.config.container_size];
