@@ -489,7 +489,7 @@ mod tests {
     }
 
     #[test]
-    fn test_checkpoint() {
+    fn test_checkpoint_2_in_3() {
         let table_dir =
             Path::new(format!("/tmp/lawn/test/test_checkpoint/").as_str()).to_path_buf();
         let mut table = Table::new(TableConfig {
@@ -522,6 +522,150 @@ mod tests {
             let keyvalues = vec![
                 (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),
                 (vec![0 as u8, 3 as u8], Some(vec![1 as u8, 3 as u8])),
+            ];
+            for (key, value) in keyvalues.iter() {
+                table.memtable.insert(key.clone(), value.clone());
+            }
+            table.checkpoint().unwrap();
+            for (key, value) in keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
+            for (key, value) in first_keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
+        }
+    }
+
+    #[test]
+    fn test_checkpoint_3_in_2() {
+        let table_dir =
+            Path::new(format!("/tmp/lawn/test/test_checkpoint/").as_str()).to_path_buf();
+        let mut table = Table::new(TableConfig {
+            index: IndexConfig {
+                path: table_dir.join("index.idx").to_path_buf(),
+            },
+            data_pool: Box::new(VariableDataPoolConfig {
+                directory: table_dir.join("data_pool").to_path_buf(),
+                max_element_size: 65536 as usize,
+            }),
+        })
+        .unwrap();
+
+        let first_keyvalues = vec![
+            (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),
+            (vec![0 as u8, 3 as u8], Some(vec![1 as u8, 3 as u8])),
+        ];
+        {
+            let keyvalues = &first_keyvalues;
+            for (key, value) in keyvalues.iter() {
+                table.memtable.insert(key.clone(), value.clone());
+            }
+            table.checkpoint().unwrap();
+            for (key, value) in keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
+            for (key, value) in first_keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
+        }
+        {
+            let keyvalues = vec![
+                (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
+                (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 2 as u8])),
+                (vec![0 as u8, 4 as u8], Some(vec![1 as u8, 4 as u8])),
+            ];
+            for (key, value) in keyvalues.iter() {
+                table.memtable.insert(key.clone(), value.clone());
+            }
+            table.checkpoint().unwrap();
+            for (key, value) in keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
+        }
+    }
+
+    #[test]
+    fn test_checkpoint_2_after_3() {
+        let table_dir =
+            Path::new(format!("/tmp/lawn/test/test_checkpoint/").as_str()).to_path_buf();
+        let mut table = Table::new(TableConfig {
+            index: IndexConfig {
+                path: table_dir.join("index.idx").to_path_buf(),
+            },
+            data_pool: Box::new(VariableDataPoolConfig {
+                directory: table_dir.join("data_pool").to_path_buf(),
+                max_element_size: 65536 as usize,
+            }),
+        })
+        .unwrap();
+
+        let first_keyvalues = vec![
+            (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
+            (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 2 as u8])),
+            (vec![0 as u8, 4 as u8], Some(vec![1 as u8, 4 as u8])),
+        ];
+        {
+            let keyvalues = &first_keyvalues;
+            for (key, value) in keyvalues.iter() {
+                table.memtable.insert(key.clone(), value.clone());
+            }
+            table.checkpoint().unwrap();
+            for (key, value) in keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
+        }
+        {
+            let keyvalues = vec![
+                (vec![0 as u8, 5 as u8], Some(vec![1 as u8, 5 as u8])),
+                (vec![0 as u8, 6 as u8], Some(vec![1 as u8, 6 as u8])),
+            ];
+            for (key, value) in keyvalues.iter() {
+                table.memtable.insert(key.clone(), value.clone());
+            }
+            table.checkpoint().unwrap();
+            for (key, value) in keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
+            for (key, value) in first_keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
+        }
+    }
+
+    #[test]
+    fn test_checkpoint_2_before_3() {
+        let table_dir =
+            Path::new(format!("/tmp/lawn/test/test_checkpoint/").as_str()).to_path_buf();
+        let mut table = Table::new(TableConfig {
+            index: IndexConfig {
+                path: table_dir.join("index.idx").to_path_buf(),
+            },
+            data_pool: Box::new(VariableDataPoolConfig {
+                directory: table_dir.join("data_pool").to_path_buf(),
+                max_element_size: 65536 as usize,
+            }),
+        })
+        .unwrap();
+
+        let first_keyvalues = vec![
+            (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 2 as u8])),
+            (vec![0 as u8, 3 as u8], Some(vec![1 as u8, 3 as u8])),
+            (vec![0 as u8, 4 as u8], Some(vec![1 as u8, 4 as u8])),
+        ];
+        {
+            let keyvalues = &first_keyvalues;
+            for (key, value) in keyvalues.iter() {
+                table.memtable.insert(key.clone(), value.clone());
+            }
+            table.checkpoint().unwrap();
+            for (key, value) in keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
+        }
+        {
+            let keyvalues = vec![
+                (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
+                (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),
             ];
             for (key, value) in keyvalues.iter() {
                 table.memtable.insert(key.clone(), value.clone());
