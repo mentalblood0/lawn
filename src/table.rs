@@ -218,8 +218,8 @@ impl Table {
                                     current_old_id,
                                     new_index_record_size,
                                 )?;
-                                current_old_id_option = old_ids_iter.next();
                             }
+                            current_old_id_option = old_ids_iter.next();
                         }
                         Ordering::Greater => {
                             write_data_id(
@@ -230,14 +230,23 @@ impl Table {
                             current_new_id_option = new_ids_iter.next();
                         }
                         Ordering::Equal => {
-                            if !ids_to_delete_set.contains(&current_old_id) {
+                            if ids_to_delete_set.contains(&current_old_id) {
+                                if current_new_id_merge_location.replace {
+                                    write_data_id(
+                                        &mut new_index_writer,
+                                        *current_new_id,
+                                        new_index_record_size,
+                                    )?;
+                                    current_old_id_option = old_ids_iter.next();
+                                }
+                            } else {
                                 write_data_id(
                                     &mut new_index_writer,
                                     *current_new_id,
                                     new_index_record_size,
                                 )?;
-                                current_new_id_option = new_ids_iter.next();
                             }
+                            current_new_id_option = new_ids_iter.next();
                         }
                     }
                 }
@@ -256,8 +265,8 @@ impl Table {
                             current_old_id,
                             new_index_record_size,
                         )?;
-                        current_old_id_option = old_ids_iter.next();
                     }
+                    current_old_id_option = old_ids_iter.next();
                 }
                 (None, None) => break,
             }
@@ -490,7 +499,8 @@ mod tests {
 
     fn new_default_table(test_name_for_isolation: &str) -> Table {
         let table_dir =
-            Path::new(format!("/tmp/lawn/test/{test_name_for_isolation}/").as_str()).to_path_buf();
+            Path::new(format!("/tmp/lawn/test/table/{test_name_for_isolation}/").as_str())
+                .to_path_buf();
         let mut result = Table::new(TableConfig {
             index: IndexConfig {
                 path: table_dir.join("index.idx").to_path_buf(),
@@ -648,6 +658,32 @@ mod tests {
                 assert_eq!(table.get_from_index(&key).unwrap(), *value);
             }
             for (key, value) in first_keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
+        }
+    }
+
+    #[test]
+    fn test_checkpoint_replace() {
+        let mut table = new_default_table("test_checkpoint_replace");
+
+        {
+            let keyvalues = vec![(vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8]))];
+            for (key, value) in keyvalues.iter() {
+                table.memtable.insert(key.clone(), value.clone());
+            }
+            table.checkpoint().unwrap();
+            for (key, value) in keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
+        }
+        {
+            let keyvalues = vec![(vec![0 as u8, 0 as u8], Some(vec![1 as u8, 1 as u8]))];
+            for (key, value) in keyvalues.iter() {
+                table.memtable.insert(key.clone(), value.clone());
+            }
+            table.checkpoint().unwrap();
+            for (key, value) in keyvalues.iter() {
                 assert_eq!(table.get_from_index(&key).unwrap(), *value);
             }
         }
