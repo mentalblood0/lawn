@@ -61,7 +61,6 @@ fn write_data_id(
     record_size: u8,
 ) -> Result<(), String> {
     let data_id_encoded = data_id.to_le_bytes()[..record_size as usize].to_vec();
-    println!("write data id {data_id_encoded:?}");
     writer
         .write_all(&data_id_encoded)
         .map_err(|error| format!("Can not write data id to file: {error}"))?;
@@ -127,7 +126,6 @@ impl Table {
             .into_iter()
             .map(|(key, value)| MemtableRecord { key, value })
             .collect();
-        dbg!(&memtable_records);
 
         let merge_locations = sparse_merge(
             self.index.records_count,
@@ -169,12 +167,10 @@ impl Table {
                 memtable_records_to_add_merge_locations.push(merge_location);
             };
         }
-        dbg!(&memtable_records_to_add_merge_locations);
 
         let memtable_records_new_ids = self
             .data_pool
             .update(&memtable_records_to_add, &ids_to_delete)?;
-        dbg!(&memtable_records_new_ids);
         let new_index_record_size = memtable_records_new_ids
             .iter()
             .max()
@@ -207,14 +203,12 @@ impl Table {
         let mut current_new_id_option = new_ids_iter.next();
         let mut current_old_id_option = old_ids_iter.next();
         loop {
-            dbg!("loop", current_old_id_option, current_new_id_option);
             match (current_new_id_option, current_old_id_option) {
                 (
                     Some((current_new_id_index, current_new_id)),
                     Some((current_old_id_index, current_old_id)),
                 ) => {
                     let current_new_id_merge_location = &merge_locations[current_new_id_index];
-                    dbg!(&current_new_id_merge_location);
                     match &current_old_id_index.cmp(&(current_new_id_merge_location.index as usize))
                     {
                         Ordering::Less => {
@@ -239,10 +233,10 @@ impl Table {
                             if !ids_to_delete_set.contains(&current_old_id) {
                                 write_data_id(
                                     &mut new_index_writer,
-                                    current_old_id,
+                                    *current_new_id,
                                     new_index_record_size,
                                 )?;
-                                current_old_id_option = old_ids_iter.next();
+                                current_new_id_option = new_ids_iter.next();
                             }
                         }
                     }
@@ -524,7 +518,6 @@ mod tests {
                 assert_eq!(table.get_from_index(&key).unwrap(), *value);
             }
         }
-        println!("\n\n\n\nafter first checkpoint:");
         {
             let keyvalues = vec![
                 (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),

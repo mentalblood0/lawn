@@ -159,7 +159,6 @@ impl Index {
                     &self.config.path.display()
                 )
             })?;
-        dbg!(&self.header_size);
         index_file
             .seek(std::io::SeekFrom::Start(self.header_size as u64))
             .map_err(|error| format!("Can not seek in index file: {error}"))?;
