@@ -29,6 +29,7 @@ struct DataRecord {
     value: Vec<u8>,
 }
 
+#[derive(Debug)]
 struct MemtableRecord {
     key: Vec<u8>,
     value: Option<Vec<u8>>,
@@ -60,6 +61,7 @@ fn write_data_id(
     record_size: u8,
 ) -> Result<(), String> {
     let data_id_encoded = data_id.to_le_bytes()[..record_size as usize].to_vec();
+    println!("write data id {data_id_encoded:?}");
     writer
         .write_all(&data_id_encoded)
         .map_err(|error| format!("Can not write data id to file: {error}"))?;
@@ -95,7 +97,7 @@ impl Table {
                     "Can not get data record id at index {record_index}"
                 ))?;
                 let data_record = self.get_from_index_by_id(data_record_id)?;
-                Ok((key.cmp(&data_record.key), data_record.value, ()))
+                Ok((data_record.key.cmp(key), data_record.value, ()))
             })?
             .filter(|partition_point| partition_point.is_exact)
             .map(|partition_point| partition_point.first_satisfying.value),
@@ -125,6 +127,7 @@ impl Table {
             .into_iter()
             .map(|(key, value)| MemtableRecord { key, value })
             .collect();
+        dbg!(&memtable_records);
 
         let merge_locations = sparse_merge(
             self.index.records_count,
@@ -148,7 +151,7 @@ impl Table {
         let mut memtable_records_to_add_merge_locations: Vec<&MergeLocation<u64>> = Vec::new();
         let mut ids_to_delete: Vec<u64> = Vec::new();
 
-        for (current_record_index, merge_location) in merge_locations.iter().enumerate().rev() {
+        for (current_record_index, merge_location) in merge_locations.iter().enumerate() {
             if merge_location.replace {
                 ids_to_delete.push(merge_location.additional_data);
             }
@@ -166,6 +169,7 @@ impl Table {
                 memtable_records_to_add_merge_locations.push(merge_location);
             };
         }
+        dbg!(&memtable_records_to_add_merge_locations);
 
         let memtable_records_new_ids = self
             .data_pool
@@ -427,6 +431,27 @@ mod tests {
     fn test_middles() {
         let middles: Vec<usize> = Middles::new(10).map(|middle| middle.middle_index).collect();
         assert_eq!(middles, vec![4, 1, 7, 0, 2, 5, 8, 3, 6, 9]);
+    }
+
+    #[test]
+    fn test_sparse_merge_simple() {
+        let big = vec![vec![0 as u8], vec![2 as u8], vec![4 as u8]];
+        let small = vec![vec![1 as u8], vec![3 as u8]];
+
+        let insert_indices: Vec<MergeLocation<()>> = sparse_merge(
+            big.len() as u64,
+            |element_index| {
+                Ok(big
+                    .get(element_index as usize)
+                    .cloned()
+                    .and_then(|element| Some((element, ()))))
+            },
+            &small,
+        )
+        .unwrap();
+
+        assert_eq!(insert_indices[0].index, 1);
+        assert_eq!(insert_indices[1].index, 2);
     }
 
     #[test]

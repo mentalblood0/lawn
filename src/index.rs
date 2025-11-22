@@ -182,7 +182,7 @@ impl Iterator for IndexIterator {
     type Item = u64;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.records_count - self.current_record_index <= 1 {
+        if self.records_count - self.current_record_index < 1 {
             return None;
         }
 
@@ -192,7 +192,6 @@ impl Iterator for IndexIterator {
             .map_err(|error| format!("Can not read index record (data id): {error}"))
         {
             Ok(_) => {
-                dbg!(&self.buffer);
                 let mut result: u64 = 0;
                 for byte in self.buffer.iter().rev() {
                     result = (result << 8) + *byte as u64;
