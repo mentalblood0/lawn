@@ -488,11 +488,10 @@ mod tests {
         assert_eq!(result, correct_result);
     }
 
-    #[test]
-    fn test_checkpoint_2_in_3() {
+    fn new_default_table(test_name_for_isolation: &str) -> Table {
         let table_dir =
-            Path::new(format!("/tmp/lawn/test/test_checkpoint/").as_str()).to_path_buf();
-        let mut table = Table::new(TableConfig {
+            Path::new(format!("/tmp/lawn/test/{test_name_for_isolation}/").as_str()).to_path_buf();
+        let mut result = Table::new(TableConfig {
             index: IndexConfig {
                 path: table_dir.join("index.idx").to_path_buf(),
             },
@@ -502,6 +501,13 @@ mod tests {
             }),
         })
         .unwrap();
+        result.clear().unwrap();
+        result
+    }
+
+    #[test]
+    fn test_checkpoint_2_in_3() {
+        let mut table = new_default_table("test_checkpoint_2_in_3");
 
         let first_keyvalues = vec![
             (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
@@ -538,18 +544,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_3_in_2() {
-        let table_dir =
-            Path::new(format!("/tmp/lawn/test/test_checkpoint/").as_str()).to_path_buf();
-        let mut table = Table::new(TableConfig {
-            index: IndexConfig {
-                path: table_dir.join("index.idx").to_path_buf(),
-            },
-            data_pool: Box::new(VariableDataPoolConfig {
-                directory: table_dir.join("data_pool").to_path_buf(),
-                max_element_size: 65536 as usize,
-            }),
-        })
-        .unwrap();
+        let mut table = new_default_table("test_checkpoint_3_in_2");
 
         let first_keyvalues = vec![
             (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),
@@ -586,18 +581,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_2_after_3() {
-        let table_dir =
-            Path::new(format!("/tmp/lawn/test/test_checkpoint/").as_str()).to_path_buf();
-        let mut table = Table::new(TableConfig {
-            index: IndexConfig {
-                path: table_dir.join("index.idx").to_path_buf(),
-            },
-            data_pool: Box::new(VariableDataPoolConfig {
-                directory: table_dir.join("data_pool").to_path_buf(),
-                max_element_size: 65536 as usize,
-            }),
-        })
-        .unwrap();
+        let mut table = new_default_table("test_checkpoint_2_after_3");
 
         let first_keyvalues = vec![
             (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
@@ -634,18 +618,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_2_before_3() {
-        let table_dir =
-            Path::new(format!("/tmp/lawn/test/test_checkpoint/").as_str()).to_path_buf();
-        let mut table = Table::new(TableConfig {
-            index: IndexConfig {
-                path: table_dir.join("index.idx").to_path_buf(),
-            },
-            data_pool: Box::new(VariableDataPoolConfig {
-                directory: table_dir.join("data_pool").to_path_buf(),
-                max_element_size: 65536 as usize,
-            }),
-        })
-        .unwrap();
+        let mut table = new_default_table("test_checkpoint_2_before_3");
 
         let first_keyvalues = vec![
             (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 2 as u8])),
