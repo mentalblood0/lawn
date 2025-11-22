@@ -22,7 +22,7 @@ pub struct FixedDataPool {
     file: fs::File,
     head_size: u8,
     head: Vec<u8>,
-    empty: bool,
+    no_holes_left: bool,
 }
 
 #[cfg_attr(feature = "serde", typetag::serde)]
@@ -58,7 +58,7 @@ impl FixedDataPool {
             file: file,
             head_size: 0,
             head: vec![],
-            empty: true,
+            no_holes_left: true,
             containers_allocated: 0,
             bytesize_on_disk: 0,
         };
@@ -77,7 +77,7 @@ impl FixedDataPool {
                 .map_err(|error| format!("Can not read head of {result:?}: {error}"))?;
             result.containers_allocated =
                 (result.bytesize_on_disk - result.head_size as u64) / config.container_size as u64;
-            result.empty = result.head.iter().all(|byte| *byte == 255);
+            result.no_holes_left = result.head.iter().all(|byte| *byte == 255);
         }
         Ok(result)
     }
@@ -86,7 +86,7 @@ impl FixedDataPool {
         self.set_head(&vec![0; self.head_size as usize])?;
         self.bytesize_on_disk = self.head_size as u64;
         self.containers_allocated = 0;
-        self.empty = true;
+        self.no_holes_left = true;
         Ok(())
     }
 
@@ -94,7 +94,7 @@ impl FixedDataPool {
         self.file
             .write_all_at(value.as_slice(), 0)
             .map_err(|error| format!("Can not write head for file {:?}: {error}", self.file))?;
-        self.empty = self.head.iter().all(|byte| *byte == 255);
+        self.no_holes_left = self.head.iter().all(|byte| *byte == 255);
         Ok(self)
     }
 
@@ -152,6 +152,12 @@ impl DataPool for FixedDataPool {
         data_to_add: &Vec<Vec<u8>>,
         pointers_to_data_to_remove: &Vec<u64>,
     ) -> Result<Vec<u64>, String> {
+        dbg!(
+            "FixedDataPool::update",
+            data_to_add,
+            pointers_to_data_to_remove,
+            self.no_holes_left
+        );
         let mut result = Vec::with_capacity(data_to_add.len());
 
         let mut replaced = 0 as usize;
@@ -179,11 +185,12 @@ impl DataPool for FixedDataPool {
         }
 
         for pointer_index in replaced..data_to_add.len() {
-            if self.empty {
+            if self.no_holes_left {
                 for pointer in self.containers_allocated
                     ..(self.containers_allocated + data_to_add.len() as u64 - pointer_index as u64)
                 {
                     result.push(pointer);
+                    dbg!("no_holes_left, push", &pointer);
                 }
                 let mut data_to_add_left: Vec<u8> =
                     vec![0; (data_to_add.len() - pointer_index) * self.config.container_size];
@@ -208,9 +215,6 @@ impl DataPool for FixedDataPool {
                 result.push(pointer);
                 self.set_head(&new_head)?;
             }
-        }
-        if self.empty && !result.is_empty() {
-            self.empty = false;
         }
 
         Ok(result)

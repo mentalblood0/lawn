@@ -495,6 +495,7 @@ mod tests {
                 assert_eq!(table.get_from_index(&key).unwrap(), *value);
             }
         }
+        println!("after first checkpoint:");
         {
             let keyvalues = vec![
                 (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),

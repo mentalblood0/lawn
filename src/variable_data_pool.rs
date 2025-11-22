@@ -184,6 +184,7 @@ impl DataPool for VariableDataPool {
                     container_size_index: container_size_index as u8,
                     pointer: *pointer,
                 };
+                dbg!(&id);
                 result[initial_index] = u64::from(id.clone());
             }
         }
