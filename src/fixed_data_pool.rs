@@ -83,7 +83,7 @@ impl FixedDataPool {
     }
 
     fn initialize_empty_file(&mut self) -> Result<(), String> {
-        self.set_head(&vec![0; self.head_size as usize])?;
+        self.set_head(&vec![255; self.head_size as usize])?;
         self.bytesize_on_disk = self.head_size as u64;
         self.containers_allocated = 0;
         self.no_holes_left = true;

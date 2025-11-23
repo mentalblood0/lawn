@@ -146,10 +146,10 @@ impl Table {
         )?;
 
         let mut memtable_records_to_add: Vec<Vec<u8>> = Vec::new();
-        let mut memtable_records_to_add_merge_locations: Vec<&MergeLocation<u64>> = Vec::new();
+        let mut memtable_records_to_add_merge_locations: Vec<MergeLocation<u64>> = Vec::new();
         let mut ids_to_delete: Vec<u64> = Vec::new();
 
-        for (current_record_index, merge_location) in merge_locations.iter().enumerate() {
+        for (current_record_index, merge_location) in merge_locations.into_iter().enumerate() {
             if merge_location.replace {
                 ids_to_delete.push(merge_location.additional_data);
             }
@@ -209,7 +209,8 @@ impl Table {
                     Some((current_new_id_index, current_new_id)),
                     Some((current_old_id_index, current_old_id)),
                 ) => {
-                    let current_new_id_merge_location = &merge_locations[current_new_id_index];
+                    let current_new_id_merge_location =
+                        &memtable_records_to_add_merge_locations[current_new_id_index];
                     match &current_old_id_index.cmp(&(current_new_id_merge_location.index as usize))
                     {
                         Ordering::Less => {
@@ -628,6 +629,51 @@ mod tests {
     }
 
     #[test]
+    fn test_checkpoint_2_remove_1_add_after_10() {
+        let mut table = new_default_table("test_checkpoint_2_remove_1_add_after_10");
+
+        let first_keyvalues = vec![
+            (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
+            (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),
+            (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 2 as u8])),
+            (vec![0 as u8, 3 as u8], Some(vec![1 as u8, 3 as u8])),
+            (vec![0 as u8, 4 as u8], Some(vec![1 as u8, 4 as u8])),
+            (vec![0 as u8, 5 as u8], Some(vec![1 as u8, 5 as u8])),
+            (vec![0 as u8, 6 as u8], Some(vec![1 as u8, 6 as u8])),
+            (vec![0 as u8, 7 as u8], Some(vec![1 as u8, 7 as u8])),
+            (vec![0 as u8, 8 as u8], Some(vec![1 as u8, 8 as u8])),
+            (vec![0 as u8, 9 as u8], Some(vec![1 as u8, 9 as u8])),
+        ];
+        {
+            let keyvalues = &first_keyvalues;
+            for (key, value) in keyvalues.iter() {
+                table.memtable.insert(key.clone(), value.clone());
+            }
+            table.checkpoint().unwrap();
+            for (key, value) in keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
+        }
+        {
+            let keyvalues = vec![
+                (vec![0 as u8, 10 as u8], None),
+                (vec![0 as u8, 11 as u8], None),
+                (vec![0 as u8, 12 as u8], Some(vec![1 as u8, 12 as u8])),
+            ];
+            for (key, value) in keyvalues.iter() {
+                table.memtable.insert(key.clone(), value.clone());
+            }
+            table.checkpoint().unwrap();
+            for (key, value) in keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
+            for (key, value) in first_keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
+        }
+    }
+
+    #[test]
     fn test_checkpoint_2_before_3() {
         let mut table = new_default_table("test_checkpoint_2_before_3");
 
@@ -792,12 +838,12 @@ mod tests {
 
     #[test]
     fn test_checkpoint_generative() {
-        let mut table = new_default_table("test_checkpoint_delete_last");
+        let mut table = new_default_table("test_checkpoint_generative");
 
         let mut previously_added_keyvalues: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
         let mut rng = WyRand::new_seed(0);
 
-        for _ in 0..8 {
+        for _ in 1..=8 {
             for _ in 0..3 {
                 let random_byte = rng.generate_range(0..256) as u8;
                 let key = vec![0 as u8, random_byte];
@@ -807,15 +853,12 @@ mod tests {
                     Some(vec![1 as u8, random_byte])
                 };
                 if let Some(value) = &value {
-                    println!("insert {random_byte}");
                     previously_added_keyvalues.insert(key.clone(), value.clone());
                 } else {
-                    println!("remove {random_byte}");
                     previously_added_keyvalues.remove(&key);
                 }
                 table.memtable.insert(key, value);
             }
-            println!("checkpoint\n");
             table.checkpoint().unwrap();
             for (key, value) in previously_added_keyvalues.iter() {
                 assert_eq!(table.get_from_index(&key).unwrap(), Some(value.clone()));
