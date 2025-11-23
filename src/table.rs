@@ -61,6 +61,7 @@ fn write_data_id(
     record_size: u8,
 ) -> Result<(), String> {
     let data_id_encoded = data_id.to_le_bytes()[..record_size as usize].to_vec();
+    println!("write_data_id {data_id_encoded:?}");
     writer
         .write_all(&data_id_encoded)
         .map_err(|error| format!("Can not write data id to file: {error}"))?;
@@ -127,6 +128,8 @@ impl Table {
             .map(|(key, value)| MemtableRecord { key, value })
             .collect();
 
+        dbg!(self.index.records_count);
+        dbg!(&memtable_records);
         let merge_locations = sparse_merge(
             self.index.records_count,
             |data_record_id_index| {
@@ -144,12 +147,13 @@ impl Table {
             },
             &memtable_records,
         )?;
+        dbg!(&merge_locations);
 
         let mut memtable_records_to_add: Vec<Vec<u8>> = Vec::new();
-        let mut memtable_records_to_add_merge_locations: Vec<MergeLocation<u64>> = Vec::new();
+        let mut memtable_records_to_add_merge_locations: Vec<&MergeLocation<u64>> = Vec::new();
         let mut ids_to_delete: Vec<u64> = Vec::new();
 
-        for (current_record_index, merge_location) in merge_locations.into_iter().enumerate() {
+        for (current_record_index, merge_location) in merge_locations.iter().enumerate() {
             if merge_location.replace {
                 ids_to_delete.push(merge_location.additional_data);
             }
@@ -167,6 +171,7 @@ impl Table {
                 memtable_records_to_add_merge_locations.push(merge_location);
             };
         }
+        dbg!(&memtable_records_to_add_merge_locations);
 
         let memtable_records_new_ids = self
             .data_pool
@@ -204,6 +209,7 @@ impl Table {
         let mut current_new_id_option = new_ids_iter.next();
         let mut current_old_id_option = old_ids_iter.next();
         loop {
+            dbg!(current_new_id_option, current_old_id_option);
             match (current_new_id_option, current_old_id_option) {
                 (
                     Some((current_new_id_index, current_new_id)),
@@ -211,9 +217,11 @@ impl Table {
                 ) => {
                     let current_new_id_merge_location =
                         &memtable_records_to_add_merge_locations[current_new_id_index];
+                    dbg!(current_new_id_merge_location);
                     match &current_old_id_index.cmp(&(current_new_id_merge_location.index as usize))
                     {
                         Ordering::Less => {
+                            println!("less");
                             if !ids_to_delete_set.contains(&current_old_id) {
                                 write_data_id(
                                     &mut new_index_writer,
@@ -224,6 +232,7 @@ impl Table {
                             current_old_id_option = old_ids_iter.next();
                         }
                         Ordering::Greater => {
+                            println!("greater");
                             write_data_id(
                                 &mut new_index_writer,
                                 *current_new_id,
@@ -232,6 +241,7 @@ impl Table {
                             current_new_id_option = new_ids_iter.next();
                         }
                         Ordering::Equal => {
+                            println!("equal");
                             if ids_to_delete_set.contains(&current_old_id) {
                                 if current_new_id_merge_location.replace {
                                     write_data_id(
@@ -843,7 +853,7 @@ mod tests {
         let mut previously_added_keyvalues: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
         let mut rng = WyRand::new_seed(0);
 
-        for _ in 1..=8 {
+        for checkpoint_number in 1..=14 {
             for _ in 0..3 {
                 let random_byte = rng.generate_range(0..256) as u8;
                 let key = vec![0 as u8, random_byte];
@@ -853,12 +863,15 @@ mod tests {
                     Some(vec![1 as u8, random_byte])
                 };
                 if let Some(value) = &value {
+                    println!("insert {random_byte}");
                     previously_added_keyvalues.insert(key.clone(), value.clone());
                 } else {
+                    println!("remove {random_byte}");
                     previously_added_keyvalues.remove(&key);
                 }
                 table.memtable.insert(key, value);
             }
+            println!("checkpoint {checkpoint_number}\n");
             table.checkpoint().unwrap();
             for (key, value) in previously_added_keyvalues.iter() {
                 assert_eq!(table.get_from_index(&key).unwrap(), Some(value.clone()));
