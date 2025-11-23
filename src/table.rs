@@ -668,7 +668,11 @@ mod tests {
         let mut table = new_default_table("test_checkpoint_replace");
 
         {
-            let keyvalues = vec![(vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8]))];
+            let keyvalues = vec![
+                (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
+                (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),
+                (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 2 as u8])),
+            ];
             for (key, value) in keyvalues.iter() {
                 table.memtable.insert(key.clone(), value.clone());
             }
@@ -678,10 +682,106 @@ mod tests {
             }
         }
         {
-            let keyvalues = vec![(vec![0 as u8, 0 as u8], Some(vec![1 as u8, 1 as u8]))];
+            let keyvalues = vec![
+                (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 3 as u8])),
+                (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 4 as u8])),
+                (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 5 as u8])),
+            ];
             for (key, value) in keyvalues.iter() {
                 table.memtable.insert(key.clone(), value.clone());
             }
+            table.checkpoint().unwrap();
+            for (key, value) in keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
+        }
+    }
+
+    #[test]
+    fn test_checkpoint_delete_middle() {
+        let mut table = new_default_table("test_checkpoint_delete_middle");
+
+        let mut keyvalues = vec![
+            (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
+            (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),
+            (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 2 as u8])),
+        ];
+        {
+            for (key, value) in keyvalues.iter() {
+                table.memtable.insert(key.clone(), value.clone());
+            }
+            table.checkpoint().unwrap();
+            for (key, value) in keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
+        }
+        {
+            table
+                .memtable
+                .insert(keyvalues[1].0.clone(), keyvalues[1].1.clone());
+            keyvalues.remove(1);
+            table.checkpoint().unwrap();
+            for (key, value) in keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
+        }
+    }
+
+    #[test]
+    fn test_checkpoint_delete_first() {
+        let mut table = new_default_table("test_checkpoint_delete_first");
+
+        let mut keyvalues = vec![
+            (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
+            (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),
+            (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 2 as u8])),
+        ];
+        {
+            for (key, value) in keyvalues.iter() {
+                table.memtable.insert(key.clone(), value.clone());
+            }
+            table.checkpoint().unwrap();
+            for (key, value) in keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
+        }
+        {
+            table.memtable.insert(
+                keyvalues.first().unwrap().0.clone(),
+                keyvalues.first().unwrap().1.clone(),
+            );
+            keyvalues.remove(0);
+            table.checkpoint().unwrap();
+            for (key, value) in keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
+        }
+    }
+
+    #[test]
+    fn test_checkpoint_delete_last() {
+        let mut table = new_default_table("test_checkpoint_delete_last");
+
+        let mut keyvalues = vec![
+            (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
+            (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),
+            (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 2 as u8])),
+        ];
+        {
+            for (key, value) in keyvalues.iter() {
+                table.memtable.insert(key.clone(), value.clone());
+            }
+            table.checkpoint().unwrap();
+            for (key, value) in keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+            }
+        }
+        {
+            table.memtable.insert(
+                keyvalues.last().unwrap().0.clone(),
+                keyvalues.last().unwrap().1.clone(),
+            );
+            keyvalues.remove(keyvalues.len() - 1);
             table.checkpoint().unwrap();
             for (key, value) in keyvalues.iter() {
                 assert_eq!(table.get_from_index(&key).unwrap(), *value);
