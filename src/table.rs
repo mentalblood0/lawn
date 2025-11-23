@@ -175,7 +175,8 @@ impl Table {
             .iter()
             .max()
             .and_then(|id| Some((*id as f64).log(256.0).ceil() as u8))
-            .unwrap_or(self.index.header.record_size);
+            .unwrap_or(self.index.header.record_size)
+            .max(self.index.header.record_size);
 
         let new_index_file_path = self.index.config.path.with_extension("part");
         let mut new_index_file = std::fs::OpenOptions::new()
