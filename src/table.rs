@@ -789,4 +789,37 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_checkpoint_generative() {
+        let mut table = new_default_table("test_checkpoint_delete_last");
+
+        let mut previously_added_keyvalues: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
+        let mut rng = WyRand::new_seed(0);
+
+        for _ in 0..8 {
+            for _ in 0..3 {
+                let random_byte = rng.generate_range(0..256) as u8;
+                let key = vec![0 as u8, random_byte];
+                let value = if rng.generate_range(0..=1) == 0 {
+                    None
+                } else {
+                    Some(vec![1 as u8, random_byte])
+                };
+                if let Some(value) = &value {
+                    println!("insert {random_byte}");
+                    previously_added_keyvalues.insert(key.clone(), value.clone());
+                } else {
+                    println!("remove {random_byte}");
+                    previously_added_keyvalues.remove(&key);
+                }
+                table.memtable.insert(key, value);
+            }
+            println!("checkpoint\n");
+            table.checkpoint().unwrap();
+            for (key, value) in previously_added_keyvalues.iter() {
+                assert_eq!(table.get_from_index(&key).unwrap(), Some(value.clone()));
+            }
+        }
+    }
 }
