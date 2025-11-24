@@ -1,6 +1,8 @@
-use std::fs;
+use std::cmp::Ordering;
+use std::io::{Seek, Write};
 use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
+use std::{fs, io::BufWriter};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -144,6 +146,68 @@ impl FixedDataPool {
             })?;
         Ok(())
     }
+
+    pub fn update_with_iterator<'a>(
+        &mut self,
+        mut data_to_add: impl Iterator<Item = Vec<u8>>,
+        mut pointers_to_data_to_remove: impl Iterator<Item = u64>,
+    ) -> Result<Vec<u64>, String> {
+        let mut result: Vec<u64> = Vec::new();
+
+        loop {
+            match (data_to_add.next(), pointers_to_data_to_remove.next()) {
+                (Some(current_data_to_add), Some(current_pointer_to_data_to_remove)) => {
+                    self.set(current_pointer_to_data_to_remove, &current_data_to_add)?;
+                    result.push(current_pointer_to_data_to_remove);
+                }
+                (Some(mut current_data_to_add), None) => {
+                    if self.no_holes_left {
+                        self.file.seek(std::io::SeekFrom::End(0)).map_err(|error| {
+                            format!("Can not seek in file {:?}: {error}", self.file)
+                        })?;
+                        let mut writer = BufWriter::new(&self.file);
+                        loop {
+                            match current_data_to_add.len().cmp(&self.config.container_size) {
+                                Ordering::Greater => {
+                                    return Err(format!(
+                                        "Can not insert data of size {} into fixed data pool for containers of size {}",
+                                        current_data_to_add.len(),
+                                        self.config.container_size
+                                    ));
+                                }
+                                Ordering::Less => {
+                                    current_data_to_add.resize(self.config.container_size, 0);
+                                }
+                                Ordering::Equal => {}
+                            }
+                            writer.write_all(&current_data_to_add).map_err(|error| {
+                                format!("Can not write to file {:?}: {error}", self.file)
+                            })?;
+                            result.push(self.containers_allocated);
+                            self.containers_allocated += 1;
+                            self.bytesize_on_disk += self.config.container_size as u64;
+                            current_data_to_add = match data_to_add.next() {
+                                Some(current_data_to_add) => current_data_to_add,
+                                None => break,
+                            }
+                        }
+                    } else {
+                        let pointer = self.pointer_from_container(&self.head);
+                        let new_head = self.get_of_size(pointer, self.head_size as usize)?;
+                        self.set(pointer, &current_data_to_add)?;
+                        result.push(pointer);
+                        self.set_head(&new_head)?;
+                    }
+                }
+                (None, Some(current_pointer_to_data_to_remove)) => {
+                    self.set(current_pointer_to_data_to_remove, &self.head.clone())?;
+                    self.set_head(&self.pointer_to_container(current_pointer_to_data_to_remove))?;
+                }
+                (None, None) => break,
+            }
+        }
+        Ok(result)
+    }
 }
 
 impl DataPool for FixedDataPool {
@@ -266,7 +330,10 @@ mod tests {
             }
 
             let pointers_to_added_data = fixed_data_pool
-                .update(&data_to_add, &pointers_to_data_to_remove)
+                .update_with_iterator(
+                    data_to_add.clone().into_iter(),
+                    pointers_to_data_to_remove.into_iter(),
+                )
                 .unwrap();
             pointers_to_added_data
                 .iter()
