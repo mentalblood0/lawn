@@ -179,7 +179,7 @@ where
     D: Iterator<Item = Vec<u8>>,
     P: Iterator<Item = u64>,
 {
-    type Item = u64;
+    type Item = (u64, Vec<u8>);
     type Error = String;
 
     fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
@@ -191,7 +191,10 @@ where
                 (Some(current_data_to_add), Some(current_pointer_to_data_to_remove)) => {
                     self.fixed_data_pool
                         .set(current_pointer_to_data_to_remove, &current_data_to_add)?;
-                    return Ok(Some(current_pointer_to_data_to_remove));
+                    return Ok(Some((
+                        current_pointer_to_data_to_remove,
+                        current_data_to_add,
+                    )));
                 }
                 (Some(mut current_data_to_add), None) => {
                     if self.fixed_data_pool.no_holes_left {
@@ -240,7 +243,10 @@ where
                         self.fixed_data_pool.containers_allocated += 1;
                         self.fixed_data_pool.bytesize_on_disk +=
                             self.fixed_data_pool.config.container_size as u64;
-                        return Ok(Some(self.fixed_data_pool.containers_allocated - 1));
+                        return Ok(Some((
+                            self.fixed_data_pool.containers_allocated - 1,
+                            current_data_to_add,
+                        )));
                     } else {
                         let pointer = self
                             .fixed_data_pool
@@ -250,7 +256,7 @@ where
                             .get_of_size(pointer, self.fixed_data_pool.head_size as usize)?;
                         self.fixed_data_pool.set(pointer, &current_data_to_add)?;
                         self.fixed_data_pool.set_head(&new_head)?;
-                        return Ok(Some(pointer));
+                        return Ok(Some((pointer, current_data_to_add)));
                     }
                 }
                 (None, Some(current_pointer_to_data_to_remove)) => {
@@ -399,12 +405,11 @@ mod tests {
 
             fixed_data_pool
                 .new_updating_iterator(
-                    data_to_add.clone().into_iter(),
+                    data_to_add.into_iter(),
                     pointers_to_data_to_remove.into_iter(),
                 )
-                .enumerate()
-                .for_each(|(pointer_index, pointer)| {
-                    previously_added_data.insert(pointer, data_to_add[pointer_index].clone());
+                .for_each(|(pointer, added_data)| {
+                    previously_added_data.insert(pointer, added_data);
                     Ok(())
                 })
                 .unwrap();
