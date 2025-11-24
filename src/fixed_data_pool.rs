@@ -189,18 +189,13 @@ where
                 self.pointers_to_data_to_remove.next(),
             ) {
                 (Some(current_data_to_add), Some(current_pointer_to_data_to_remove)) => {
-                    println!(
-                        "replace {current_pointer_to_data_to_remove:?} with {current_data_to_add:?}"
-                    );
                     self.fixed_data_pool
                         .set(current_pointer_to_data_to_remove, &current_data_to_add)?;
                     return Ok(Some(current_pointer_to_data_to_remove));
                 }
                 (Some(mut current_data_to_add), None) => {
-                    println!("add {current_data_to_add:?}");
                     if self.fixed_data_pool.no_holes_left {
                         if self.writer.is_none() {
-                            println!("make writer");
                             let file = fs::OpenOptions::new()
                                 .create(false)
                                 .read(false)
@@ -245,7 +240,7 @@ where
                         self.fixed_data_pool.containers_allocated += 1;
                         self.fixed_data_pool.bytesize_on_disk +=
                             self.fixed_data_pool.config.container_size as u64;
-                        return Ok(Some(self.fixed_data_pool.containers_allocated));
+                        return Ok(Some(self.fixed_data_pool.containers_allocated - 1));
                     } else {
                         let pointer = self
                             .fixed_data_pool
@@ -259,7 +254,6 @@ where
                     }
                 }
                 (None, Some(current_pointer_to_data_to_remove)) => {
-                    println!("remove {current_pointer_to_data_to_remove:?}");
                     self.fixed_data_pool.set(
                         current_pointer_to_data_to_remove,
                         &self.fixed_data_pool.head.clone(),
@@ -272,7 +266,6 @@ where
                     continue;
                 }
                 (None, None) => {
-                    println!("end");
                     if let Some(writer) = self.writer.as_mut() {
                         writer.flush().map_err(|error| {
                             format!("Can not flush fixed data pool update: {error}")
@@ -404,19 +397,17 @@ mod tests {
                 previously_added_data.remove(&pointer);
             }
 
-            let pointers_to_added_data: Vec<u64> = fixed_data_pool
+            fixed_data_pool
                 .new_updating_iterator(
                     data_to_add.clone().into_iter(),
                     pointers_to_data_to_remove.into_iter(),
                 )
-                .collect()
-                .unwrap();
-            pointers_to_added_data
-                .iter()
                 .enumerate()
                 .for_each(|(pointer_index, pointer)| {
-                    previously_added_data.insert(*pointer, data_to_add[pointer_index].clone());
-                });
+                    previously_added_data.insert(pointer, data_to_add[pointer_index].clone());
+                    Ok(())
+                })
+                .unwrap();
 
             for (pointer, data) in &previously_added_data {
                 assert_eq!(&fixed_data_pool.get(*pointer).unwrap(), data);
