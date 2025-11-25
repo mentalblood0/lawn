@@ -149,32 +149,144 @@ impl FixedDataPool {
         Ok(())
     }
 
+    pub fn new_updater<'a>(&'a mut self) -> FixedDataPoolUpdater<'a> {
+        FixedDataPoolUpdater {
+            fixed_data_pool: self,
+            writer: None,
+        }
+    }
+
     pub fn new_updating_iterator<'a, D, P>(
         &'a mut self,
         data_to_add: D,
         pointers_to_data_to_remove: P,
-    ) -> DataPoolUpdatingIterator<'a, D, P>
+    ) -> FixedDataPoolUpdatingIterator<'a, D, P>
     where
         D: Iterator<Item = Vec<u8>>,
         P: Iterator<Item = u64>,
     {
-        DataPoolUpdatingIterator {
-            fixed_data_pool: self,
+        FixedDataPoolUpdatingIterator {
+            updater: self.new_updater(),
             data_to_add,
             pointers_to_data_to_remove,
-            writer: None,
         }
     }
 }
 
-pub struct DataPoolUpdatingIterator<'a, D: Iterator<Item = Vec<u8>>, P: Iterator<Item = u64>> {
+pub struct FixedDataPoolUpdater<'a> {
     fixed_data_pool: &'a mut FixedDataPool,
-    data_to_add: D,
-    pointers_to_data_to_remove: P,
     writer: Option<BufWriter<fs::File>>,
 }
 
-impl<'a, D, P> FallibleIterator for DataPoolUpdatingIterator<'a, D, P>
+impl<'a> FixedDataPoolUpdater<'a> {
+    fn update(
+        &mut self,
+        data_to_add: Option<Vec<u8>>,
+        pointer_to_data_to_remove: Option<u64>,
+    ) -> Result<Option<(u64, Vec<u8>)>, String> {
+        match (data_to_add, pointer_to_data_to_remove) {
+            (Some(current_data_to_add), Some(current_pointer_to_data_to_remove)) => {
+                self.fixed_data_pool
+                    .set(current_pointer_to_data_to_remove, &current_data_to_add)?;
+                Ok(Some((
+                    current_pointer_to_data_to_remove,
+                    current_data_to_add,
+                )))
+            }
+            (Some(mut current_data_to_add), None) => {
+                if self.fixed_data_pool.no_holes_left {
+                    if self.writer.is_none() {
+                        let file = fs::OpenOptions::new()
+                            .create(false)
+                            .read(false)
+                            .write(true)
+                            .append(true)
+                            .open(&self.fixed_data_pool.config.path)
+                            .map_err(|error| {
+                                format!(
+                                    "Can not open file at path {}: {error}",
+                                    self.fixed_data_pool.config.path.display()
+                                )
+                            })?;
+                        self.writer = Some(BufWriter::new(file));
+                    }
+                    match current_data_to_add
+                        .len()
+                        .cmp(&self.fixed_data_pool.config.container_size)
+                    {
+                        Ordering::Greater => {
+                            return Err(format!(
+                                "Can not insert data of size {} into fixed data pool for containers of size {}",
+                                current_data_to_add.len(),
+                                self.fixed_data_pool.config.container_size
+                            ));
+                        }
+                        Ordering::Less => {
+                            current_data_to_add
+                                .resize(self.fixed_data_pool.config.container_size, 0);
+                        }
+                        Ordering::Equal => {}
+                    }
+                    self.writer
+                        .as_mut()
+                        .ok_or_else(|| format!("Logical error: no writer"))?
+                        .write_all(&current_data_to_add)
+                        .map_err(|error| {
+                            format!(
+                                "Can not write to file {:?}: {error}",
+                                self.fixed_data_pool.file
+                            )
+                        })?;
+                    self.fixed_data_pool.containers_allocated += 1;
+                    self.fixed_data_pool.bytesize_on_disk +=
+                        self.fixed_data_pool.config.container_size as u64;
+                    Ok(Some((
+                        self.fixed_data_pool.containers_allocated - 1,
+                        current_data_to_add,
+                    )))
+                } else {
+                    let pointer = self
+                        .fixed_data_pool
+                        .pointer_from_container(&self.fixed_data_pool.head);
+                    let new_head = self
+                        .fixed_data_pool
+                        .get_of_size(pointer, self.fixed_data_pool.head_size as usize)?;
+                    self.fixed_data_pool.set(pointer, &current_data_to_add)?;
+                    self.fixed_data_pool.set_head(&new_head)?;
+                    Ok(Some((pointer, current_data_to_add)))
+                }
+            }
+            (None, Some(current_pointer_to_data_to_remove)) => {
+                self.fixed_data_pool.set(
+                    current_pointer_to_data_to_remove,
+                    &self.fixed_data_pool.head.clone(),
+                )?;
+                self.fixed_data_pool.set_head(
+                    &self
+                        .fixed_data_pool
+                        .pointer_to_container(current_pointer_to_data_to_remove),
+                )?;
+                Ok(None)
+            }
+            (None, None) => {
+                if let Some(writer) = self.writer.as_mut() {
+                    writer.flush().map_err(|error| {
+                        format!("Can not flush fixed data pool update: {error}")
+                    })?;
+                }
+                Ok(None)
+            }
+        }
+    }
+}
+
+pub struct FixedDataPoolUpdatingIterator<'a, D: Iterator<Item = Vec<u8>>, P: Iterator<Item = u64>> {
+    updater: FixedDataPoolUpdater<'a>,
+    data_to_add: D,
+    pointers_to_data_to_remove: P,
+}
+
+impl<'a, D, P> FallibleIterator for FixedDataPoolUpdatingIterator<'a, D, P>
 where
     D: Iterator<Item = Vec<u8>>,
     P: Iterator<Item = u64>,
@@ -184,101 +296,16 @@ where
 
     fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
         loop {
-            match (
-                self.data_to_add.next(),
-                self.pointers_to_data_to_remove.next(),
-            ) {
-                (Some(current_data_to_add), Some(current_pointer_to_data_to_remove)) => {
-                    self.fixed_data_pool
-                        .set(current_pointer_to_data_to_remove, &current_data_to_add)?;
-                    return Ok(Some((
-                        current_pointer_to_data_to_remove,
-                        current_data_to_add,
-                    )));
-                }
-                (Some(mut current_data_to_add), None) => {
-                    if self.fixed_data_pool.no_holes_left {
-                        if self.writer.is_none() {
-                            let file = fs::OpenOptions::new()
-                                .create(false)
-                                .read(false)
-                                .write(true)
-                                .append(true)
-                                .open(&self.fixed_data_pool.config.path)
-                                .map_err(|error| {
-                                    format!(
-                                        "Can not open file at path {}: {error}",
-                                        self.fixed_data_pool.config.path.display()
-                                    )
-                                })?;
-                            self.writer = Some(BufWriter::new(file));
-                        }
-                        match current_data_to_add
-                            .len()
-                            .cmp(&self.fixed_data_pool.config.container_size)
-                        {
-                            Ordering::Greater => {
-                                return Err(format!(
-                                    "Can not insert data of size {} into fixed data pool for containers of size {}",
-                                    current_data_to_add.len(),
-                                    self.fixed_data_pool.config.container_size
-                                ));
-                            }
-                            Ordering::Less => {
-                                current_data_to_add
-                                    .resize(self.fixed_data_pool.config.container_size, 0);
-                            }
-                            Ordering::Equal => {}
-                        }
-                        self.writer
-                            .as_mut()
-                            .ok_or_else(|| format!("Logical error: no writer"))?
-                            .write_all(&current_data_to_add)
-                            .map_err(|error| {
-                                format!(
-                                    "Can not write to file {:?}: {error}",
-                                    self.fixed_data_pool.file
-                                )
-                            })?;
-                        self.fixed_data_pool.containers_allocated += 1;
-                        self.fixed_data_pool.bytesize_on_disk +=
-                            self.fixed_data_pool.config.container_size as u64;
-                        return Ok(Some((
-                            self.fixed_data_pool.containers_allocated - 1,
-                            current_data_to_add,
-                        )));
-                    } else {
-                        let pointer = self
-                            .fixed_data_pool
-                            .pointer_from_container(&self.fixed_data_pool.head);
-                        let new_head = self
-                            .fixed_data_pool
-                            .get_of_size(pointer, self.fixed_data_pool.head_size as usize)?;
-                        self.fixed_data_pool.set(pointer, &current_data_to_add)?;
-                        self.fixed_data_pool.set_head(&new_head)?;
-                        return Ok(Some((pointer, current_data_to_add)));
-                    }
-                }
-                (None, Some(current_pointer_to_data_to_remove)) => {
-                    self.fixed_data_pool.set(
-                        current_pointer_to_data_to_remove,
-                        &self.fixed_data_pool.head.clone(),
-                    )?;
-                    self.fixed_data_pool.set_head(
-                        &self
-                            .fixed_data_pool
-                            .pointer_to_container(current_pointer_to_data_to_remove),
-                    )?;
-                    continue;
-                }
-                (None, None) => {
-                    if let Some(writer) = self.writer.as_mut() {
-                        writer.flush().map_err(|error| {
-                            format!("Can not flush fixed data pool update: {error}")
-                        })?;
-                    }
-                    return Ok(None);
-                }
+            let data_to_add = self.data_to_add.next();
+            let pointer_to_data_to_remove = self.pointers_to_data_to_remove.next();
+            if data_to_add.is_none() && pointer_to_data_to_remove.is_none() {
+                return Ok(None);
+            }
+            if !(data_to_add.is_none() && pointer_to_data_to_remove.is_some()) {
+                return self.updater.update(data_to_add, pointer_to_data_to_remove);
+            } else {
+                self.updater
+                    .update(data_to_add, pointer_to_data_to_remove)?;
             }
         }
     }
