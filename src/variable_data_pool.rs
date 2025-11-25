@@ -127,19 +127,51 @@ impl VariableDataPool {
             })?,
         })
     }
+
+    pub fn insert(&mut self, data: Vec<u8>) -> Result<u64, String> {
+        let encoded_data = bincode::encode_to_vec(
+            Container { data: data.clone() },
+            bincode::config::standard(),
+        )
+        .map_err(|error| format!("Can not encode data to container structure: {error}"))?;
+        let container_size_index = self
+            .container_size_index_to_fixed_data_pool
+            .partition_point(|fixed_data_pool| {
+                fixed_data_pool.config.container_size < encoded_data.len()
+            });
+        let pointer = self.container_size_index_to_fixed_data_pool[container_size_index]
+            .insert(encoded_data)?;
+        Ok(u64::from(Id {
+            container_size_index: container_size_index as u8,
+            pointer: pointer,
+        }))
+    }
+
+    pub fn remove(&mut self, id: u64) -> Result<(), String> {
+        let parsed_id = Id::from(id);
+        self.container_size_index_to_fixed_data_pool[parsed_id.container_size_index as usize]
+            .remove(parsed_id.pointer)
+    }
+
+    pub fn flush(&mut self) -> Result<(), String> {
+        for fixed_data_pool in self.container_size_index_to_fixed_data_pool.iter_mut() {
+            fixed_data_pool.flush()?;
+        }
+        Ok(())
+    }
 }
 
 impl DataPool for VariableDataPool {
     fn update(
         &mut self,
-        data_to_add: &Vec<Vec<u8>>,
+        data_to_insert: &Vec<Vec<u8>>,
         ids_of_data_to_remove: &Vec<u64>,
     ) -> Result<Vec<u64>, String> {
-        let mut container_size_index_to_encoded_data_to_add: [Vec<Vec<u8>>;
+        let mut container_size_index_to_encoded_data_to_insert: [Vec<Vec<u8>>;
             CONTAINERS_SIZES_COUNT] = [const { Vec::new() }; CONTAINERS_SIZES_COUNT];
-        let mut container_size_index_to_data_to_add_initial_indices: [Vec<usize>;
+        let mut container_size_index_to_data_to_insert_initial_indices: [Vec<usize>;
             CONTAINERS_SIZES_COUNT] = [const { Vec::new() }; CONTAINERS_SIZES_COUNT];
-        for (initial_index, data) in data_to_add.iter().enumerate() {
+        for (initial_index, data) in data_to_insert.iter().enumerate() {
             let encoded_data = bincode::encode_to_vec(
                 Container { data: data.clone() },
                 bincode::config::standard(),
@@ -150,9 +182,9 @@ impl DataPool for VariableDataPool {
                 .partition_point(|fixed_data_pool| {
                     fixed_data_pool.config.container_size < encoded_data.len()
                 });
-            container_size_index_to_data_to_add_initial_indices[container_size_index]
+            container_size_index_to_data_to_insert_initial_indices[container_size_index]
                 .push(initial_index);
-            container_size_index_to_encoded_data_to_add[container_size_index].push(encoded_data);
+            container_size_index_to_encoded_data_to_insert[container_size_index].push(encoded_data);
         }
 
         let mut container_size_index_to_pointers_to_remove: [Vec<u64>; CONTAINERS_SIZES_COUNT] =
@@ -163,23 +195,23 @@ impl DataPool for VariableDataPool {
                 .push(parsed_id.pointer);
         }
 
-        let mut result: Vec<u64> = vec![0; data_to_add.len()];
+        let mut result: Vec<u64> = vec![0; data_to_insert.len()];
         for container_size_index in 0..CONTAINERS_SIZES_COUNT {
-            let encoded_data_to_add =
-                &container_size_index_to_encoded_data_to_add[container_size_index];
+            let encoded_data_to_insert =
+                &container_size_index_to_encoded_data_to_insert[container_size_index];
             let pointers_to_data_to_remove =
                 &container_size_index_to_pointers_to_remove[container_size_index];
-            if encoded_data_to_add.len() == 0 && pointers_to_data_to_remove.len() == 0 {
+            if encoded_data_to_insert.len() == 0 && pointers_to_data_to_remove.len() == 0 {
                 continue;
             }
-            let encoded_data_to_add_pointers = self.container_size_index_to_fixed_data_pool
+            let encoded_data_to_insert_pointers = self.container_size_index_to_fixed_data_pool
                 [container_size_index]
-                .update(encoded_data_to_add, pointers_to_data_to_remove)?;
-            for (encoded_data_to_add_index, pointer) in
-                encoded_data_to_add_pointers.iter().enumerate()
+                .update(encoded_data_to_insert, pointers_to_data_to_remove)?;
+            for (encoded_data_to_insert_index, pointer) in
+                encoded_data_to_insert_pointers.iter().enumerate()
             {
-                let initial_index = container_size_index_to_data_to_add_initial_indices
-                    [container_size_index][encoded_data_to_add_index];
+                let initial_index = container_size_index_to_data_to_insert_initial_indices
+                    [container_size_index][encoded_data_to_insert_index];
                 let id = Id {
                     container_size_index: container_size_index as u8,
                     pointer: *pointer,
@@ -218,7 +250,7 @@ mod tests {
     use super::*;
 
     use nanorand::{Rng, WyRand};
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
     use std::path::Path;
 
     use pretty_assertions::assert_eq;
@@ -242,37 +274,28 @@ mod tests {
         .unwrap();
         variable_data_pool.clear().unwrap();
 
-        let mut previously_added_data: HashMap<u64, Vec<u8>> = HashMap::new();
+        let mut previously_inserted_data: BTreeMap<u64, Vec<u8>> = BTreeMap::new();
         let mut rng = WyRand::new_seed(0);
 
         for _ in 0..1000 {
-            let data_to_add: Vec<Vec<u8>> = (0..rng.generate_range(1..=16))
-                .map(|_| {
-                    let mut data = vec![0u8; rng.generate_range(1..1024)];
-                    rng.fill(&mut data);
-                    data
-                })
-                .collect();
-            let ids_of_data_to_remove: Vec<u64> = previously_added_data
+            let ids_of_data_to_remove: Vec<u64> = previously_inserted_data
                 .keys()
-                .take(rng.generate_range(0..=previously_added_data.len()))
+                .take(rng.generate_range(0..=previously_inserted_data.len()))
                 .cloned()
                 .collect();
             for id in &ids_of_data_to_remove {
-                previously_added_data.remove(&id);
+                previously_inserted_data.remove(&id);
+                variable_data_pool.remove(*id).unwrap();
             }
+            for _ in 0..rng.generate_range(1..=16) {
+                let mut data_to_insert = vec![0u8; rng.generate_range(1..1024)];
+                rng.fill(&mut data_to_insert);
+                let data_id = variable_data_pool.insert(data_to_insert.clone()).unwrap();
+                previously_inserted_data.insert(data_id, data_to_insert);
+            }
+            variable_data_pool.flush().unwrap();
 
-            let ids_of_added_data = variable_data_pool
-                .update(&data_to_add, &ids_of_data_to_remove)
-                .unwrap();
-            ids_of_added_data
-                .iter()
-                .enumerate()
-                .for_each(|(id_index, id)| {
-                    previously_added_data.insert(id.clone(), data_to_add[id_index].clone());
-                });
-
-            for (id, data) in &previously_added_data {
+            for (id, data) in &previously_inserted_data {
                 assert_eq!(&variable_data_pool.get(id.clone()).unwrap(), data);
             }
         }

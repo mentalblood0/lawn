@@ -196,9 +196,9 @@ impl FixedDataPool {
         }
     }
 
-    pub fn remove(&mut self, pointer: u64) -> Result<(), String> {
-        self.set(pointer, &self.head.clone())?;
-        self.set_head(&self.pointer_to_container(pointer))?;
+    pub fn remove(&mut self, id: u64) -> Result<(), String> {
+        self.set(id, &self.head.clone())?;
+        self.set_head(&self.pointer_to_container(id))?;
         Ok(())
     }
 
@@ -280,6 +280,7 @@ impl DataPool for FixedDataPool {
 
         Ok(result)
     }
+
     fn clear(&mut self) -> Result<(), String> {
         self.file
             .set_len(0)
