@@ -149,7 +149,7 @@ impl FixedDataPool {
         Ok(())
     }
 
-    pub fn add(&mut self, mut data: Vec<u8>) -> Result<u64, String> {
+    pub fn insert(&mut self, mut data: Vec<u8>) -> Result<u64, String> {
         if self.no_holes_left {
             if self.writer.is_none() {
                 let file = fs::OpenOptions::new()
@@ -216,15 +216,15 @@ impl FixedDataPool {
 impl DataPool for FixedDataPool {
     fn update(
         &mut self,
-        data_to_add: &Vec<Vec<u8>>,
+        data_to_insert: &Vec<Vec<u8>>,
         pointers_to_data_to_remove: &Vec<u64>,
     ) -> Result<Vec<u64>, String> {
-        let mut result = Vec::with_capacity(data_to_add.len());
+        let mut result = Vec::with_capacity(data_to_insert.len());
 
         let mut replaced = 0 as usize;
-        while replaced < data_to_add.len() && replaced < pointers_to_data_to_remove.len() {
+        while replaced < data_to_insert.len() && replaced < pointers_to_data_to_remove.len() {
             let pointer = pointers_to_data_to_remove[replaced];
-            self.set(pointer, &data_to_add[replaced])?;
+            self.set(pointer, &data_to_insert[replaced])?;
             result.push(pointer);
             replaced += 1;
         }
@@ -245,33 +245,34 @@ impl DataPool for FixedDataPool {
             )?;
         }
 
-        for pointer_index in replaced..data_to_add.len() {
+        for pointer_index in replaced..data_to_insert.len() {
             if self.no_holes_left {
                 for pointer in self.containers_allocated
-                    ..(self.containers_allocated + data_to_add.len() as u64 - pointer_index as u64)
+                    ..(self.containers_allocated + data_to_insert.len() as u64
+                        - pointer_index as u64)
                 {
                     result.push(pointer);
                 }
-                let mut data_to_add_left: Vec<u8> =
-                    vec![0; (data_to_add.len() - pointer_index) * self.config.container_size];
-                data_to_add
+                let mut data_to_insert_left: Vec<u8> =
+                    vec![0; (data_to_insert.len() - pointer_index) * self.config.container_size];
+                data_to_insert
                     .into_iter()
                     .skip(pointer_index)
                     .enumerate()
                     .for_each(|(data_index, data)| {
-                        let target_slice = &mut data_to_add_left[data_index
+                        let target_slice = &mut data_to_insert_left[data_index
                             * self.config.container_size
                             ..data_index * self.config.container_size + data.len()];
                         target_slice.copy_from_slice(data);
                     });
-                self.set(self.containers_allocated, &data_to_add_left)?;
-                self.containers_allocated += (data_to_add.len() - pointer_index) as u64;
-                self.bytesize_on_disk += data_to_add_left.len() as u64;
+                self.set(self.containers_allocated, &data_to_insert_left)?;
+                self.containers_allocated += (data_to_insert.len() - pointer_index) as u64;
+                self.bytesize_on_disk += data_to_insert_left.len() as u64;
                 break;
             } else {
                 let pointer = self.pointer_from_container(&self.head);
                 let new_head = self.get_of_size(pointer, self.head_size as usize)?;
-                self.set(pointer, &data_to_add[pointer_index])?;
+                self.set(pointer, &data_to_insert[pointer_index])?;
                 result.push(pointer);
                 self.set_head(&new_head)?;
             }
@@ -313,27 +314,27 @@ mod tests {
         })
         .unwrap();
         fixed_data_pool.clear().unwrap();
-        let mut previously_added_data: BTreeMap<u64, Vec<u8>> = BTreeMap::new();
+        let mut previously_inserted_data: BTreeMap<u64, Vec<u8>> = BTreeMap::new();
 
         for _ in 0..1000 {
-            let pointers_to_data_to_remove: Vec<u64> = previously_added_data
+            let pointers_to_data_to_remove: Vec<u64> = previously_inserted_data
                 .keys()
-                .take(rng.generate_range(0..=previously_added_data.len()))
+                .take(rng.generate_range(0..=previously_inserted_data.len()))
                 .cloned()
                 .collect();
             for pointer in pointers_to_data_to_remove {
-                previously_added_data.remove(&pointer);
+                previously_inserted_data.remove(&pointer);
                 fixed_data_pool.remove(pointer).unwrap();
             }
             for _ in 0..rng.generate_range(1..=16) {
-                let mut data_to_add = vec![0u8; CONTAINER_SIZE];
-                rng.fill(&mut data_to_add);
-                let data_id = fixed_data_pool.add(data_to_add.clone()).unwrap();
-                previously_added_data.insert(data_id, data_to_add);
+                let mut data_to_insert = vec![0u8; CONTAINER_SIZE];
+                rng.fill(&mut data_to_insert);
+                let data_id = fixed_data_pool.insert(data_to_insert.clone()).unwrap();
+                previously_inserted_data.insert(data_id, data_to_insert);
             }
             fixed_data_pool.flush().unwrap();
 
-            for (pointer, data) in &previously_added_data {
+            for (pointer, data) in &previously_inserted_data {
                 assert_eq!(&fixed_data_pool.get(*pointer).unwrap(), data);
             }
         }
@@ -347,7 +348,7 @@ mod tests {
             container_size: CONTAINER_SIZE,
         })
         .unwrap();
-        for (pointer, data) in &previously_added_data {
+        for (pointer, data) in &previously_inserted_data {
             assert_eq!(&fixed_data_pool.get(*pointer).unwrap(), data);
         }
         fixed_data_pool.clear().unwrap();
