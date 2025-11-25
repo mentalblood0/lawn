@@ -7,11 +7,11 @@ pub trait DataPoolConfig {
 }
 
 pub trait DataPool {
-    fn update(
-        &mut self,
-        data_to_add: &Vec<Vec<u8>>,
-        ids_of_data_to_delete: &Vec<u64>,
-    ) -> Result<Vec<u64>, String>;
+    fn insert(&mut self, data: Vec<u8>) -> Result<u64, String>;
+
+    fn remove(&mut self, id: u64) -> Result<(), String>;
+
+    fn flush(&mut self) -> Result<(), String>;
 
     fn clear(&mut self) -> Result<(), String>;
 

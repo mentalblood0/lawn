@@ -148,8 +148,10 @@ impl FixedDataPool {
             })?;
         Ok(())
     }
+}
 
-    pub fn insert(&mut self, mut data: Vec<u8>) -> Result<u64, String> {
+impl DataPool for FixedDataPool {
+    fn insert(&mut self, mut data: Vec<u8>) -> Result<u64, String> {
         if self.no_holes_left {
             if self.writer.is_none() {
                 let file = fs::OpenOptions::new()
@@ -196,13 +198,13 @@ impl FixedDataPool {
         }
     }
 
-    pub fn remove(&mut self, id: u64) -> Result<(), String> {
+    fn remove(&mut self, id: u64) -> Result<(), String> {
         self.set(id, &self.head.clone())?;
         self.set_head(&self.pointer_to_container(id))?;
         Ok(())
     }
 
-    pub fn flush(&mut self) -> Result<(), String> {
+    fn flush(&mut self) -> Result<(), String> {
         if let Some(writer) = self.writer.as_mut() {
             writer
                 .flush()
@@ -210,75 +212,6 @@ impl FixedDataPool {
         }
         self.writer = None;
         Ok(())
-    }
-}
-
-impl DataPool for FixedDataPool {
-    fn update(
-        &mut self,
-        data_to_insert: &Vec<Vec<u8>>,
-        pointers_to_data_to_remove: &Vec<u64>,
-    ) -> Result<Vec<u64>, String> {
-        let mut result = Vec::with_capacity(data_to_insert.len());
-
-        let mut replaced = 0 as usize;
-        while replaced < data_to_insert.len() && replaced < pointers_to_data_to_remove.len() {
-            let pointer = pointers_to_data_to_remove[replaced];
-            self.set(pointer, &data_to_insert[replaced])?;
-            result.push(pointer);
-            replaced += 1;
-        }
-        if replaced < pointers_to_data_to_remove.len() {
-            self.set(pointers_to_data_to_remove[replaced], &self.head.clone())?;
-            for pointer_index in replaced + 1..pointers_to_data_to_remove.len() {
-                self.set(
-                    pointers_to_data_to_remove[pointer_index],
-                    &self.pointer_to_container(pointers_to_data_to_remove[pointer_index - 1]),
-                )?;
-            }
-            self.set_head(
-                &self.pointer_to_container(
-                    *pointers_to_data_to_remove
-                        .last()
-                        .ok_or("Can not get last pointer to data to remove".to_string())?,
-                ),
-            )?;
-        }
-
-        for pointer_index in replaced..data_to_insert.len() {
-            if self.no_holes_left {
-                for pointer in self.containers_allocated
-                    ..(self.containers_allocated + data_to_insert.len() as u64
-                        - pointer_index as u64)
-                {
-                    result.push(pointer);
-                }
-                let mut data_to_insert_left: Vec<u8> =
-                    vec![0; (data_to_insert.len() - pointer_index) * self.config.container_size];
-                data_to_insert
-                    .into_iter()
-                    .skip(pointer_index)
-                    .enumerate()
-                    .for_each(|(data_index, data)| {
-                        let target_slice = &mut data_to_insert_left[data_index
-                            * self.config.container_size
-                            ..data_index * self.config.container_size + data.len()];
-                        target_slice.copy_from_slice(data);
-                    });
-                self.set(self.containers_allocated, &data_to_insert_left)?;
-                self.containers_allocated += (data_to_insert.len() - pointer_index) as u64;
-                self.bytesize_on_disk += data_to_insert_left.len() as u64;
-                break;
-            } else {
-                let pointer = self.pointer_from_container(&self.head);
-                let new_head = self.get_of_size(pointer, self.head_size as usize)?;
-                self.set(pointer, &data_to_insert[pointer_index])?;
-                result.push(pointer);
-                self.set_head(&new_head)?;
-            }
-        }
-
-        Ok(result)
     }
 
     fn clear(&mut self) -> Result<(), String> {

@@ -127,8 +127,10 @@ impl VariableDataPool {
             })?,
         })
     }
+}
 
-    pub fn insert(&mut self, data: Vec<u8>) -> Result<u64, String> {
+impl DataPool for VariableDataPool {
+    fn insert(&mut self, data: Vec<u8>) -> Result<u64, String> {
         let encoded_data = bincode::encode_to_vec(
             Container { data: data.clone() },
             bincode::config::standard(),
@@ -147,80 +149,17 @@ impl VariableDataPool {
         }))
     }
 
-    pub fn remove(&mut self, id: u64) -> Result<(), String> {
+    fn remove(&mut self, id: u64) -> Result<(), String> {
         let parsed_id = Id::from(id);
         self.container_size_index_to_fixed_data_pool[parsed_id.container_size_index as usize]
             .remove(parsed_id.pointer)
     }
 
-    pub fn flush(&mut self) -> Result<(), String> {
+    fn flush(&mut self) -> Result<(), String> {
         for fixed_data_pool in self.container_size_index_to_fixed_data_pool.iter_mut() {
             fixed_data_pool.flush()?;
         }
         Ok(())
-    }
-}
-
-impl DataPool for VariableDataPool {
-    fn update(
-        &mut self,
-        data_to_insert: &Vec<Vec<u8>>,
-        ids_of_data_to_remove: &Vec<u64>,
-    ) -> Result<Vec<u64>, String> {
-        let mut container_size_index_to_encoded_data_to_insert: [Vec<Vec<u8>>;
-            CONTAINERS_SIZES_COUNT] = [const { Vec::new() }; CONTAINERS_SIZES_COUNT];
-        let mut container_size_index_to_data_to_insert_initial_indices: [Vec<usize>;
-            CONTAINERS_SIZES_COUNT] = [const { Vec::new() }; CONTAINERS_SIZES_COUNT];
-        for (initial_index, data) in data_to_insert.iter().enumerate() {
-            let encoded_data = bincode::encode_to_vec(
-                Container { data: data.clone() },
-                bincode::config::standard(),
-            )
-            .map_err(|error| format!("Can not encode data to container structure: {error}"))?;
-            let container_size_index = self
-                .container_size_index_to_fixed_data_pool
-                .partition_point(|fixed_data_pool| {
-                    fixed_data_pool.config.container_size < encoded_data.len()
-                });
-            container_size_index_to_data_to_insert_initial_indices[container_size_index]
-                .push(initial_index);
-            container_size_index_to_encoded_data_to_insert[container_size_index].push(encoded_data);
-        }
-
-        let mut container_size_index_to_pointers_to_remove: [Vec<u64>; CONTAINERS_SIZES_COUNT] =
-            [const { Vec::new() }; CONTAINERS_SIZES_COUNT];
-        for id in ids_of_data_to_remove {
-            let parsed_id = Id::from(*id);
-            container_size_index_to_pointers_to_remove[parsed_id.container_size_index as usize]
-                .push(parsed_id.pointer);
-        }
-
-        let mut result: Vec<u64> = vec![0; data_to_insert.len()];
-        for container_size_index in 0..CONTAINERS_SIZES_COUNT {
-            let encoded_data_to_insert =
-                &container_size_index_to_encoded_data_to_insert[container_size_index];
-            let pointers_to_data_to_remove =
-                &container_size_index_to_pointers_to_remove[container_size_index];
-            if encoded_data_to_insert.len() == 0 && pointers_to_data_to_remove.len() == 0 {
-                continue;
-            }
-            let encoded_data_to_insert_pointers = self.container_size_index_to_fixed_data_pool
-                [container_size_index]
-                .update(encoded_data_to_insert, pointers_to_data_to_remove)?;
-            for (encoded_data_to_insert_index, pointer) in
-                encoded_data_to_insert_pointers.iter().enumerate()
-            {
-                let initial_index = container_size_index_to_data_to_insert_initial_indices
-                    [container_size_index][encoded_data_to_insert_index];
-                let id = Id {
-                    container_size_index: container_size_index as u8,
-                    pointer: *pointer,
-                };
-                result[initial_index] = u64::from(id.clone());
-            }
-        }
-
-        Ok(result)
     }
 
     fn clear(&mut self) -> Result<(), String> {
