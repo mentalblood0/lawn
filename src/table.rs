@@ -269,6 +269,11 @@ impl Table {
                         }
                         Ordering::Equal => {
                             println!("equal");
+                            write_data_id(
+                                &mut new_index_writer,
+                                current_effective_merge_location.additional_data,
+                                new_index_record_size,
+                            )?;
                             if !current_effective_merge_location.replace {
                                 write_data_id(
                                     &mut new_index_writer,
@@ -276,14 +281,9 @@ impl Table {
                                     new_index_record_size,
                                 )?;
                             }
-                            current_old_id_option = old_ids_iter.next();
-                            write_data_id(
-                                &mut new_index_writer,
-                                current_effective_merge_location.additional_data,
-                                new_index_record_size,
-                            )?;
                             current_effective_merge_location_option =
                                 effective_merge_locations_iter.next();
+                            current_old_id_option = old_ids_iter.next();
                         }
                     }
                 }
