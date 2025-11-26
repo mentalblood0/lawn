@@ -269,21 +269,24 @@ impl Table {
                         }
                         Ordering::Equal => {
                             println!("equal");
-                            write_data_id(
-                                &mut new_index_writer,
-                                current_effective_merge_location.additional_data,
-                                new_index_record_size,
-                            )?;
-                            if !current_effective_merge_location.replace {
+                            if current_effective_merge_location.replace {
                                 write_data_id(
                                     &mut new_index_writer,
-                                    current_old_id,
+                                    current_effective_merge_location.additional_data,
                                     new_index_record_size,
                                 )?;
+                                current_effective_merge_location_option =
+                                    effective_merge_locations_iter.next();
+                                current_old_id_option = old_ids_iter.next();
+                            } else {
+                                write_data_id(
+                                    &mut new_index_writer,
+                                    current_effective_merge_location.additional_data,
+                                    new_index_record_size,
+                                )?;
+                                current_effective_merge_location_option =
+                                    effective_merge_locations_iter.next();
                             }
-                            current_effective_merge_location_option =
-                                effective_merge_locations_iter.next();
-                            current_old_id_option = old_ids_iter.next();
                         }
                     }
                 }
@@ -873,8 +876,8 @@ mod tests {
         let mut previously_added_keyvalues: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
         let mut rng = WyRand::new_seed(0);
 
-        for checkpoint_number in 1..=14 {
-            for _ in 0..3 {
+        for checkpoint_number in 1..=20 {
+            for _ in 1..=20 {
                 let random_byte = rng.generate_range(0..256) as u8;
                 let key = vec![0 as u8, random_byte];
                 let value = if rng.generate_range(0..=1) == 0 {
