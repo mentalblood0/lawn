@@ -1,6 +1,6 @@
 use bincode;
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 
@@ -149,13 +149,12 @@ impl Table {
         )?;
         dbg!(&merge_locations);
 
-        let mut memtable_records_to_add: Vec<Vec<u8>> = Vec::new();
-        let mut memtable_records_to_add_merge_locations: Vec<&MergeLocation<u64>> = Vec::new();
-        let mut ids_to_delete: Vec<u64> = Vec::new();
-
-        for (current_record_index, merge_location) in merge_locations.iter().enumerate() {
+        let mut effective_merge_locations: Vec<MergeLocation<u64>> = Vec::new();
+        let mut old_ids_to_remove_with_no_replacement: Vec<u64> = Vec::new();
+        let mut max_new_id: u64 = 0;
+        for (current_record_index, merge_location) in merge_locations.into_iter().enumerate() {
             if merge_location.replace {
-                ids_to_delete.push(merge_location.additional_data);
+                self.data_pool.remove(merge_location.additional_data)?;
             }
             let current_record = &memtable_records[current_record_index];
             if let Some(value) = &current_record.value {
@@ -167,21 +166,28 @@ impl Table {
                     bincode::config::standard(),
                 )
                 .map_err(|error| format!("Can not encode data record: {error}"))?;
-                memtable_records_to_add.push(current_record_as_data_record_encoded);
-                memtable_records_to_add_merge_locations.push(merge_location);
-            };
+                let new_id = self
+                    .data_pool
+                    .insert(current_record_as_data_record_encoded)?;
+                if new_id > max_new_id {
+                    max_new_id = new_id;
+                }
+                effective_merge_locations.push(MergeLocation {
+                    additional_data: new_id,
+                    ..merge_location
+                });
+            } else if merge_location.replace {
+                old_ids_to_remove_with_no_replacement.push(merge_location.additional_data);
+            }
         }
-        dbg!(&memtable_records_to_add_merge_locations);
+        self.data_pool.flush()?;
+        dbg!(&effective_merge_locations);
 
-        let memtable_records_new_ids = self
-            .data_pool
-            .update(&memtable_records_to_add, &ids_to_delete)?;
-        let new_index_record_size = memtable_records_new_ids
-            .iter()
-            .max()
-            .and_then(|id| Some((*id as f64).log(256.0).ceil() as u8))
-            .unwrap_or(self.index.header.record_size)
-            .max(self.index.header.record_size);
+        let new_index_record_size = self
+            .index
+            .header
+            .record_size
+            .max((max_new_id as f64).log(256.0).ceil() as u8);
 
         let new_index_file_path = self.index.config.path.with_extension("part");
         let mut new_index_file = std::fs::OpenOptions::new()
@@ -203,26 +209,67 @@ impl Table {
         )?;
         let mut new_index_writer = BufWriter::new(new_index_file);
 
-        let ids_to_delete_set: HashSet<u64> = ids_to_delete.into_iter().collect();
-        let mut new_ids_iter = memtable_records_new_ids.iter().enumerate();
         let mut old_ids_iter = self.index.iter()?.enumerate();
-        let mut current_new_id_option = new_ids_iter.next();
         let mut current_old_id_option = old_ids_iter.next();
+
+        let mut old_ids_to_remove_with_no_replacement_iter =
+            old_ids_to_remove_with_no_replacement.into_iter();
+        let mut current_old_id_to_remove_with_no_replacement_option =
+            old_ids_to_remove_with_no_replacement_iter.next();
+
+        let mut effective_merge_locations_iter = effective_merge_locations.into_iter();
+        let mut current_effective_merge_location_option = effective_merge_locations_iter.next();
+
         loop {
-            dbg!(current_new_id_option, current_old_id_option);
-            match (current_new_id_option, current_old_id_option) {
+            dbg!(
+                &current_effective_merge_location_option,
+                &current_old_id_to_remove_with_no_replacement_option,
+                &current_old_id_option
+            );
+            if current_old_id_option.is_some_and(|(_, current_old_id)| {
+                current_old_id_to_remove_with_no_replacement_option.is_some_and(
+                    |current_old_id_to_remove_with_no_replacement| {
+                        current_old_id_to_remove_with_no_replacement == current_old_id
+                    },
+                )
+            }) {
+                current_old_id_to_remove_with_no_replacement_option =
+                    old_ids_to_remove_with_no_replacement_iter.next();
+                continue;
+            }
+            match (
+                &current_effective_merge_location_option,
+                current_old_id_option,
+            ) {
                 (
-                    Some((current_new_id_index, current_new_id)),
+                    Some(current_effective_merge_location),
                     Some((current_old_id_index, current_old_id)),
                 ) => {
-                    let current_new_id_merge_location =
-                        &memtable_records_to_add_merge_locations[current_new_id_index];
-                    dbg!(current_new_id_merge_location);
-                    match &current_old_id_index.cmp(&(current_new_id_merge_location.index as usize))
+                    match &current_old_id_index
+                        .cmp(&(current_effective_merge_location.index as usize))
                     {
                         Ordering::Less => {
                             println!("less");
-                            if !ids_to_delete_set.contains(&current_old_id) {
+                            write_data_id(
+                                &mut new_index_writer,
+                                current_old_id,
+                                new_index_record_size,
+                            )?;
+                            current_old_id_option = old_ids_iter.next();
+                        }
+                        Ordering::Greater => {
+                            println!("greater");
+                            write_data_id(
+                                &mut new_index_writer,
+                                current_effective_merge_location.additional_data,
+                                new_index_record_size,
+                            )?;
+                            current_effective_merge_location_option =
+                                effective_merge_locations_iter.next();
+                        }
+                        Ordering::Equal => {
+                            println!("equal");
+                            if !current_effective_merge_location.replace {
                                 write_data_id(
                                     &mut new_index_writer,
                                     current_old_id,
@@ -230,54 +277,26 @@ impl Table {
                                 )?;
                             }
                             current_old_id_option = old_ids_iter.next();
-                        }
-                        Ordering::Greater => {
-                            println!("greater");
                             write_data_id(
                                 &mut new_index_writer,
-                                *current_new_id,
+                                current_effective_merge_location.additional_data,
                                 new_index_record_size,
                             )?;
-                            current_new_id_option = new_ids_iter.next();
-                        }
-                        Ordering::Equal => {
-                            println!("equal");
-                            if ids_to_delete_set.contains(&current_old_id) {
-                                if current_new_id_merge_location.replace {
-                                    write_data_id(
-                                        &mut new_index_writer,
-                                        *current_new_id,
-                                        new_index_record_size,
-                                    )?;
-                                    current_old_id_option = old_ids_iter.next();
-                                }
-                            } else {
-                                write_data_id(
-                                    &mut new_index_writer,
-                                    *current_new_id,
-                                    new_index_record_size,
-                                )?;
-                            }
-                            current_new_id_option = new_ids_iter.next();
+                            current_effective_merge_location_option =
+                                effective_merge_locations_iter.next();
                         }
                     }
                 }
-                (Some((_, current_new_id)), None) => {
+                (Some(current_effective_merge_location), None) => {
                     write_data_id(
                         &mut new_index_writer,
-                        *current_new_id,
+                        current_effective_merge_location.additional_data,
                         new_index_record_size,
                     )?;
-                    current_new_id_option = new_ids_iter.next();
+                    current_effective_merge_location_option = effective_merge_locations_iter.next();
                 }
                 (None, Some((_, current_old_id))) => {
-                    if !ids_to_delete_set.contains(&current_old_id) {
-                        write_data_id(
-                            &mut new_index_writer,
-                            current_old_id,
-                            new_index_record_size,
-                        )?;
-                    }
+                    write_data_id(&mut new_index_writer, current_old_id, new_index_record_size)?;
                     current_old_id_option = old_ids_iter.next();
                 }
                 (None, None) => break,
@@ -546,6 +565,7 @@ mod tests {
                 assert_eq!(table.get_from_index(&key).unwrap(), *value);
             }
         }
+        println!("after first checkpoint");
         {
             let keyvalues = vec![
                 (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),
