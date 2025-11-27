@@ -211,14 +211,16 @@ impl DataPool for FixedDataPool {
     }
 
     fn flush(&mut self) -> Result<(), String> {
-        let mut cached_head = self.head.clone();
-        for pointer_to_data_to_remove in
-            std::mem::take(&mut self.buffer_of_pointers_to_data_to_remove).into_iter()
-        {
-            self.set(pointer_to_data_to_remove, &cached_head)?;
-            cached_head = self.pointer_to_container(pointer_to_data_to_remove);
+        if !self.buffer_of_pointers_to_data_to_remove.is_empty() {
+            let mut cached_head = self.head.clone();
+            for pointer_to_data_to_remove in
+                std::mem::take(&mut self.buffer_of_pointers_to_data_to_remove).into_iter()
+            {
+                self.set(pointer_to_data_to_remove, &cached_head)?;
+                cached_head = self.pointer_to_container(pointer_to_data_to_remove);
+            }
+            self.set_head(cached_head)?;
         }
-        self.set_head(cached_head)?;
         if let Some(writer) = self.writer.as_mut() {
             writer
                 .flush()
