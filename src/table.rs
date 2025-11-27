@@ -148,11 +148,13 @@ impl Table {
         let mut effective_merge_locations: Vec<MergeLocation<u64>> = Vec::new();
         let mut old_ids_to_remove_with_no_replacement: Vec<u64> = Vec::new();
         let mut max_new_id: u64 = 0;
-        for (current_record_index, merge_location) in merge_locations.into_iter().enumerate() {
+        for (merge_location, current_record) in merge_locations
+            .into_iter()
+            .zip(memtable_records.into_iter())
+        {
             if merge_location.replace {
                 self.data_pool.remove(merge_location.additional_data)?;
             }
-            let current_record = &memtable_records[current_record_index];
             if let Some(value) = &current_record.value {
                 let current_record_as_data_record_encoded = bincode::encode_to_vec(
                     DataRecord {
