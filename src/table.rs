@@ -61,7 +61,6 @@ fn write_data_id(
     record_size: u8,
 ) -> Result<(), String> {
     let data_id_encoded = data_id.to_le_bytes()[..record_size as usize].to_vec();
-    println!("write_data_id {data_id_encoded:?}");
     writer
         .write_all(&data_id_encoded)
         .map_err(|error| format!("Can not write data id to file: {error}"))?;
@@ -128,8 +127,6 @@ impl Table {
             .map(|(key, value)| MemtableRecord { key, value })
             .collect();
 
-        dbg!(self.index.records_count);
-        dbg!(&memtable_records);
         let merge_locations = sparse_merge(
             self.index.records_count,
             |data_record_id_index| {
@@ -147,7 +144,6 @@ impl Table {
             },
             &memtable_records,
         )?;
-        dbg!(&merge_locations);
 
         let mut effective_merge_locations: Vec<MergeLocation<u64>> = Vec::new();
         let mut old_ids_to_remove_with_no_replacement: Vec<u64> = Vec::new();
@@ -181,7 +177,6 @@ impl Table {
             }
         }
         self.data_pool.flush()?;
-        dbg!(&effective_merge_locations);
 
         let new_index_record_size = self
             .index
@@ -221,11 +216,6 @@ impl Table {
         let mut current_effective_merge_location_option = effective_merge_locations_iter.next();
 
         loop {
-            dbg!(
-                &current_effective_merge_location_option,
-                &current_old_id_to_remove_with_no_replacement_option,
-                &current_old_id_option
-            );
             if current_old_id_option.is_some_and(|(_, current_old_id)| {
                 current_old_id_to_remove_with_no_replacement_option.is_some_and(
                     |current_old_id_to_remove_with_no_replacement| {
@@ -233,6 +223,7 @@ impl Table {
                     },
                 )
             }) {
+                current_old_id_option = old_ids_iter.next();
                 current_old_id_to_remove_with_no_replacement_option =
                     old_ids_to_remove_with_no_replacement_iter.next();
                 continue;
@@ -249,7 +240,6 @@ impl Table {
                         .cmp(&(current_effective_merge_location.index as usize))
                     {
                         Ordering::Less => {
-                            println!("less");
                             write_data_id(
                                 &mut new_index_writer,
                                 current_old_id,
@@ -258,7 +248,6 @@ impl Table {
                             current_old_id_option = old_ids_iter.next();
                         }
                         Ordering::Greater => {
-                            println!("greater");
                             write_data_id(
                                 &mut new_index_writer,
                                 current_effective_merge_location.additional_data,
@@ -268,7 +257,6 @@ impl Table {
                                 effective_merge_locations_iter.next();
                         }
                         Ordering::Equal => {
-                            println!("equal");
                             if current_effective_merge_location.replace {
                                 write_data_id(
                                     &mut new_index_writer,
