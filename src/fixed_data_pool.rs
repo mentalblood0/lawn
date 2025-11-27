@@ -26,6 +26,7 @@ pub struct FixedDataPool {
     head: Vec<u8>,
     no_holes_left: bool,
     writer: Option<BufWriter<fs::File>>,
+    buffer_of_pointers_to_data_to_remove: Vec<u64>,
 }
 
 #[cfg_attr(feature = "serde", typetag::serde)]
@@ -65,6 +66,7 @@ impl FixedDataPool {
             containers_allocated: 0,
             bytesize_on_disk: 0,
             writer: None,
+            buffer_of_pointers_to_data_to_remove: Vec::new(),
         };
         result.head_size = std::cmp::min(config.container_size, 8) as u8;
         result.bytesize_on_disk = result
@@ -87,14 +89,14 @@ impl FixedDataPool {
     }
 
     fn initialize_empty_file(&mut self) -> Result<(), String> {
-        self.set_head(&vec![255; self.head_size as usize])?;
+        self.set_head(vec![255; self.head_size as usize])?;
         self.bytesize_on_disk = self.head_size as u64;
         self.containers_allocated = 0;
         self.no_holes_left = true;
         Ok(())
     }
 
-    fn set_head(&mut self, value: &Vec<u8>) -> Result<&Self, String> {
+    fn set_head(&mut self, value: Vec<u8>) -> Result<&Self, String> {
         self.file
             .write_all_at(value.as_slice(), 0)
             .map_err(|error| format!("Can not write head for file {:?}: {error}", self.file))?;
@@ -152,59 +154,69 @@ impl FixedDataPool {
 
 impl DataPool for FixedDataPool {
     fn insert(&mut self, mut data: Vec<u8>) -> Result<u64, String> {
-        if self.no_holes_left {
-            if self.writer.is_none() {
-                let file = fs::OpenOptions::new()
-                    .create(false)
-                    .read(false)
-                    .write(true)
-                    .append(true)
-                    .open(&self.config.path)
-                    .map_err(|error| {
-                        format!(
-                            "Can not open file at path {}: {error}",
-                            self.config.path.display()
-                        )
-                    })?;
-                self.writer = Some(BufWriter::new(file));
-            }
-            match data.len().cmp(&self.config.container_size) {
-                Ordering::Greater => {
-                    return Err(format!(
-                        "Can not insert data of size {} into fixed data pool for containers of size {}",
-                        data.len(),
-                        self.config.container_size
-                    ));
-                }
-                Ordering::Less => {
-                    data.resize(self.config.container_size, 0);
-                }
-                Ordering::Equal => {}
-            }
-            self.writer
-                .as_mut()
-                .ok_or_else(|| format!("Logical error: no writer"))?
-                .write_all(&data)
-                .map_err(|error| format!("Can not write to file {:?}: {error}", self.file))?;
-            self.containers_allocated += 1;
-            self.bytesize_on_disk += self.config.container_size as u64;
-            Ok(self.containers_allocated - 1)
+        if let Some(pointer_to_data_to_remove) = self.buffer_of_pointers_to_data_to_remove.pop() {
+            self.set(pointer_to_data_to_remove, &data)?;
+            Ok(pointer_to_data_to_remove)
         } else {
-            let pointer = self.pointer_from_container(&self.head);
-            let new_head = self.get_of_size(pointer, self.head_size as usize)?;
-            self.set(pointer, &data)?;
-            self.set_head(&new_head)?;
-            Ok(pointer)
+            if self.no_holes_left {
+                if self.writer.is_none() {
+                    let file = fs::OpenOptions::new()
+                        .create(false)
+                        .read(false)
+                        .write(true)
+                        .append(true)
+                        .open(&self.config.path)
+                        .map_err(|error| {
+                            format!(
+                                "Can not open file at path {}: {error}",
+                                self.config.path.display()
+                            )
+                        })?;
+                    self.writer = Some(BufWriter::new(file));
+                }
+                match data.len().cmp(&self.config.container_size) {
+                    Ordering::Greater => {
+                        return Err(format!(
+                            "Can not insert data of size {} into fixed data pool for containers of size {}",
+                            data.len(),
+                            self.config.container_size
+                        ));
+                    }
+                    Ordering::Less => {
+                        data.resize(self.config.container_size, 0);
+                    }
+                    Ordering::Equal => {}
+                }
+                self.writer
+                    .as_mut()
+                    .ok_or_else(|| format!("Logical error: no writer"))?
+                    .write_all(&data)
+                    .map_err(|error| format!("Can not write to file {:?}: {error}", self.file))?;
+                self.containers_allocated += 1;
+                self.bytesize_on_disk += self.config.container_size as u64;
+                Ok(self.containers_allocated - 1)
+            } else {
+                let pointer = self.pointer_from_container(&self.head);
+                let new_head = self.get_of_size(pointer, self.head_size as usize)?;
+                self.set(pointer, &data)?;
+                self.set_head(new_head)?;
+                Ok(pointer)
+            }
         }
     }
 
     fn remove(&mut self, id: u64) -> Result<(), String> {
-        self.set(id, &self.head.clone())?;
-        self.set_head(&self.pointer_to_container(id))?;
+        self.buffer_of_pointers_to_data_to_remove.push(id);
         Ok(())
     }
 
     fn flush(&mut self) -> Result<(), String> {
+        for pointer_to_data_to_remove in
+            std::mem::take(&mut self.buffer_of_pointers_to_data_to_remove).into_iter()
+        {
+            self.set(pointer_to_data_to_remove, &self.head.clone())?;
+            self.set_head(self.pointer_to_container(pointer_to_data_to_remove))?;
+        }
         if let Some(writer) = self.writer.as_mut() {
             writer
                 .flush()
