@@ -118,6 +118,80 @@ impl Table {
     }
 
     pub fn checkpoint(&mut self) -> Result<(), String> {
+        if self.index.records_count == 0 {
+            self.checkpoint_using_dump()
+        } else {
+            self.checkpoint_using_sparse_merge()
+        }
+    }
+
+    fn checkpoint_using_dump(&mut self) -> Result<(), String> {
+        let mut ids: Vec<u64> = Vec::new();
+        let mut max_id: u64 = 0;
+        for current_record in std::mem::take(&mut self.memtable).into_iter() {
+            if let Some(value) = current_record.1 {
+                let current_record_as_data_record_encoded = bincode::encode_to_vec(
+                    DataRecord {
+                        key: current_record.0,
+                        value: value,
+                    },
+                    bincode::config::standard(),
+                )
+                .map_err(|error| format!("Can not encode data record: {error}"))?;
+                let id = self
+                    .data_pool
+                    .insert(current_record_as_data_record_encoded)?;
+                if id > max_id {
+                    max_id = id;
+                }
+                ids.push(id);
+            }
+        }
+        self.data_pool.flush()?;
+        let index_record_size = (max_id as f64).log(256.0).ceil() as u8;
+
+        let index_file_path = self.index.config.path.with_extension("part");
+        let mut index_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .write(true)
+            .open(&index_file_path)
+            .map_err(|error| {
+                format!(
+                    "Can not create file at path {} for writing: {error}",
+                    &index_file_path.display()
+                )
+            })?;
+        Index::write_header(
+            &mut index_file,
+            &IndexHeader {
+                record_size: index_record_size,
+            },
+        )?;
+        let mut index_writer = BufWriter::new(index_file);
+
+        for id in ids.into_iter() {
+            write_data_id(&mut index_writer, id, index_record_size)?;
+        }
+        index_writer
+            .flush()
+            .map_err(|error| format!("Can not flush new index file: {error}"))?;
+
+        fs::rename(&index_file_path, &self.index.config.path).map_err(|error| {
+            format!(
+                "Can not overwrite old index at {} with new index at {}: {error}",
+                self.index.config.path.display(),
+                index_file_path.display()
+            )
+        })?;
+        self.index = Index::new(IndexConfig {
+            path: self.index.config.path.clone(),
+        })?;
+
+        Ok(())
+    }
+
+    fn checkpoint_using_sparse_merge(&mut self) -> Result<(), String> {
         if self.memtable.is_empty() {
             return Ok(());
         }
