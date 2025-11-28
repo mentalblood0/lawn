@@ -8,6 +8,7 @@ use super::data_pool::*;
 use super::fixed_data_pool::*;
 
 const CONTAINERS_SIZES_COUNT: usize = 256;
+const CONTAINER_SIZE_MIN: usize = 2;
 
 fn split_scale_logarithmically(
     max_value: usize,
@@ -26,6 +27,9 @@ fn split_scale_logarithmically(
             (max_value as f64).log2() * iterations_count as f64
                 / (CONTAINERS_SIZES_COUNT - 1) as f64,
         ) as usize;
+        if new_value < CONTAINER_SIZE_MIN {
+            continue;
+        }
         if new_value > max_value {
             break;
         }
@@ -74,6 +78,7 @@ pub struct VariableDataPoolConfig {
 pub struct VariableDataPool {
     pub config: VariableDataPoolConfig,
     container_size_index_to_fixed_data_pool: [FixedDataPool; CONTAINERS_SIZES_COUNT],
+    jump_point: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, bincode::Encode, bincode::Decode)]
@@ -112,7 +117,14 @@ impl DataPoolConfig for VariableDataPoolConfig {
 impl VariableDataPool {
     pub fn new(config: &VariableDataPoolConfig) -> Result<Self, String> {
         let mut fixed_data_pools: Vec<FixedDataPool> = Vec::with_capacity(CONTAINERS_SIZES_COUNT);
-        for container_size in split_scale_logarithmically(config.max_element_size)? {
+        let mut jump_point: Option<usize> = None;
+        for (size_index, container_size) in split_scale_logarithmically(config.max_element_size)?
+            .into_iter()
+            .enumerate()
+        {
+            if jump_point.is_none() && container_size - size_index > CONTAINER_SIZE_MIN {
+                jump_point = Some(size_index - 1 + CONTAINER_SIZE_MIN);
+            }
             fixed_data_pools.push(FixedDataPool::new(&FixedDataPoolConfig {
                 path: config
                     .directory
@@ -125,17 +137,22 @@ impl VariableDataPool {
             container_size_index_to_fixed_data_pool: fixed_data_pools.try_into().map_err(|source_type| {
                 format!("Can not convert fixed data pools vec to static array with required size: {source_type:?}")
             })?,
+            jump_point: jump_point.unwrap_or(0 as usize)
         })
     }
 }
 
 impl DataPool for VariableDataPool {
     fn insert(&mut self, data: Vec<u8>) -> Result<u64, String> {
-        let encoded_data = bincode::encode_to_vec(
-            Container { data: data.clone() },
-            bincode::config::standard(),
-        )
-        .map_err(|error| format!("Can not encode data to container structure: {error}"))?;
+        let encoded_data = if data.len() > self.jump_point {
+            bincode::encode_to_vec(
+                Container { data: data.clone() },
+                bincode::config::standard(),
+            )
+            .map_err(|error| format!("Can not encode data to container structure: {error}"))?
+        } else {
+            data
+        };
         let container_size_index = self
             .container_size_index_to_fixed_data_pool
             .partition_point(|fixed_data_pool| {
@@ -176,10 +193,13 @@ impl DataPool for VariableDataPool {
             .get(parsed_id.container_size_index as usize)
             .ok_or_else(|| format!("Can not get {id:?}: no such container index"))?
             .get(parsed_id.pointer)?;
-        let container: Container =
+        let container: Container = if encoded_data.len() > self.jump_point {
             bincode::decode_from_slice(&encoded_data, bincode::config::standard())
                 .map_err(|error| format!("Can not decode got data: {error}"))?
-                .0;
+                .0
+        } else {
+            Container { data: encoded_data }
+        };
         Ok(container.data)
     }
 }
