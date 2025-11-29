@@ -4,6 +4,8 @@ use std::collections::{BTreeMap, VecDeque};
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 
+use fallible_iterator::FallibleIterator;
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -207,7 +209,7 @@ impl Table {
         let mut new_index_writer = BufWriter::new(new_index_file);
 
         let mut old_ids_iter = self.index.iter(0)?.enumerate();
-        let mut current_old_id_option = old_ids_iter.next();
+        let mut current_old_id_option = old_ids_iter.next()?;
 
         let mut old_ids_to_remove_with_no_replacement_iter =
             old_ids_to_remove_with_no_replacement.into_iter();
@@ -225,7 +227,7 @@ impl Table {
                     },
                 )
             }) {
-                current_old_id_option = old_ids_iter.next();
+                current_old_id_option = old_ids_iter.next()?;
                 current_old_id_to_remove_with_no_replacement_option =
                     old_ids_to_remove_with_no_replacement_iter.next();
                 continue;
@@ -247,7 +249,7 @@ impl Table {
                                 current_old_id,
                                 new_index_record_size,
                             )?;
-                            current_old_id_option = old_ids_iter.next();
+                            current_old_id_option = old_ids_iter.next()?;
                         }
                         Ordering::Greater => {
                             write_data_id(
@@ -267,7 +269,7 @@ impl Table {
                                 )?;
                                 current_effective_merge_location_option =
                                     effective_merge_locations_iter.next();
-                                current_old_id_option = old_ids_iter.next();
+                                current_old_id_option = old_ids_iter.next()?;
                             } else {
                                 write_data_id(
                                     &mut new_index_writer,
@@ -290,7 +292,7 @@ impl Table {
                 }
                 (None, Some((_, current_old_id))) => {
                     write_data_id(&mut new_index_writer, current_old_id, new_index_record_size)?;
-                    current_old_id_option = old_ids_iter.next();
+                    current_old_id_option = old_ids_iter.next()?;
                 }
                 (None, None) => break,
             }

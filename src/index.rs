@@ -2,6 +2,8 @@ use std::io::{BufReader, BufWriter, Read, Seek, Write};
 use std::path::PathBuf;
 use std::{fs, os::unix::fs::FileExt};
 
+use fallible_iterator::FallibleIterator;
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -172,6 +174,7 @@ impl Index {
         })
     }
 }
+
 pub struct IndexIterator {
     reader: BufReader<fs::File>,
     current_record_index: u64,
@@ -179,28 +182,23 @@ pub struct IndexIterator {
     buffer: Vec<u8>,
 }
 
-impl Iterator for IndexIterator {
+impl FallibleIterator for IndexIterator {
     type Item = u64;
+    type Error = String;
 
-    fn next(&mut self) -> Option<Self::Item> {
+    fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
         if self.records_count <= self.current_record_index {
-            return None;
+            return Ok(None);
         }
 
-        match self
-            .reader
+        self.reader
             .read_exact(&mut self.buffer)
-            .map_err(|error| format!("Can not read index record (data id): {error}"))
-        {
-            Ok(_) => {
-                let mut result: u64 = 0;
-                for byte in self.buffer.iter().rev() {
-                    result = (result << 8) + *byte as u64;
-                }
-                self.current_record_index += 1;
-                Some(result)
-            }
-            Err(_) => None,
+            .map_err(|error| format!("Can not read index record (data id): {error}"))?;
+        let mut result: u64 = 0;
+        for byte in self.buffer.iter().rev() {
+            result = (result << 8) + *byte as u64;
         }
+        self.current_record_index += 1;
+        Ok(Some(result))
     }
 }
