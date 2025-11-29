@@ -69,6 +69,12 @@ fn write_data_id(
     Ok(())
 }
 
+#[derive(Debug)]
+struct LinearMergeElement {
+    key: Vec<u8>,
+    id: Option<u64>,
+}
+
 impl Table {
     pub fn new(config: TableConfig) -> Result<Self, String> {
         Ok(Self {
@@ -120,6 +126,251 @@ impl Table {
     }
 
     pub fn checkpoint(&mut self) -> Result<(), String> {
+        if self.index.records_count == 0 {
+            self.checkpoint_using_dump()
+        } else if self.index.records_count <= 2 * self.memtable.len() as u64 {
+            self.checkpoint_using_linear_merge()
+        } else {
+            self.checkpoint_using_sparse_merge()
+        }
+    }
+
+    fn checkpoint_using_dump(&mut self) -> Result<(), String> {
+        let mut ids: Vec<u64> = Vec::new();
+        let mut max_id: u64 = 0;
+        for current_record in std::mem::take(&mut self.memtable).into_iter() {
+            if let Some(value) = current_record.1 {
+                let current_record_as_data_record_encoded = bincode::encode_to_vec(
+                    DataRecord {
+                        key: current_record.0,
+                        value: value,
+                    },
+                    bincode::config::standard(),
+                )
+                .map_err(|error| format!("Can not encode data record: {error}"))?;
+                let id = self
+                    .data_pool
+                    .insert(current_record_as_data_record_encoded)?;
+                if id > max_id {
+                    max_id = id;
+                }
+                ids.push(id);
+            }
+        }
+        self.data_pool.flush()?;
+        let index_record_size = (max_id as f64).log(256.0).ceil() as u8;
+
+        let index_file_path = self.index.config.path.with_extension("part");
+        let mut index_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .write(true)
+            .open(&index_file_path)
+            .map_err(|error| {
+                format!(
+                    "Can not create file at path {} for writing: {error}",
+                    &index_file_path.display()
+                )
+            })?;
+        Index::write_header(
+            &mut index_file,
+            &IndexHeader {
+                record_size: index_record_size,
+            },
+        )?;
+        let mut index_writer = BufWriter::new(index_file);
+
+        for id in ids.into_iter() {
+            write_data_id(&mut index_writer, id, index_record_size)?;
+        }
+        index_writer
+            .flush()
+            .map_err(|error| format!("Can not flush new index file: {error}"))?;
+
+        fs::rename(&index_file_path, &self.index.config.path).map_err(|error| {
+            format!(
+                "Can not overwrite old index at {} with new index at {}: {error}",
+                self.index.config.path.display(),
+                index_file_path.display()
+            )
+        })?;
+        self.index = Index::new(IndexConfig {
+            path: self.index.config.path.clone(),
+        })?;
+
+        Ok(())
+    }
+
+    fn checkpoint_using_linear_merge(&mut self) -> Result<(), String> {
+        let mut new_elements: Vec<LinearMergeElement> = Vec::new();
+        let mut max_new_id: u64 = 0;
+        for current_new_record in std::mem::take(&mut self.memtable).into_iter() {
+            if let Some(value) = current_new_record.1 {
+                let current_record_as_data_record_encoded = bincode::encode_to_vec(
+                    DataRecord {
+                        key: current_new_record.0.clone(),
+                        value: value,
+                    },
+                    bincode::config::standard(),
+                )
+                .map_err(|error| format!("Can not encode data record: {error}"))?;
+                let id = self
+                    .data_pool
+                    .insert(current_record_as_data_record_encoded)?;
+                if id > max_new_id {
+                    max_new_id = id;
+                }
+                new_elements.push(LinearMergeElement {
+                    key: current_new_record.0,
+                    id: Some(id),
+                });
+            } else {
+                new_elements.push(LinearMergeElement {
+                    key: current_new_record.0,
+                    id: None,
+                });
+            }
+        }
+        let new_index_record_size = self
+            .index
+            .header
+            .record_size
+            .max((max_new_id as f64).log(256.0).ceil() as u8);
+
+        let new_index_file_path = self.index.config.path.with_extension("part");
+        let mut new_index_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .write(true)
+            .open(&new_index_file_path)
+            .map_err(|error| {
+                format!(
+                    "Can not create file at path {} for writing: {error}",
+                    &new_index_file_path.display()
+                )
+            })?;
+        Index::write_header(
+            &mut new_index_file,
+            &IndexHeader {
+                record_size: new_index_record_size,
+            },
+        )?;
+        let mut new_index_writer = BufWriter::new(new_index_file);
+
+        let mut old_ids_iter = self.index.iter(0)?;
+        let mut current_old_id_and_key_option = if let Some(current_old_id) = old_ids_iter.next()? {
+            Some((
+                current_old_id,
+                self.get_from_index_by_id(current_old_id)?.key,
+            ))
+        } else {
+            None
+        };
+
+        let mut new_elements_iter = new_elements.into_iter();
+        let mut current_new_element_option = new_elements_iter.next();
+
+        loop {
+            match (&current_new_element_option, &current_old_id_and_key_option) {
+                (Some(current_new_element), Some(current_old_id_and_key)) => {
+                    match current_new_element.key.cmp(&current_old_id_and_key.1) {
+                        Ordering::Less => {
+                            if let Some(current_new_element_id) = current_new_element.id {
+                                write_data_id(
+                                    &mut new_index_writer,
+                                    current_new_element_id,
+                                    new_index_record_size,
+                                )?;
+                            }
+                            current_new_element_option = new_elements_iter.next();
+                        }
+                        Ordering::Greater => {
+                            write_data_id(
+                                &mut new_index_writer,
+                                current_old_id_and_key.0,
+                                new_index_record_size,
+                            )?;
+                            current_old_id_and_key_option =
+                                if let Some(current_old_id) = old_ids_iter.next()? {
+                                    Some((
+                                        current_old_id,
+                                        self.get_from_index_by_id(current_old_id)?.key,
+                                    ))
+                                } else {
+                                    None
+                                };
+                        }
+                        Ordering::Equal => {
+                            self.data_pool.remove(current_old_id_and_key.0)?;
+                            if let Some(current_new_element_id) = current_new_element.id {
+                                write_data_id(
+                                    &mut new_index_writer,
+                                    current_new_element_id,
+                                    new_index_record_size,
+                                )?;
+                            }
+                            current_new_element_option = new_elements_iter.next();
+                            current_old_id_and_key_option =
+                                if let Some(current_old_id) = old_ids_iter.next()? {
+                                    Some((
+                                        current_old_id,
+                                        self.get_from_index_by_id(current_old_id)?.key,
+                                    ))
+                                } else {
+                                    None
+                                };
+                        }
+                    }
+                }
+                (Some(current_new_element), None) => {
+                    if let Some(current_new_element_id) = current_new_element.id {
+                        write_data_id(
+                            &mut new_index_writer,
+                            current_new_element_id,
+                            new_index_record_size,
+                        )?;
+                    }
+                    current_new_element_option = new_elements_iter.next();
+                }
+                (None, Some(current_old_id_and_key)) => {
+                    write_data_id(
+                        &mut new_index_writer,
+                        current_old_id_and_key.0,
+                        new_index_record_size,
+                    )?;
+                    current_old_id_and_key_option =
+                        if let Some(current_old_id) = old_ids_iter.next()? {
+                            Some((
+                                current_old_id,
+                                self.get_from_index_by_id(current_old_id)?.key,
+                            ))
+                        } else {
+                            None
+                        };
+                }
+                (None, None) => break,
+            }
+        }
+        self.data_pool.flush()?;
+        new_index_writer
+            .flush()
+            .map_err(|error| format!("Can not flush new index file: {error}"))?;
+
+        fs::rename(&new_index_file_path, &self.index.config.path).map_err(|error| {
+            format!(
+                "Can not overwrite old index at {} with new index at {}: {error}",
+                self.index.config.path.display(),
+                new_index_file_path.display()
+            )
+        })?;
+        self.index = Index::new(IndexConfig {
+            path: self.index.config.path.clone(),
+        })?;
+
+        Ok(())
+    }
+
+    fn checkpoint_using_sparse_merge(&mut self) -> Result<(), String> {
         if self.memtable.is_empty() {
             return Ok(());
         }
