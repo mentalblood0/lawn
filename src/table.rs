@@ -587,7 +587,7 @@ impl Table {
     }
 }
 
-pub struct TableIndexIterator<'a> {
+struct TableIndexIterator<'a> {
     data_pool: &'a Box<dyn DataPool + Send + Sync>,
     index_iter: Box<dyn FallibleIterator<Item = u64, Error = String>>,
 }
@@ -934,6 +934,7 @@ mod tests {
             for (key, value) in keyvalues.iter() {
                 table.memtable.insert(key.clone(), value.clone());
             }
+
             table.checkpoint().unwrap();
             for (key, value) in keyvalues.iter() {
                 assert_eq!(table.get_from_index(&key).unwrap(), *value);
@@ -1251,6 +1252,17 @@ mod tests {
                 }
                 table.memtable.insert(key, value);
             }
+
+            let table_keyvalues: Vec<(Vec<u8>, Vec<u8>)> = table.iter().unwrap().collect().unwrap();
+            let table_keys: Vec<Vec<u8>> = table_keyvalues
+                .iter()
+                .map(|(key, _)| key)
+                .cloned()
+                .collect();
+            let mut table_keys_sorted = table_keys.clone();
+            table_keys_sorted.sort();
+            assert_eq!(table_keys, table_keys_sorted);
+
             println!("checkpoint {checkpoint_number}\n");
             table.checkpoint().unwrap();
             for (key, value) in previously_added_keyvalues.iter() {
