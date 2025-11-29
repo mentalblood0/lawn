@@ -1253,15 +1253,15 @@ mod tests {
                 table.memtable.insert(key, value);
             }
 
-            let table_keyvalues: Vec<(Vec<u8>, Vec<u8>)> = table.iter().unwrap().collect().unwrap();
-            let table_keys: Vec<Vec<u8>> = table_keyvalues
+            table
                 .iter()
-                .map(|(key, _)| key)
-                .cloned()
-                .collect();
-            let mut table_keys_sorted = table_keys.clone();
-            table_keys_sorted.sort();
-            assert_eq!(table_keys, table_keys_sorted);
+                .unwrap()
+                .map(|(key, _)| Ok(key))
+                .unwrap()
+                .zip(previously_added_keyvalues.keys())
+                .for_each(|(table_key, correct_table_key)| {
+                    assert_eq!(&table_key, correct_table_key)
+                });
 
             println!("checkpoint {checkpoint_number}\n");
             table.checkpoint().unwrap();
