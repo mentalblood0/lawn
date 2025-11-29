@@ -565,6 +565,120 @@ impl Table {
 
         Ok(())
     }
+
+    fn iter_index(&'_ self) -> Result<TableIndexIterator<'_>, String> {
+        Ok(TableIndexIterator {
+            data_pool: &self.data_pool,
+            index_iter: Box::new(self.index.iter(0)?),
+        })
+    }
+
+    pub fn iter(&'_ self) -> Result<TableIterator<'_>, String> {
+        let mut memtable_iter = Box::new(self.memtable.iter());
+        let mut table_index_iter = Box::new(self.iter_index()?);
+        let current_memtable_keyvalue_option = memtable_iter.next();
+        let current_table_index_keyvalue_option = table_index_iter.next()?;
+        Ok(TableIterator {
+            memtable_iter,
+            table_index_iter,
+            current_memtable_keyvalue_option,
+            current_table_index_keyvalue_option,
+        })
+    }
+}
+
+pub struct TableIndexIterator<'a> {
+    data_pool: &'a Box<dyn DataPool + Send + Sync>,
+    index_iter: Box<dyn FallibleIterator<Item = u64, Error = String>>,
+}
+
+impl<'a> FallibleIterator for TableIndexIterator<'a> {
+    type Item = (Vec<u8>, Vec<u8>);
+    type Error = String;
+
+    fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
+        Ok(match self.index_iter.next()? {
+            Some(id) => {
+                let result_encoded = self.data_pool.get(id)?;
+                let result: DataRecord =
+                    bincode::decode_from_slice(&result_encoded, bincode::config::standard())
+                        .map_err(|error| format!("Can not decode data record: {error}"))?
+                        .0;
+                Some((result.key, result.value))
+            }
+            None => None,
+        })
+    }
+}
+
+pub struct TableIterator<'a> {
+    memtable_iter: Box<dyn Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)> + 'a>,
+    table_index_iter: Box<dyn FallibleIterator<Item = (Vec<u8>, Vec<u8>), Error = String> + 'a>,
+    current_memtable_keyvalue_option: Option<(&'a Vec<u8>, &'a Option<Vec<u8>>)>,
+    current_table_index_keyvalue_option: Option<(Vec<u8>, Vec<u8>)>,
+}
+
+impl<'a> FallibleIterator for TableIterator<'a> {
+    type Item = (Vec<u8>, Vec<u8>);
+    type Error = String;
+
+    fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
+        Ok(
+            match (
+                &self.current_memtable_keyvalue_option,
+                &self.current_table_index_keyvalue_option,
+            ) {
+                (Some(current_memtable_keyvalue), Some(current_table_index_keyvalue)) => {
+                    match current_memtable_keyvalue
+                        .0
+                        .cmp(&current_table_index_keyvalue.0)
+                    {
+                        Ordering::Less => {
+                            let result = if let Some(value) = current_memtable_keyvalue.1 {
+                                Some((current_memtable_keyvalue.0.clone(), value.clone()))
+                            } else {
+                                None
+                            };
+                            self.current_memtable_keyvalue_option = self.memtable_iter.next();
+                            result
+                        }
+                        Ordering::Greater => {
+                            let result = Some(current_table_index_keyvalue.clone());
+                            self.current_table_index_keyvalue_option =
+                                self.table_index_iter.next()?;
+                            result
+                        }
+                        Ordering::Equal => {
+                            let result = if let Some(value) = current_memtable_keyvalue.1 {
+                                Some((current_memtable_keyvalue.0.clone(), value.clone()))
+                            } else {
+                                None
+                            };
+                            self.current_memtable_keyvalue_option = self.memtable_iter.next();
+                            self.current_table_index_keyvalue_option =
+                                self.table_index_iter.next()?;
+                            result
+                        }
+                    }
+                }
+                (Some(current_memtable_keyvalue), None) => {
+                    let result = if let Some(value) = current_memtable_keyvalue.1 {
+                        Some((current_memtable_keyvalue.0.clone(), value.clone()))
+                    } else {
+                        None
+                    };
+                    self.current_memtable_keyvalue_option = self.memtable_iter.next();
+                    result
+                }
+                (None, Some(current_table_index_keyvalue)) => {
+                    let result = Some(current_table_index_keyvalue.clone());
+                    self.current_table_index_keyvalue_option = self.table_index_iter.next()?;
+                    result
+                }
+                (None, None) => None,
+            },
+        )
+    }
 }
 
 struct Middles {
