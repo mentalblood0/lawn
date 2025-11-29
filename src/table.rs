@@ -1,5 +1,6 @@
 use bincode;
 use std::cmp::Ordering;
+use std::collections::btree_map::Iter;
 use std::collections::{BTreeMap, VecDeque};
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
@@ -10,7 +11,7 @@ use fallible_iterator::FallibleIterator;
 use serde::{Deserialize, Serialize};
 
 use crate::data_pool::{DataPool, DataPoolConfig};
-use crate::index::{Index, IndexConfig, IndexHeader};
+use crate::index::{Index, IndexConfig, IndexHeader, IndexIterator};
 use crate::partition_point::PartitionPoint;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -569,13 +570,13 @@ impl Table {
     fn iter_index(&'_ self) -> Result<TableIndexIterator<'_>, String> {
         Ok(TableIndexIterator {
             data_pool: &self.data_pool,
-            index_iter: Box::new(self.index.iter(0)?),
+            index_iter: self.index.iter(0)?,
         })
     }
 
     pub fn iter(&'_ self) -> Result<TableIterator<'_>, String> {
-        let mut memtable_iter = Box::new(self.memtable.iter());
-        let mut table_index_iter = Box::new(self.iter_index()?);
+        let mut memtable_iter = self.memtable.iter();
+        let mut table_index_iter = self.iter_index()?;
         let current_memtable_keyvalue_option = memtable_iter.next();
         let current_table_index_keyvalue_option = table_index_iter.next()?;
         Ok(TableIterator {
@@ -589,7 +590,7 @@ impl Table {
 
 struct TableIndexIterator<'a> {
     data_pool: &'a Box<dyn DataPool + Send + Sync>,
-    index_iter: Box<dyn FallibleIterator<Item = u64, Error = String>>,
+    index_iter: IndexIterator,
 }
 
 impl<'a> FallibleIterator for TableIndexIterator<'a> {
@@ -612,8 +613,8 @@ impl<'a> FallibleIterator for TableIndexIterator<'a> {
 }
 
 pub struct TableIterator<'a> {
-    memtable_iter: Box<dyn Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)> + 'a>,
-    table_index_iter: Box<dyn FallibleIterator<Item = (Vec<u8>, Vec<u8>), Error = String> + 'a>,
+    memtable_iter: Iter<'a, Vec<u8>, Option<Vec<u8>>>,
+    table_index_iter: TableIndexIterator<'a>,
     current_memtable_keyvalue_option: Option<(&'a Vec<u8>, &'a Option<Vec<u8>>)>,
     current_table_index_keyvalue_option: Option<(Vec<u8>, Vec<u8>)>,
 }
