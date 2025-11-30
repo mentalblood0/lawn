@@ -1,9 +1,9 @@
 use bincode;
 use std::cmp::Ordering;
-use std::collections::btree_map::Iter;
 use std::collections::{BTreeMap, VecDeque};
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
+use std::ops::Bound::{Included, Unbounded};
 
 use fallible_iterator::FallibleIterator;
 
@@ -567,16 +567,40 @@ impl Table {
         Ok(())
     }
 
-    fn iter_index(&'_ self) -> Result<TableIndexIterator<'_>, String> {
-        Ok(TableIndexIterator {
-            data_pool: &self.data_pool,
-            index_iter: self.index.iter(0)?,
-        })
+    fn iter_index(&'_ self, from_key: Option<&Vec<u8>>) -> Result<TableIndexIterator<'_>, String> {
+        if let Some(from_key) = from_key {
+            Ok(TableIndexIterator {
+                data_pool: &self.data_pool,
+                index_iter: self.index.iter(
+                    PartitionPoint::new(0, self.index.records_count, |record_index| {
+                        let data_record_id = self.index.get(record_index)?.ok_or(format!(
+                            "Can not get data record id at index {record_index}"
+                        ))?;
+                        let data_record = self.get_from_index_by_id(data_record_id)?;
+                        Ok((data_record.key.cmp(from_key), data_record.value, ()))
+                    })?
+                    .map(|partition_point| partition_point.first_satisfying.index)
+                    .unwrap_or(self.index.records_count + 1),
+                )?,
+            })
+        } else {
+            Ok(TableIndexIterator {
+                data_pool: &self.data_pool,
+                index_iter: self.index.iter(0)?,
+            })
+        }
     }
 
-    pub fn iter(&'_ self) -> Result<TableIterator<'_>, String> {
-        let mut memtable_iter = self.memtable.iter();
-        let mut table_index_iter = self.iter_index()?;
+    pub fn iter(&'_ self, from_key: Option<&Vec<u8>>) -> Result<TableIterator<'_>, String> {
+        let mut memtable_iter = self.memtable.range::<Vec<u8>, _>((
+            (if let Some(from_key) = from_key {
+                Included(from_key)
+            } else {
+                Unbounded
+            }),
+            Unbounded,
+        ));
+        let mut table_index_iter = self.iter_index(from_key)?;
         let current_memtable_keyvalue_option = memtable_iter.next();
         let current_table_index_keyvalue_option = table_index_iter.next()?;
         Ok(TableIterator {
@@ -613,7 +637,7 @@ impl<'a> FallibleIterator for TableIndexIterator<'a> {
 }
 
 pub struct TableIterator<'a> {
-    memtable_iter: Iter<'a, Vec<u8>, Option<Vec<u8>>>,
+    memtable_iter: std::collections::btree_map::Range<'a, Vec<u8>, Option<Vec<u8>>>,
     table_index_iter: TableIndexIterator<'a>,
     current_memtable_keyvalue_option: Option<(&'a Vec<u8>, &'a Option<Vec<u8>>)>,
     current_table_index_keyvalue_option: Option<(Vec<u8>, Vec<u8>)>,
@@ -624,7 +648,7 @@ impl<'a> FallibleIterator for TableIterator<'a> {
     type Error = String;
 
     fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
-        Ok(
+        loop {
             match (
                 &self.current_memtable_keyvalue_option,
                 &self.current_table_index_keyvalue_option,
@@ -641,13 +665,15 @@ impl<'a> FallibleIterator for TableIterator<'a> {
                                 None
                             };
                             self.current_memtable_keyvalue_option = self.memtable_iter.next();
-                            result
+                            if result.is_some() {
+                                return Ok(result);
+                            }
                         }
                         Ordering::Greater => {
                             let result = Some(current_table_index_keyvalue.clone());
                             self.current_table_index_keyvalue_option =
                                 self.table_index_iter.next()?;
-                            result
+                            return Ok(result);
                         }
                         Ordering::Equal => {
                             let result = if let Some(value) = current_memtable_keyvalue.1 {
@@ -658,7 +684,9 @@ impl<'a> FallibleIterator for TableIterator<'a> {
                             self.current_memtable_keyvalue_option = self.memtable_iter.next();
                             self.current_table_index_keyvalue_option =
                                 self.table_index_iter.next()?;
-                            result
+                            if result.is_some() {
+                                return Ok(result);
+                            }
                         }
                     }
                 }
@@ -669,16 +697,18 @@ impl<'a> FallibleIterator for TableIterator<'a> {
                         None
                     };
                     self.current_memtable_keyvalue_option = self.memtable_iter.next();
-                    result
+                    if result.is_some() {
+                        return Ok(result);
+                    }
                 }
                 (None, Some(current_table_index_keyvalue)) => {
                     let result = Some(current_table_index_keyvalue.clone());
                     self.current_table_index_keyvalue_option = self.table_index_iter.next()?;
-                    result
+                    return Ok(result);
                 }
-                (None, None) => None,
-            },
-        )
+                (None, None) => return Ok(None),
+            }
+        }
     }
 }
 
@@ -935,7 +965,6 @@ mod tests {
             for (key, value) in keyvalues.iter() {
                 table.memtable.insert(key.clone(), value.clone());
             }
-
             table.checkpoint().unwrap();
             for (key, value) in keyvalues.iter() {
                 assert_eq!(table.get_from_index(&key).unwrap(), *value);
@@ -1255,7 +1284,7 @@ mod tests {
             }
 
             table
-                .iter()
+                .iter(None)
                 .unwrap()
                 .map(|(key, _)| Ok(key))
                 .unwrap()
@@ -1263,6 +1292,18 @@ mod tests {
                 .for_each(|(table_key, correct_table_key)| {
                     assert_eq!(&table_key, correct_table_key)
                 });
+
+            let correct_table_keys: Vec<Vec<u8>> =
+                previously_added_keyvalues.keys().cloned().collect();
+            for key_index in 0..correct_table_keys.len() {
+                let table_keys: Vec<Vec<u8>> = table
+                    .iter(Some(&correct_table_keys[key_index]))
+                    .unwrap()
+                    .map(|(key, _)| Ok(key))
+                    .unwrap()
+                    .collect();
+                assert_eq!(table_keys, correct_table_keys[key_index..]);
+            }
 
             println!("checkpoint {checkpoint_number}\n");
             table.checkpoint().unwrap();

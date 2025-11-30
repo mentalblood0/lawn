@@ -163,13 +163,13 @@ impl Index {
             })?;
         index_file
             .seek(std::io::SeekFrom::Start(
-                self.header_size as u64 + from_record_index,
+                self.header_size as u64 + from_record_index * self.header.record_size as u64,
             ))
             .map_err(|error| format!("Can not seek in index file: {error}"))?;
         Ok(IndexIterator {
             reader: BufReader::new(index_file),
             current_record_index: from_record_index,
-            records_count: self.records_count - from_record_index,
+            records_count: self.records_count,
             buffer: vec![0 as u8; self.header.record_size as usize],
         })
     }
