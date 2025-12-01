@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::data_pool::{DataPool, DataPoolConfig};
 use crate::index::{Index, IndexConfig, IndexHeader, IndexIterator};
+use crate::merging_iterator::MergingIterator;
 use crate::partition_point::PartitionPoint;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -591,7 +592,11 @@ impl Table {
         }
     }
 
-    pub fn iter(&'_ self, from_key: Option<&Vec<u8>>) -> Result<TableIterator<'_>, String> {
+    pub fn iter(
+        &'_ self,
+        from_key: Option<&Vec<u8>>,
+    ) -> Result<Box<dyn FallibleIterator<Item = (Vec<u8>, Vec<u8>), Error = String> + '_>, String>
+    {
         let mut memtable_iter = self.memtable.range::<Vec<u8>, _>((
             (if let Some(from_key) = from_key {
                 Included(from_key)
@@ -600,15 +605,15 @@ impl Table {
             }),
             Unbounded,
         ));
-        let mut table_index_iter = self.iter_index(from_key)?;
+        let mut table_index_iter = Box::new(self.iter_index(from_key)?);
         let current_memtable_keyvalue_option = memtable_iter.next();
         let current_table_index_keyvalue_option = table_index_iter.next()?;
-        Ok(TableIterator {
-            memtable_iter,
-            table_index_iter,
-            current_memtable_keyvalue_option,
-            current_table_index_keyvalue_option,
-        })
+        Ok(Box::new(MergingIterator {
+            new_iter: memtable_iter,
+            old_iter: table_index_iter,
+            current_new_keyvalue_option: current_memtable_keyvalue_option,
+            current_old_keyvalue_option: current_table_index_keyvalue_option,
+        }))
     }
 }
 
@@ -633,82 +638,6 @@ impl<'a> FallibleIterator for TableIndexIterator<'a> {
             }
             None => None,
         })
-    }
-}
-
-pub struct TableIterator<'a> {
-    memtable_iter: std::collections::btree_map::Range<'a, Vec<u8>, Option<Vec<u8>>>,
-    table_index_iter: TableIndexIterator<'a>,
-    current_memtable_keyvalue_option: Option<(&'a Vec<u8>, &'a Option<Vec<u8>>)>,
-    current_table_index_keyvalue_option: Option<(Vec<u8>, Vec<u8>)>,
-}
-
-impl<'a> FallibleIterator for TableIterator<'a> {
-    type Item = (Vec<u8>, Vec<u8>);
-    type Error = String;
-
-    fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
-        loop {
-            match (
-                &self.current_memtable_keyvalue_option,
-                &self.current_table_index_keyvalue_option,
-            ) {
-                (Some(current_memtable_keyvalue), Some(current_table_index_keyvalue)) => {
-                    match current_memtable_keyvalue
-                        .0
-                        .cmp(&current_table_index_keyvalue.0)
-                    {
-                        Ordering::Less => {
-                            let result = if let Some(value) = current_memtable_keyvalue.1 {
-                                Some((current_memtable_keyvalue.0.clone(), value.clone()))
-                            } else {
-                                None
-                            };
-                            self.current_memtable_keyvalue_option = self.memtable_iter.next();
-                            if result.is_some() {
-                                return Ok(result);
-                            }
-                        }
-                        Ordering::Greater => {
-                            let result = Some(current_table_index_keyvalue.clone());
-                            self.current_table_index_keyvalue_option =
-                                self.table_index_iter.next()?;
-                            return Ok(result);
-                        }
-                        Ordering::Equal => {
-                            let result = if let Some(value) = current_memtable_keyvalue.1 {
-                                Some((current_memtable_keyvalue.0.clone(), value.clone()))
-                            } else {
-                                None
-                            };
-                            self.current_memtable_keyvalue_option = self.memtable_iter.next();
-                            self.current_table_index_keyvalue_option =
-                                self.table_index_iter.next()?;
-                            if result.is_some() {
-                                return Ok(result);
-                            }
-                        }
-                    }
-                }
-                (Some(current_memtable_keyvalue), None) => {
-                    let result = if let Some(value) = current_memtable_keyvalue.1 {
-                        Some((current_memtable_keyvalue.0.clone(), value.clone()))
-                    } else {
-                        None
-                    };
-                    self.current_memtable_keyvalue_option = self.memtable_iter.next();
-                    if result.is_some() {
-                        return Ok(result);
-                    }
-                }
-                (None, Some(current_table_index_keyvalue)) => {
-                    let result = Some(current_table_index_keyvalue.clone());
-                    self.current_table_index_keyvalue_option = self.table_index_iter.next()?;
-                    return Ok(result);
-                }
-                (None, None) => return Ok(None),
-            }
-        }
     }
 }
 
