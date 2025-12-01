@@ -9,6 +9,22 @@ pub struct MergingIterator<'a> {
     pub current_old_keyvalue_option: Option<(Vec<u8>, Vec<u8>)>,
 }
 
+impl<'a> MergingIterator<'a> {
+    pub fn new(
+        mut new_iter: std::collections::btree_map::Range<'a, Vec<u8>, Option<Vec<u8>>>,
+        mut old_iter: Box<dyn FallibleIterator<Item = (Vec<u8>, Vec<u8>), Error = String> + 'a>,
+    ) -> Result<Self, String> {
+        let current_new_keyvalue_option = new_iter.next();
+        let current_old_keyvalue_option = old_iter.next()?;
+        Ok(Self {
+            new_iter,
+            old_iter,
+            current_new_keyvalue_option,
+            current_old_keyvalue_option,
+        })
+    }
+}
+
 impl<'a> FallibleIterator for MergingIterator<'a> {
     type Item = (Vec<u8>, Vec<u8>);
     type Error = String;

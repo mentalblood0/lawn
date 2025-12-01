@@ -116,32 +116,24 @@ impl<'a> WriteTransaction<'a> {
         from_key: Option<&Vec<u8>>,
     ) -> Result<Box<dyn FallibleIterator<Item = (Vec<u8>, Vec<u8>), Error = String> + '_>, String>
     {
-        let mut changes_iter = self
-            .changes_for_tables
-            .get(table_index)
-            .ok_or(format!("No table at index {table_index}"))?
-            .range::<Vec<u8>, _>((
-                (if let Some(from_key) = from_key {
-                    Included(from_key)
-                } else {
-                    Unbounded
-                }),
-                Unbounded,
-            ));
-        let mut table_iter = self
-            .database_locked_internals
-            .tables
-            .get(table_index)
-            .ok_or(format!("No table at index {table_index}"))?
-            .iter(from_key)?;
-        let current_changes_keyvalue_option = changes_iter.next();
-        let current_table_keyvalue_option = table_iter.next()?;
-        Ok(Box::new(MergingIterator {
-            new_iter: changes_iter,
-            old_iter: table_iter,
-            current_new_keyvalue_option: current_changes_keyvalue_option,
-            current_old_keyvalue_option: current_table_keyvalue_option,
-        }))
+        Ok(Box::new(MergingIterator::new(
+            self.changes_for_tables
+                .get(table_index)
+                .ok_or(format!("No table at index {table_index}"))?
+                .range::<Vec<u8>, _>((
+                    (if let Some(from_key) = from_key {
+                        Included(from_key)
+                    } else {
+                        Unbounded
+                    }),
+                    Unbounded,
+                )),
+            self.database_locked_internals
+                .tables
+                .get(table_index)
+                .ok_or(format!("No table at index {table_index}"))?
+                .iter(from_key)?,
+        )?))
     }
 }
 

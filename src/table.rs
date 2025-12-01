@@ -597,23 +597,17 @@ impl Table {
         from_key: Option<&Vec<u8>>,
     ) -> Result<Box<dyn FallibleIterator<Item = (Vec<u8>, Vec<u8>), Error = String> + '_>, String>
     {
-        let mut memtable_iter = self.memtable.range::<Vec<u8>, _>((
-            (if let Some(from_key) = from_key {
-                Included(from_key)
-            } else {
-                Unbounded
-            }),
-            Unbounded,
-        ));
-        let mut table_index_iter = Box::new(self.iter_index(from_key)?);
-        let current_memtable_keyvalue_option = memtable_iter.next();
-        let current_table_index_keyvalue_option = table_index_iter.next()?;
-        Ok(Box::new(MergingIterator {
-            new_iter: memtable_iter,
-            old_iter: table_index_iter,
-            current_new_keyvalue_option: current_memtable_keyvalue_option,
-            current_old_keyvalue_option: current_table_index_keyvalue_option,
-        }))
+        Ok(Box::new(MergingIterator::new(
+            self.memtable.range::<Vec<u8>, _>((
+                (if let Some(from_key) = from_key {
+                    Included(from_key)
+                } else {
+                    Unbounded
+                }),
+                Unbounded,
+            )),
+            Box::new(self.iter_index(from_key)?),
+        )?))
     }
 }
 
