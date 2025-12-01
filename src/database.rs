@@ -1,14 +1,21 @@
+use std::cmp::Ordering;
+use std::ops::Bound::{Included, Unbounded};
 use std::{
     collections::BTreeMap,
     sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
     thread::{self, JoinHandle},
 };
 
+use fallible_iterator::FallibleIterator;
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::log::{Log, LogConfig};
 use crate::table;
+use crate::{
+    log::{Log, LogConfig},
+    table::TableIterator,
+};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct DatabaseConfig {
@@ -104,6 +111,110 @@ impl<'a> WriteTransaction<'a> {
             self.database_locked_internals.tables[table_index].merge(table_changes);
         }
         Ok(())
+    }
+
+    pub fn iter(
+        &'_ self,
+        table_index: usize,
+        from_key: Option<&Vec<u8>>,
+    ) -> Result<ChangedTableIterator<'_>, String> {
+        let mut changes_iter = self
+            .changes_for_tables
+            .get(table_index)
+            .ok_or(format!("No table at index {table_index}"))?
+            .range::<Vec<u8>, _>((
+                (if let Some(from_key) = from_key {
+                    Included(from_key)
+                } else {
+                    Unbounded
+                }),
+                Unbounded,
+            ));
+        let mut table_iter = self
+            .database_locked_internals
+            .tables
+            .get(table_index)
+            .ok_or(format!("No table at index {table_index}"))?
+            .iter(from_key)?;
+        let current_changes_keyvalue_option = changes_iter.next();
+        let current_table_keyvalue_option = table_iter.next()?;
+        Ok(ChangedTableIterator {
+            changes_iter,
+            table_iter,
+            current_changes_keyvalue_option,
+            current_table_keyvalue_option,
+        })
+    }
+}
+
+pub struct ChangedTableIterator<'a> {
+    changes_iter: std::collections::btree_map::Range<'a, Vec<u8>, Option<Vec<u8>>>,
+    table_iter: TableIterator<'a>,
+    current_changes_keyvalue_option: Option<(&'a Vec<u8>, &'a Option<Vec<u8>>)>,
+    current_table_keyvalue_option: Option<(Vec<u8>, Vec<u8>)>,
+}
+
+impl<'a> FallibleIterator for ChangedTableIterator<'a> {
+    type Item = (Vec<u8>, Vec<u8>);
+    type Error = String;
+
+    fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
+        loop {
+            match (
+                &self.current_changes_keyvalue_option,
+                &self.current_table_keyvalue_option,
+            ) {
+                (Some(current_changes_keyvalue), Some(current_table_keyvalue)) => {
+                    match current_changes_keyvalue.0.cmp(&current_table_keyvalue.0) {
+                        Ordering::Less => {
+                            let result = if let Some(value) = current_changes_keyvalue.1 {
+                                Some((current_changes_keyvalue.0.clone(), value.clone()))
+                            } else {
+                                None
+                            };
+                            self.current_changes_keyvalue_option = self.changes_iter.next();
+                            if result.is_some() {
+                                return Ok(result);
+                            }
+                        }
+                        Ordering::Greater => {
+                            let result = Some(current_table_keyvalue.clone());
+                            self.current_table_keyvalue_option = self.table_iter.next()?;
+                            return Ok(result);
+                        }
+                        Ordering::Equal => {
+                            let result = if let Some(value) = current_changes_keyvalue.1 {
+                                Some((current_changes_keyvalue.0.clone(), value.clone()))
+                            } else {
+                                None
+                            };
+                            self.current_changes_keyvalue_option = self.changes_iter.next();
+                            self.current_table_keyvalue_option = self.table_iter.next()?;
+                            if result.is_some() {
+                                return Ok(result);
+                            }
+                        }
+                    }
+                }
+                (Some(current_changes_keyvalue), None) => {
+                    let result = if let Some(value) = current_changes_keyvalue.1 {
+                        Some((current_changes_keyvalue.0.clone(), value.clone()))
+                    } else {
+                        None
+                    };
+                    self.current_changes_keyvalue_option = self.changes_iter.next();
+                    if result.is_some() {
+                        return Ok(result);
+                    }
+                }
+                (None, Some(current_table_keyvalue)) => {
+                    let result = Some(current_table_keyvalue.clone());
+                    self.current_table_keyvalue_option = self.table_iter.next()?;
+                    return Ok(result);
+                }
+                (None, None) => return Ok(None),
+            }
+        }
     }
 }
 
