@@ -202,6 +202,19 @@ impl Database {
         Ok(self)
     }
 
+    pub fn lock_all_and_checkpoint(&self) -> Result<&Self, String> {
+        let mut locked_internals = self
+            .lockable_internals
+            .write()
+            .map_err(|error| format!("Can not acquire write lock on database: {error}"))?;
+
+        for table in locked_internals.tables.iter_mut() {
+            table.checkpoint()?;
+        }
+        locked_internals.log.clear()?;
+        Ok(self)
+    }
+
     pub fn lock_all_writes_and_spawn_read(
         &self,
         f: fn(ReadTransaction) -> (),
@@ -269,53 +282,55 @@ mod tests {
         let mut previously_added_keyvalues: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
         let mut rng = WyRand::new_seed(0);
 
-        for _ in 0..10000 {
-            let action_id = if previously_added_keyvalues.is_empty() {
-                1
-            } else {
-                rng.generate_range(1..=2)
-            };
-            match action_id {
-                1 => {
-                    let key: Vec<u8> = {
-                        let mut result = vec![0u8; rng.generate_range(1..2)];
-                        rng.fill(&mut result);
-                        result
-                    };
-                    let value: Vec<u8> = {
-                        let mut result = vec![0u8; rng.generate_range(1..2)];
-                        rng.fill(&mut result);
-                        result
-                    };
-                    previously_added_keyvalues.insert(key.clone(), value.clone());
-                    database
-                        .lock_all_and_write(|mut transaction| {
-                            transaction
-                                .set(0, key.clone(), value.clone())
-                                .unwrap()
-                                .commit()
-                                .unwrap();
-                        })
-                        .unwrap();
+        for _ in 0..100 {
+            for _ in 0..100 {
+                let action_id = if previously_added_keyvalues.is_empty() {
+                    1
+                } else {
+                    rng.generate_range(1..=2)
+                };
+                match action_id {
+                    1 => {
+                        let key: Vec<u8> = {
+                            let mut result = vec![0u8; rng.generate_range(1..2)];
+                            rng.fill(&mut result);
+                            result
+                        };
+                        let value: Vec<u8> = {
+                            let mut result = vec![0u8; rng.generate_range(1..2)];
+                            rng.fill(&mut result);
+                            result
+                        };
+                        previously_added_keyvalues.insert(key.clone(), value.clone());
+                        database
+                            .lock_all_and_write(|mut transaction| {
+                                transaction
+                                    .set(0, key.clone(), value.clone())
+                                    .unwrap()
+                                    .commit()
+                                    .unwrap();
+                            })
+                            .unwrap();
+                    }
+                    2 => {
+                        let key_to_remove: Vec<u8> = previously_added_keyvalues
+                            .keys()
+                            .nth(rng.generate_range(0..previously_added_keyvalues.len()))
+                            .unwrap()
+                            .clone();
+                        previously_added_keyvalues.remove(&key_to_remove);
+                        database
+                            .lock_all_and_write(|mut transaction| {
+                                transaction
+                                    .remove(0, key_to_remove.clone())
+                                    .unwrap()
+                                    .commit()
+                                    .unwrap();
+                            })
+                            .unwrap();
+                    }
+                    _ => {}
                 }
-                2 => {
-                    let key_to_remove: Vec<u8> = previously_added_keyvalues
-                        .keys()
-                        .nth(rng.generate_range(0..previously_added_keyvalues.len()))
-                        .unwrap()
-                        .clone();
-                    previously_added_keyvalues.remove(&key_to_remove);
-                    database
-                        .lock_all_and_write(|mut transaction| {
-                            transaction
-                                .remove(0, key_to_remove.clone())
-                                .unwrap()
-                                .commit()
-                                .unwrap();
-                        })
-                        .unwrap();
-                }
-                _ => {}
             }
             let previously_added_keyvalues_arc = Arc::new(&previously_added_keyvalues).clone();
             database
@@ -328,6 +343,7 @@ mod tests {
                     }
                 })
                 .unwrap();
+            database.lock_all_and_checkpoint().unwrap();
         }
     }
 
