@@ -208,9 +208,40 @@ impl Database {
             .write()
             .map_err(|error| format!("Can not acquire write lock on database: {error}"))?;
 
-        for table in locked_internals.tables.iter_mut() {
-            table.checkpoint()?;
-        }
+        thread::scope(|s| {
+            for result in locked_internals
+                .tables
+                .iter_mut()
+                .enumerate()
+                .map(|(table_index, table)| {
+                    s.spawn(move || {
+                        table.checkpoint().map_err(|error| {
+                            format!(
+                                "Checkpoint of table with index {table_index:?} failed: {error}"
+                            )
+                        })
+                    })
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(|handle| handle.join())
+                .collect::<Vec<_>>()
+            {
+                match result {
+                    Ok(_) => {}
+                    Err(error_string) => {
+                        if let Some(s) = error_string.downcast_ref::<&'static str>() {
+                            return Err((*s).to_string());
+                        } else if let Some(s) = error_string.downcast_ref::<String>() {
+                            return Err(s.as_str().into());
+                        } else {
+                            return Err("Unknown error in checkpointing thread".into());
+                        }
+                    }
+                }
+            }
+            Ok(())
+        })?;
         locked_internals.log.clear()?;
         Ok(self)
     }
@@ -240,7 +271,6 @@ mod tests {
         index::IndexConfig, table::TableConfig, variable_data_pool::VariableDataPoolConfig,
     };
     use nanorand::{Rng, WyRand};
-    use std::collections::HashMap;
     use std::path::Path;
     use std::sync::Arc;
 
@@ -279,7 +309,7 @@ mod tests {
         let database = new_default_database("test_generative".to_string());
         database.lock_all_and_clear().unwrap();
 
-        let mut previously_added_keyvalues: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
+        let mut previously_added_keyvalues: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
         let mut rng = WyRand::new_seed(0);
 
         for _ in 0..100 {
