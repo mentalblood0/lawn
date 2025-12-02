@@ -207,14 +207,26 @@ impl<'a> WriteTransaction<'a> {
     pub fn iter<K, V>(
         &'_ self,
         table_index: usize,
-        from_key: Option<&Vec<u8>>,
+        from_key: Option<&K>,
     ) -> Result<Box<dyn FallibleIterator<Item = (K, V), Error = String> + '_>, String>
     where
-        K: bincode::Decode<()>,
+        K: bincode::Decode<()> + bincode::Encode + Clone,
         V: bincode::Decode<()>,
     {
-        Ok(Box::new(self.iter_raw(table_index, from_key)?.map(
-            |(encoded_key, encoded_value)| {
+        Ok(Box::new(
+            self.iter_raw(
+                table_index,
+                if let Some(from_key) = from_key {
+                    Some(
+                        bincode::encode_to_vec(from_key, bincode::config::standard())
+                            .map_err(|error| format!("Can not encode key into bytes: {error}"))?,
+                    )
+                } else {
+                    None
+                }
+                .as_ref(),
+            )?
+            .map(|(encoded_key, encoded_value)| {
                 Ok((
                     bincode::decode_from_slice::<K, _>(&encoded_key, bincode::config::standard())
                         .map_err(|error| format!("Can not decode key from bytes: {error}"))?
@@ -223,8 +235,8 @@ impl<'a> WriteTransaction<'a> {
                         .map_err(|error| format!("Can not decode value from bytes: {error}"))?
                         .0,
                 ))
-            },
-        )))
+            }),
+        ))
     }
 }
 
