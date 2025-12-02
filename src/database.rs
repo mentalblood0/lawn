@@ -98,7 +98,7 @@ impl<'a> WriteTransaction<'a> {
         Ok(self)
     }
 
-    pub fn set<K, V>(&mut self, table_index: usize, key: K, value: V) -> Result<&mut Self, String>
+    pub fn set<K, V>(&mut self, table_index: usize, key: &K, value: &V) -> Result<&mut Self, String>
     where
         K: bincode::Encode,
         V: bincode::Encode,
@@ -453,7 +453,7 @@ mod tests {
             .unwrap()
             .lock_all_and_write(|mut transaction| {
                 transaction
-                    .set(0 as usize, "key".to_string(), 0 as usize)
+                    .set(0 as usize, &"key".to_string(), &(0 as usize))
                     .unwrap()
                     .commit()
                     .unwrap();
@@ -468,11 +468,11 @@ mod tests {
                             .set(
                                 0 as usize,
                                 &"key".to_string(),
-                                transaction
+                                &(transaction
                                     .get::<String, usize>(0, &"key".to_string())
                                     .unwrap()
                                     .unwrap()
-                                    + 1,
+                                    + 1),
                             )
                             .unwrap()
                             .commit()
