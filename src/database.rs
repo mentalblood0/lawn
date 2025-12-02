@@ -178,7 +178,7 @@ impl<'a> WriteTransaction<'a> {
         Ok(())
     }
 
-    pub fn iter(
+    pub fn iter_raw(
         &'_ self,
         table_index: usize,
         from_key: Option<&Vec<u8>>,
@@ -202,6 +202,29 @@ impl<'a> WriteTransaction<'a> {
                 .ok_or(format!("No table at index {table_index}"))?
                 .iter(from_key)?,
         )?))
+    }
+
+    pub fn iter<K, V>(
+        &'_ self,
+        table_index: usize,
+        from_key: Option<&Vec<u8>>,
+    ) -> Result<Box<dyn FallibleIterator<Item = (K, V), Error = String> + '_>, String>
+    where
+        K: bincode::Decode<()>,
+        V: bincode::Decode<()>,
+    {
+        Ok(Box::new(self.iter_raw(table_index, from_key)?.map(
+            |(encoded_key, encoded_value)| {
+                Ok((
+                    bincode::decode_from_slice::<K, _>(&encoded_key, bincode::config::standard())
+                        .map_err(|error| format!("Can not decode key from bytes: {error}"))?
+                        .0,
+                    bincode::decode_from_slice::<V, _>(&encoded_value, bincode::config::standard())
+                        .map_err(|error| format!("Can not decode value from bytes: {error}"))?
+                        .0,
+                ))
+            },
+        )))
     }
 }
 
