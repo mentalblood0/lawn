@@ -38,12 +38,33 @@ impl<'a> ReadTransaction<'a> {
         })
     }
 
-    pub fn get(&self, table_id: usize, key: &Vec<u8>) -> Result<Option<Vec<u8>>, String> {
-        self.database_locked_internals
-            .tables
-            .get(table_id)
-            .ok_or(format!("No table with id {table_id}"))?
-            .get(key)
+    pub fn get_raw(&self, table_index: usize, key: &Vec<u8>) -> Result<Option<Vec<u8>>, String> {
+        match self.database_locked_internals.tables.get(table_index) {
+            Some(table) => table.get(key),
+            None => Ok(None),
+        }
+    }
+
+    pub fn get<K, V>(&self, table_index: usize, key: &K) -> Result<Option<V>, String>
+    where
+        K: bincode::Encode,
+        V: bincode::Decode<()>,
+    {
+        Ok(
+            if let Some(encoded_value) = self.get_raw(
+                table_index,
+                &bincode::encode_to_vec(key, bincode::config::standard())
+                    .map_err(|error| format!("Can not encode key into bytes: {error}"))?,
+            )? {
+                Some(
+                    bincode::decode_from_slice::<V, _>(&encoded_value, bincode::config::standard())
+                        .map_err(|error| format!("Can not decode value from bytes: {error}"))?
+                        .0,
+                )
+            } else {
+                None
+            },
+        )
     }
 }
 
@@ -64,7 +85,7 @@ impl<'a> WriteTransaction<'a> {
         })
     }
 
-    pub fn set(
+    pub fn set_raw(
         &mut self,
         table_index: usize,
         key: Vec<u8>,
@@ -77,6 +98,20 @@ impl<'a> WriteTransaction<'a> {
         Ok(self)
     }
 
+    pub fn set<K, V>(&mut self, table_index: usize, key: K, value: V) -> Result<&mut Self, String>
+    where
+        K: bincode::Encode,
+        V: bincode::Encode,
+    {
+        self.set_raw(
+            table_index,
+            bincode::encode_to_vec(key, bincode::config::standard())
+                .map_err(|error| format!("Can not encode key into bytes: {error}"))?,
+            bincode::encode_to_vec(value, bincode::config::standard())
+                .map_err(|error| format!("Can not encode value into bytes: {error}"))?,
+        )
+    }
+
     pub fn remove(&mut self, table_index: usize, key: Vec<u8>) -> Result<&mut Self, String> {
         self.changes_for_tables
             .get_mut(table_index)
@@ -85,7 +120,7 @@ impl<'a> WriteTransaction<'a> {
         Ok(self)
     }
 
-    pub fn get(&self, table_index: usize, key: &Vec<u8>) -> Result<Option<Vec<u8>>, String> {
+    pub fn get_raw(&self, table_index: usize, key: &Vec<u8>) -> Result<Option<Vec<u8>>, String> {
         match self
             .changes_for_tables
             .get(table_index)
@@ -98,6 +133,28 @@ impl<'a> WriteTransaction<'a> {
                 None => Ok(None),
             },
         }
+    }
+
+    pub fn get<K, V>(&self, table_index: usize, key: &K) -> Result<Option<V>, String>
+    where
+        K: bincode::Encode,
+        V: bincode::Decode<()>,
+    {
+        Ok(
+            if let Some(encoded_value) = self.get_raw(
+                table_index,
+                &bincode::encode_to_vec(key, bincode::config::standard())
+                    .map_err(|error| format!("Can not encode key into bytes: {error}"))?,
+            )? {
+                Some(
+                    bincode::decode_from_slice::<V, _>(&encoded_value, bincode::config::standard())
+                        .map_err(|error| format!("Can not decode value from bytes: {error}"))?
+                        .0,
+                )
+            } else {
+                None
+            },
+        )
     }
 
     pub fn commit(&mut self) -> Result<(), String> {
@@ -342,7 +399,7 @@ mod tests {
                         database
                             .lock_all_and_write(|mut transaction| {
                                 transaction
-                                    .set(0, key.clone(), value.clone())
+                                    .set_raw(0, key.clone(), value.clone())
                                     .unwrap()
                                     .commit()
                                     .unwrap();
@@ -374,7 +431,7 @@ mod tests {
                 .lock_all_writes_and_read(|transaction| {
                     for (key, value) in previously_added_keyvalues_arc.iter() {
                         assert_eq!(
-                            transaction.get(0, &key).unwrap().clone(),
+                            transaction.get_raw(0, &key).unwrap().clone(),
                             Some(value.clone())
                         );
                     }
@@ -396,11 +453,7 @@ mod tests {
             .unwrap()
             .lock_all_and_write(|mut transaction| {
                 transaction
-                    .set(
-                        0 as usize,
-                        "key".as_bytes().to_vec(),
-                        (0 as usize).to_le_bytes().to_vec(),
-                    )
+                    .set(0 as usize, "key".to_string(), 0 as usize)
                     .unwrap()
                     .commit()
                     .unwrap();
@@ -410,25 +463,16 @@ mod tests {
         let threads_handles: Vec<JoinHandle<Result<(), String>>> = (0..THREADS_COUNT)
             .map(|_| {
                 database.lock_all_and_spawn_write(|mut transaction| {
-                    let key = "key".as_bytes().to_vec();
                     for _ in 0..INCREMENTS_PER_THREAD_COUNT {
                         transaction
                             .set(
                                 0 as usize,
-                                key.clone(),
-                                (usize::from_le_bytes(
-                                    transaction
-                                        .get(0, &key)
-                                        .unwrap()
-                                        .clone()
-                                        .unwrap()
-                                        .clone()
-                                        .as_slice()
-                                        .try_into()
-                                        .unwrap(),
-                                ) + 1)
-                                    .to_le_bytes()
-                                    .to_vec(),
+                                &"key".to_string(),
+                                transaction
+                                    .get::<String, usize>(0, &"key".to_string())
+                                    .unwrap()
+                                    .unwrap()
+                                    + 1,
                             )
                             .unwrap()
                             .commit()
@@ -445,11 +489,10 @@ mod tests {
             .lock_all_writes_and_read(|transaction| {
                 assert_eq!(
                     transaction
-                        .get(0, &"key".as_bytes().to_vec())
+                        .get::<String, usize>(0, &"key".to_string())
                         .unwrap()
-                        .clone()
                         .unwrap(),
-                    FINAL_VALUE.to_le_bytes().to_vec()
+                    FINAL_VALUE
                 );
             })
             .unwrap();
@@ -462,7 +505,7 @@ mod tests {
             .unwrap()
             .lock_all_and_write(|mut transaction| {
                 transaction
-                    .set(0, "key".as_bytes().to_vec(), "value".as_bytes().to_vec())
+                    .set_raw(0, "key".as_bytes().to_vec(), "value".as_bytes().to_vec())
                     .unwrap()
                     .commit()
                     .unwrap();
@@ -474,7 +517,7 @@ mod tests {
             .lock_all_writes_and_read(|transaction| {
                 assert_eq!(
                     transaction
-                        .get(0, &"key".as_bytes().to_vec())
+                        .get_raw(0, &"key".as_bytes().to_vec())
                         .unwrap()
                         .clone()
                         .unwrap(),
