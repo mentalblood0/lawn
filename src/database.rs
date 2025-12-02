@@ -112,12 +112,23 @@ impl<'a> WriteTransaction<'a> {
         )
     }
 
-    pub fn remove(&mut self, table_index: usize, key: Vec<u8>) -> Result<&mut Self, String> {
+    pub fn remove_raw(&mut self, table_index: usize, key: Vec<u8>) -> Result<&mut Self, String> {
         self.changes_for_tables
             .get_mut(table_index)
             .ok_or(format!("No table at index {table_index}"))?
             .insert(key, None);
         Ok(self)
+    }
+
+    pub fn remove<K>(&mut self, table_index: usize, key: &K) -> Result<&mut Self, String>
+    where
+        K: bincode::Encode,
+    {
+        self.remove_raw(
+            table_index,
+            bincode::encode_to_vec(key, bincode::config::standard())
+                .map_err(|error| format!("Can not encode key into bytes: {error}"))?,
+        )
     }
 
     pub fn get_raw(&self, table_index: usize, key: &Vec<u8>) -> Result<Option<Vec<u8>>, String> {
@@ -416,7 +427,7 @@ mod tests {
                         database
                             .lock_all_and_write(|mut transaction| {
                                 transaction
-                                    .remove(0, key_to_remove.clone())
+                                    .remove_raw(0, key_to_remove.clone())
                                     .unwrap()
                                     .commit()
                                     .unwrap();
