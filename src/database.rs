@@ -66,6 +66,55 @@ impl<'a> ReadTransaction<'a> {
             },
         )
     }
+
+    pub fn iter_raw(
+        &'_ self,
+        table_index: usize,
+        from_key: Option<&Vec<u8>>,
+    ) -> Result<Box<dyn FallibleIterator<Item = (Vec<u8>, Vec<u8>), Error = String> + '_>, String>
+    {
+        Ok(self
+            .database_locked_internals
+            .tables
+            .get(table_index)
+            .ok_or(format!("No table at index {table_index}"))?
+            .iter(from_key)?)
+    }
+
+    pub fn iter<K, V>(
+        &'_ self,
+        table_index: usize,
+        from_key: Option<&K>,
+    ) -> Result<Box<dyn FallibleIterator<Item = (K, V), Error = String> + '_>, String>
+    where
+        K: bincode::Decode<()> + bincode::Encode + Clone,
+        V: bincode::Decode<()>,
+    {
+        Ok(Box::new(
+            self.iter_raw(
+                table_index,
+                if let Some(from_key) = from_key {
+                    Some(
+                        bincode::encode_to_vec(from_key, bincode::config::standard())
+                            .map_err(|error| format!("Can not encode key into bytes: {error}"))?,
+                    )
+                } else {
+                    None
+                }
+                .as_ref(),
+            )?
+            .map(|(encoded_key, encoded_value)| {
+                Ok((
+                    bincode::decode_from_slice::<K, _>(&encoded_key, bincode::config::standard())
+                        .map_err(|error| format!("Can not decode key from bytes: {error}"))?
+                        .0,
+                    bincode::decode_from_slice::<V, _>(&encoded_value, bincode::config::standard())
+                        .map_err(|error| format!("Can not decode value from bytes: {error}"))?
+                        .0,
+                ))
+            }),
+        ))
+    }
 }
 
 pub struct WriteTransaction<'a> {
