@@ -134,7 +134,7 @@ impl<'a> WriteTransaction<'a> {
         })
     }
 
-    pub fn set_raw(
+    pub fn insert_raw(
         &mut self,
         table_index: usize,
         key: Vec<u8>,
@@ -147,12 +147,17 @@ impl<'a> WriteTransaction<'a> {
         Ok(self)
     }
 
-    pub fn set<K, V>(&mut self, table_index: usize, key: &K, value: &V) -> Result<&mut Self, String>
+    pub fn insert<K, V>(
+        &mut self,
+        table_index: usize,
+        key: &K,
+        value: &V,
+    ) -> Result<&mut Self, String>
     where
         K: bincode::Encode,
         V: bincode::Encode,
     {
-        self.set_raw(
+        self.insert_raw(
             table_index,
             bincode::encode_to_vec(key, bincode::config::standard())
                 .map_err(|error| format!("Can not encode key into bytes: {error}"))?,
@@ -494,7 +499,7 @@ mod tests {
                         database
                             .lock_all_and_write(|mut transaction| {
                                 transaction
-                                    .set_raw(0, key.clone(), value.clone())
+                                    .insert_raw(0, key.clone(), value.clone())
                                     .unwrap()
                                     .commit()
                                     .unwrap();
@@ -548,7 +553,7 @@ mod tests {
             .unwrap()
             .lock_all_and_write(|mut transaction| {
                 transaction
-                    .set(0 as usize, &"key".to_string(), &(0 as usize))
+                    .insert(0 as usize, &"key".to_string(), &(0 as usize))
                     .unwrap()
                     .commit()
                     .unwrap();
@@ -560,7 +565,7 @@ mod tests {
                 database.lock_all_and_spawn_write(|mut transaction| {
                     for _ in 0..INCREMENTS_PER_THREAD_COUNT {
                         transaction
-                            .set(
+                            .insert(
                                 0 as usize,
                                 &"key".to_string(),
                                 &(transaction
@@ -600,7 +605,7 @@ mod tests {
             .unwrap()
             .lock_all_and_write(|mut transaction| {
                 transaction
-                    .set_raw(0, "key".as_bytes().to_vec(), "value".as_bytes().to_vec())
+                    .insert_raw(0, "key".as_bytes().to_vec(), "value".as_bytes().to_vec())
                     .unwrap()
                     .commit()
                     .unwrap();
