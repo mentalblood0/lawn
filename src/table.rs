@@ -12,49 +12,48 @@ use serde::{Deserialize, Serialize};
 
 use crate::data_pool::{DataPool, DataPoolConfig};
 use crate::index::{Index, IndexConfig, IndexHeader, IndexIterator};
-use crate::keyvalue::{Key, Value};
 use crate::merging_iterator::MergingIterator;
 use crate::partition_point::PartitionPoint;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct TableConfig<K: Key, V: Value> {
+pub struct TableConfig {
     pub index: IndexConfig,
-    pub data_pool: Box<dyn DataPoolConfig<K, V>>,
+    pub data_pool: Box<dyn DataPoolConfig>,
 }
 
-pub struct Table<K: Key, V: Value> {
+pub struct Table {
     pub index: Index,
-    pub data_pool: Box<dyn DataPool<K, V> + Send + Sync>,
-    pub memtable: BTreeMap<K, Option<V>>,
+    pub data_pool: Box<dyn DataPool + Send + Sync>,
+    pub memtable: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
 }
 
 #[derive(bincode::Encode, bincode::Decode, Debug)]
-struct DataRecord<K: Key, V: Value> {
-    key: K,
-    value: V,
+struct DataRecord {
+    key: Vec<u8>,
+    value: Vec<u8>,
 }
 
 #[derive(Debug)]
-struct MemtableRecord<K: Key, V: Value> {
-    key: K,
-    value: Option<V>,
+struct MemtableRecord {
+    key: Vec<u8>,
+    value: Option<Vec<u8>>,
 }
 
-impl<K: Key, V: Value> PartialEq for MemtableRecord<K, V> {
+impl PartialEq for MemtableRecord {
     fn eq(&self, other: &Self) -> bool {
         self.key == other.key
     }
 }
 
-impl<K: Key, V: Value> Eq for MemtableRecord<K, V> {}
+impl Eq for MemtableRecord {}
 
-impl<K: Key, V: Value> PartialOrd for MemtableRecord<K, V> {
+impl PartialOrd for MemtableRecord {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.key.cmp(&other.key))
     }
 }
 
-impl<K: Key, V: Value> Ord for MemtableRecord<K, V> {
+impl Ord for MemtableRecord {
     fn cmp(&self, other: &Self) -> Ordering {
         self.key.cmp(&other.key)
     }
@@ -73,13 +72,13 @@ fn write_data_id(
 }
 
 #[derive(Debug)]
-struct LinearMergeElement<K: Key> {
-    key: K,
+struct LinearMergeElement {
+    key: Vec<u8>,
     id: Option<u64>,
 }
 
-impl<K: Key, V: Value> Table<K, V> {
-    pub fn new(config: TableConfig<K, V>) -> Result<Self, String> {
+impl Table {
+    pub fn new(config: TableConfig) -> Result<Self, String> {
         Ok(Self {
             index: Index::new(config.index)?,
             data_pool: config.data_pool.new_data_pool()?,
@@ -87,20 +86,20 @@ impl<K: Key, V: Value> Table<K, V> {
         })
     }
 
-    pub fn merge(&mut self, changes: &mut BTreeMap<K, Option<V>>) {
+    pub fn merge(&mut self, changes: &mut BTreeMap<Vec<u8>, Option<Vec<u8>>>) {
         self.memtable.append(changes);
     }
 
-    fn get_from_index_by_id(&self, id: u64) -> Result<DataRecord<K, V>, String> {
+    fn get_from_index_by_id(&self, id: u64) -> Result<DataRecord, String> {
         let result_encoded = self.data_pool.get(id)?;
-        let result: DataRecord<K, V> =
+        let result: DataRecord =
             bincode::decode_from_slice(&result_encoded, bincode::config::standard())
                 .map_err(|error| format!("Can not decode data record: {error}"))?
                 .0;
         Ok(result)
     }
 
-    fn get_from_index(&self, key: &K) -> Result<Option<V>, String> {
+    fn get_from_index(&self, key: &Vec<u8>) -> Result<Option<Vec<u8>>, String> {
         Ok(
             PartitionPoint::new(0, self.index.records_count, |record_index| {
                 let data_record_id = self.index.get(record_index)?.ok_or(format!(
@@ -114,7 +113,7 @@ impl<K: Key, V: Value> Table<K, V> {
         )
     }
 
-    pub fn get(&self, key: &K) -> Result<Option<V>, String> {
+    pub fn get(&self, key: &Vec<u8>) -> Result<Option<Vec<u8>>, String> {
         match self.memtable.get(key) {
             Some(value) => Ok(value.clone()),
             None => Ok(self.get_from_index(key)?),
@@ -205,7 +204,7 @@ impl<K: Key, V: Value> Table<K, V> {
     }
 
     fn checkpoint_using_linear_merge(&mut self) -> Result<(), String> {
-        let mut new_elements: Vec<LinearMergeElement<K>> = Vec::new();
+        let mut new_elements: Vec<LinearMergeElement> = Vec::new();
         let mut max_new_id: u64 = 0;
         for current_new_record in std::mem::take(&mut self.memtable).into_iter() {
             if let Some(value) = current_new_record.1 {
@@ -378,7 +377,7 @@ impl<K: Key, V: Value> Table<K, V> {
             return Ok(());
         }
 
-        let memtable_records: Vec<MemtableRecord<K, V>> = std::mem::take(&mut self.memtable)
+        let memtable_records: Vec<MemtableRecord> = std::mem::take(&mut self.memtable)
             .into_iter()
             .map(|(key, value)| MemtableRecord { key, value })
             .collect();
@@ -569,7 +568,7 @@ impl<K: Key, V: Value> Table<K, V> {
         Ok(())
     }
 
-    fn iter_index(&'_ self, from_key: Option<&K>) -> Result<TableIndexIterator<'_, K, V>, String> {
+    fn iter_index(&'_ self, from_key: Option<&Vec<u8>>) -> Result<TableIndexIterator<'_>, String> {
         if let Some(from_key) = from_key {
             Ok(TableIndexIterator {
                 data_pool: &self.data_pool,
@@ -595,10 +594,11 @@ impl<K: Key, V: Value> Table<K, V> {
 
     pub fn iter(
         &'_ self,
-        from_key: Option<&K>,
-    ) -> Result<Box<dyn FallibleIterator<Item = (K, V), Error = String> + '_>, String> {
+        from_key: Option<&Vec<u8>>,
+    ) -> Result<Box<dyn FallibleIterator<Item = (Vec<u8>, Vec<u8>), Error = String> + '_>, String>
+    {
         Ok(Box::new(MergingIterator::new(
-            self.memtable.range::<K, _>((
+            self.memtable.range::<Vec<u8>, _>((
                 (if let Some(from_key) = from_key {
                     Included(from_key)
                 } else {
@@ -611,20 +611,20 @@ impl<K: Key, V: Value> Table<K, V> {
     }
 }
 
-struct TableIndexIterator<'a, K: Key, V: Value> {
-    data_pool: &'a Box<dyn DataPool<K, V> + Send + Sync>,
+struct TableIndexIterator<'a> {
+    data_pool: &'a Box<dyn DataPool + Send + Sync>,
     index_iter: IndexIterator,
 }
 
-impl<'a, K: Key, V: Value> FallibleIterator for TableIndexIterator<'a, K, V> {
-    type Item = (K, V);
+impl<'a> FallibleIterator for TableIndexIterator<'a> {
+    type Item = (Vec<u8>, Vec<u8>);
     type Error = String;
 
     fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
         Ok(match self.index_iter.next()? {
             Some(id) => {
                 let result_encoded = self.data_pool.get(id)?;
-                let result: DataRecord<K, V> =
+                let result: DataRecord =
                     bincode::decode_from_slice(&result_encoded, bincode::config::standard())
                         .map_err(|error| format!("Can not decode data record: {error}"))?
                         .0;
@@ -842,7 +842,7 @@ mod tests {
         assert_eq!(result, correct_result);
     }
 
-    fn new_default_table<K: Key, V: Value>(test_name_for_isolation: &str) -> Table<K, V> {
+    fn new_default_table(test_name_for_isolation: &str) -> Table {
         let table_dir =
             Path::new(format!("/tmp/lawn/test/table/{test_name_for_isolation}/").as_str())
                 .to_path_buf();
@@ -862,7 +862,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_2_in_3() {
-        let mut table = new_default_table::<Vec<u8>, Vec<u8>>("test_checkpoint_2_in_3");
+        let mut table = new_default_table("test_checkpoint_2_in_3");
 
         let first_keyvalues = vec![
             (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
@@ -900,7 +900,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_3_in_2() {
-        let mut table = new_default_table::<Vec<u8>, Vec<u8>>("test_checkpoint_3_in_2");
+        let mut table = new_default_table("test_checkpoint_3_in_2");
 
         let first_keyvalues = vec![
             (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),
@@ -937,7 +937,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_2_after_3() {
-        let mut table = new_default_table::<Vec<u8>, Vec<u8>>("test_checkpoint_2_after_3");
+        let mut table = new_default_table("test_checkpoint_2_after_3");
 
         let first_keyvalues = vec![
             (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
@@ -974,8 +974,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_2_remove_1_add_after_10() {
-        let mut table =
-            new_default_table::<Vec<u8>, Vec<u8>>("test_checkpoint_2_remove_1_add_after_10");
+        let mut table = new_default_table("test_checkpoint_2_remove_1_add_after_10");
 
         let first_keyvalues = vec![
             (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
@@ -1020,7 +1019,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_2_before_3() {
-        let mut table = new_default_table::<Vec<u8>, Vec<u8>>("test_checkpoint_2_before_3");
+        let mut table = new_default_table("test_checkpoint_2_before_3");
 
         let first_keyvalues = vec![
             (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 2 as u8])),
@@ -1057,7 +1056,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_replace() {
-        let mut table = new_default_table::<Vec<u8>, Vec<u8>>("test_checkpoint_replace");
+        let mut table = new_default_table("test_checkpoint_replace");
 
         {
             let keyvalues = vec![
@@ -1091,7 +1090,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_delete_middle() {
-        let mut table = new_default_table::<Vec<u8>, Vec<u8>>("test_checkpoint_delete_middle");
+        let mut table = new_default_table("test_checkpoint_delete_middle");
 
         let mut keyvalues = vec![
             (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
@@ -1121,7 +1120,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_delete_first() {
-        let mut table = new_default_table::<Vec<u8>, Vec<u8>>("test_checkpoint_delete_first");
+        let mut table = new_default_table("test_checkpoint_delete_first");
 
         let mut keyvalues = vec![
             (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
@@ -1152,7 +1151,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_delete_last() {
-        let mut table = new_default_table::<Vec<u8>, Vec<u8>>("test_checkpoint_delete_last");
+        let mut table = new_default_table("test_checkpoint_delete_last");
 
         let mut keyvalues = vec![
             (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
@@ -1183,7 +1182,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_generative() {
-        let mut table = new_default_table::<Vec<u8>, Vec<u8>>("test_checkpoint_generative");
+        let mut table = new_default_table("test_checkpoint_generative");
 
         let mut previously_added_keyvalues: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
         let mut rng = WyRand::new_seed(0);

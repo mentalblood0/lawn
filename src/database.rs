@@ -10,19 +10,18 @@ use fallible_iterator::FallibleIterator;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::keyvalue::{Key, Value};
 use crate::log::{Log, LogConfig};
 use crate::merging_iterator::MergingIterator;
 use crate::table;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct DatabaseConfig {
-    pub tables: Vec<table::TableConfig<K, V>>,
+    pub tables: Vec<table::TableConfig>,
     pub log: LogConfig,
 }
 
 struct DatabaseLockableInternals {
-    tables: Vec<table::Table<K, V>>,
+    tables: Vec<table::Table>,
     log: Log,
 }
 
