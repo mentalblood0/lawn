@@ -1,431 +1,345 @@
-use std::ops::Bound::{Included, Unbounded};
-use std::{
-    collections::BTreeMap,
-    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
-    thread::{self, JoinHandle},
-};
+macro_rules! define_database {
+    ($database_name:ident { $($table_name:ident<$key_type:ty, $value_type:ty>),+ $(,)? }) => {
+        mod $database_name {
+            use std::ops::Bound::{Included, Unbounded};
+            use std::path::PathBuf;
+            use std::io::{BufReader, BufRead, Write};
+            use std::fs;
+            use std::{
+                collections::BTreeMap,
+                sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
+                thread::{self, JoinHandle},
+            };
 
-use fallible_iterator::FallibleIterator;
+            use fallible_iterator::FallibleIterator;
 
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
+            #[cfg(feature = "serde")]
+            use serde::{Deserialize, Serialize};
 
-use crate::log::{Log, LogConfig};
-use crate::merging_iterator::MergingIterator;
-use crate::table;
+            use crate::keyvalue::{Key, Value};
+            use crate::merging_iterator::MergingIterator;
+            use crate::table;
 
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct DatabaseConfig {
-    pub tables: Vec<table::TableConfig>,
-    pub log: LogConfig,
-}
+            #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+            pub struct LogConfig {
+                pub path: PathBuf,
+            }
 
-struct DatabaseLockableInternals {
-    tables: Vec<table::Table>,
-    log: Log,
-}
+            pub struct Log {
+                pub config: LogConfig,
+                file: fs::File,
+            }
 
-pub struct ReadTransaction<'a> {
-    database_locked_internals: RwLockReadGuard<'a, DatabaseLockableInternals>,
-}
+            #[derive(bincode::Encode, bincode::Decode)]
+            struct LogRecord {
+                $(
+                    $table_name: Vec<($key_type, Option<$value_type>)>,
+                )+
+            }
 
-impl<'a> ReadTransaction<'a> {
-    fn new(database_lock: &'a RwLock<DatabaseLockableInternals>) -> Result<Self, String> {
-        Ok(Self {
-            database_locked_internals: database_lock
-                .read()
-                .map_err(|error| format!("Can not acquire read lock on database: {error}"))?,
-        })
-    }
-
-    pub fn get_raw(&self, table_index: usize, key: &Vec<u8>) -> Result<Option<Vec<u8>>, String> {
-        match self.database_locked_internals.tables.get(table_index) {
-            Some(table) => table.get(key),
-            None => Ok(None),
-        }
-    }
-
-    pub fn get<K, V>(&self, table_index: usize, key: &K) -> Result<Option<V>, String>
-    where
-        K: bincode::Encode,
-        V: bincode::Decode<()>,
-    {
-        Ok(
-            if let Some(encoded_value) = self.get_raw(
-                table_index,
-                &bincode::encode_to_vec(key, bincode::config::standard())
-                    .map_err(|error| format!("Can not encode key into bytes: {error}"))?,
-            )? {
-                Some(
-                    bincode::decode_from_slice::<V, _>(&encoded_value, bincode::config::standard())
-                        .map_err(|error| format!("Can not decode value from bytes: {error}"))?
-                        .0,
-                )
-            } else {
-                None
-            },
-        )
-    }
-
-    pub fn iter_raw(
-        &'_ self,
-        table_index: usize,
-        from_key: Option<&Vec<u8>>,
-    ) -> Result<Box<dyn FallibleIterator<Item = (Vec<u8>, Vec<u8>), Error = String> + '_>, String>
-    {
-        Ok(self
-            .database_locked_internals
-            .tables
-            .get(table_index)
-            .ok_or(format!("No table at index {table_index}"))?
-            .iter(from_key)?)
-    }
-
-    pub fn iter<K, V>(
-        &'_ self,
-        table_index: usize,
-        from_key: Option<&K>,
-    ) -> Result<Box<dyn FallibleIterator<Item = (K, V), Error = String> + '_>, String>
-    where
-        K: bincode::Decode<()> + bincode::Encode + Clone,
-        V: bincode::Decode<()>,
-    {
-        Ok(Box::new(
-            self.iter_raw(
-                table_index,
-                if let Some(from_key) = from_key {
-                    Some(
-                        bincode::encode_to_vec(from_key, bincode::config::standard())
-                            .map_err(|error| format!("Can not encode key into bytes: {error}"))?,
-                    )
-                } else {
-                    None
+            impl Log {
+                pub fn new(config: LogConfig) -> Result<Self, String> {
+                    if let Some(path_parent_directory) = config.path.parent() {
+                        std::fs::create_dir_all(path_parent_directory).map_err(|error| {
+                            format!(
+                                "Can not create parent directories for path {}: {error}",
+                                &config.path.display()
+                            )
+                        })?;
+                    }
+                    let file = fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .write(true)
+                        .open(&config.path)
+                        .map_err(|error| {
+                            format!(
+                                "Can not open file at path {}: {error}",
+                                config.path.display()
+                            )
+                        })?;
+                    Ok(Self { config, file })
                 }
-                .as_ref(),
-            )?
-            .map(|(encoded_key, encoded_value)| {
-                Ok((
-                    bincode::decode_from_slice::<K, _>(&encoded_key, bincode::config::standard())
-                        .map_err(|error| format!("Can not decode key from bytes: {error}"))?
-                        .0,
-                    bincode::decode_from_slice::<V, _>(&encoded_value, bincode::config::standard())
-                        .map_err(|error| format!("Can not decode value from bytes: {error}"))?
-                        .0,
-                ))
-            }),
-        ))
-    }
-}
 
-pub struct WriteTransaction<'a> {
-    database_locked_internals: RwLockWriteGuard<'a, DatabaseLockableInternals>,
-    changes_for_tables: Vec<BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
-}
-
-impl<'a> WriteTransaction<'a> {
-    fn new(database_lock: &'a RwLock<DatabaseLockableInternals>) -> Result<Self, String> {
-        let locked_internals = database_lock
-            .write()
-            .map_err(|error| format!("Can not acquire write lock on database: {error}"))?;
-        let tables_count = locked_internals.tables.len();
-        Ok(Self {
-            database_locked_internals: locked_internals,
-            changes_for_tables: vec![const { BTreeMap::new() }; tables_count],
-        })
-    }
-
-    pub fn insert_raw(
-        &mut self,
-        table_index: usize,
-        key: Vec<u8>,
-        value: Vec<u8>,
-    ) -> Result<&mut Self, String> {
-        self.changes_for_tables
-            .get_mut(table_index)
-            .ok_or(format!("No table at index {table_index}"))?
-            .insert(key, Some(value));
-        Ok(self)
-    }
-
-    pub fn insert<K, V>(
-        &mut self,
-        table_index: usize,
-        key: &K,
-        value: &V,
-    ) -> Result<&mut Self, String>
-    where
-        K: bincode::Encode,
-        V: bincode::Encode,
-    {
-        self.insert_raw(
-            table_index,
-            bincode::encode_to_vec(key, bincode::config::standard())
-                .map_err(|error| format!("Can not encode key into bytes: {error}"))?,
-            bincode::encode_to_vec(value, bincode::config::standard())
-                .map_err(|error| format!("Can not encode value into bytes: {error}"))?,
-        )
-    }
-
-    pub fn remove_raw(&mut self, table_index: usize, key: Vec<u8>) -> Result<&mut Self, String> {
-        self.changes_for_tables
-            .get_mut(table_index)
-            .ok_or(format!("No table at index {table_index}"))?
-            .insert(key, None);
-        Ok(self)
-    }
-
-    pub fn remove<K>(&mut self, table_index: usize, key: &K) -> Result<&mut Self, String>
-    where
-        K: bincode::Encode,
-    {
-        self.remove_raw(
-            table_index,
-            bincode::encode_to_vec(key, bincode::config::standard())
-                .map_err(|error| format!("Can not encode key into bytes: {error}"))?,
-        )
-    }
-
-    pub fn get_raw(&self, table_index: usize, key: &Vec<u8>) -> Result<Option<Vec<u8>>, String> {
-        match self
-            .changes_for_tables
-            .get(table_index)
-            .ok_or(format!("No table at index {table_index}"))?
-            .get(key)
-        {
-            Some(result_from_changes) => Ok(result_from_changes.clone()),
-            None => match self.database_locked_internals.tables.get(table_index) {
-                Some(table) => table.get(key),
-                None => Ok(None),
-            },
-        }
-    }
-
-    pub fn get<K, V>(&self, table_index: usize, key: &K) -> Result<Option<V>, String>
-    where
-        K: bincode::Encode,
-        V: bincode::Decode<()>,
-    {
-        Ok(
-            if let Some(encoded_value) = self.get_raw(
-                table_index,
-                &bincode::encode_to_vec(key, bincode::config::standard())
-                    .map_err(|error| format!("Can not encode key into bytes: {error}"))?,
-            )? {
-                Some(
-                    bincode::decode_from_slice::<V, _>(&encoded_value, bincode::config::standard())
-                        .map_err(|error| format!("Can not decode value from bytes: {error}"))?
-                        .0,
-                )
-            } else {
-                None
-            },
-        )
-    }
-
-    pub fn commit(&mut self) -> Result<(), String> {
-        self.database_locked_internals
-            .log
-            .write(&self.changes_for_tables)?;
-        for (table_index, table_changes) in self.changes_for_tables.iter_mut().enumerate() {
-            self.database_locked_internals.tables[table_index].merge(table_changes);
-        }
-        Ok(())
-    }
-
-    pub fn iter_raw(
-        &'_ self,
-        table_index: usize,
-        from_key: Option<&Vec<u8>>,
-    ) -> Result<Box<dyn FallibleIterator<Item = (Vec<u8>, Vec<u8>), Error = String> + '_>, String>
-    {
-        Ok(Box::new(MergingIterator::new(
-            self.changes_for_tables
-                .get(table_index)
-                .ok_or(format!("No table at index {table_index}"))?
-                .range::<Vec<u8>, _>((
-                    (if let Some(from_key) = from_key {
-                        Included(from_key)
-                    } else {
-                        Unbounded
-                    }),
-                    Unbounded,
-                )),
-            self.database_locked_internals
-                .tables
-                .get(table_index)
-                .ok_or(format!("No table at index {table_index}"))?
-                .iter(from_key)?,
-        )?))
-    }
-
-    pub fn iter<K, V>(
-        &'_ self,
-        table_index: usize,
-        from_key: Option<&K>,
-    ) -> Result<Box<dyn FallibleIterator<Item = (K, V), Error = String> + '_>, String>
-    where
-        K: bincode::Decode<()> + bincode::Encode + Clone,
-        V: bincode::Decode<()>,
-    {
-        Ok(Box::new(
-            self.iter_raw(
-                table_index,
-                if let Some(from_key) = from_key {
-                    Some(
-                        bincode::encode_to_vec(from_key, bincode::config::standard())
-                            .map_err(|error| format!("Can not encode key into bytes: {error}"))?,
-                    )
-                } else {
-                    None
+                pub fn write(&mut self, record: LogRecord) -> Result<(), String> {
+                    let buffer = bincode::encode_to_vec(record, bincode::config::standard())
+                        .map_err(|error| format!("Can not encode transaction to log record: {error}"))?;
+                    self.file
+                        .write_all(&buffer.as_slice())
+                        .map_err(|error| format!("Can not write transaction log record to file: {error}"))?;
+                    Ok(())
                 }
-                .as_ref(),
-            )?
-            .map(|(encoded_key, encoded_value)| {
-                Ok((
-                    bincode::decode_from_slice::<K, _>(&encoded_key, bincode::config::standard())
-                        .map_err(|error| format!("Can not decode key from bytes: {error}"))?
-                        .0,
-                    bincode::decode_from_slice::<V, _>(&encoded_value, bincode::config::standard())
-                        .map_err(|error| format!("Can not decode value from bytes: {error}"))?
-                        .0,
-                ))
-            }),
-        ))
-    }
-}
 
-pub struct Database {
-    lockable_internals: Arc<RwLock<DatabaseLockableInternals>>,
-}
+                pub fn clear(&mut self) -> Result<(), String> {
+                    self.file
+                        .set_len(0)
+                        .map_err(|error| format!("Can not truncate log file {:?}: {error}", self.file))?;
+                    Ok(())
+                }
 
-impl Database {
-    pub fn new(config: DatabaseConfig) -> Result<Self, String> {
-        let mut tables: Vec<table::Table> = Vec::new();
-        for table_config in config.tables {
-            tables.push(table::Table::new(table_config)?);
-        }
-        Ok(Self {
-            lockable_internals: Arc::new(RwLock::new(DatabaseLockableInternals {
-                tables,
-                log: Log::new(config.log)?,
-            })),
-        })
-    }
-
-    pub fn lock_all_writes_and_read<F>(&self, closure: F) -> Result<&Self, String>
-    where
-        F: Fn(ReadTransaction) -> (),
-    {
-        closure(ReadTransaction::new(&Arc::clone(&self.lockable_internals))?);
-        Ok(self)
-    }
-
-    pub fn lock_all_and_write<F>(&self, f: F) -> Result<&Self, String>
-    where
-        F: Fn(WriteTransaction) -> (),
-    {
-        f(WriteTransaction::new(&Arc::clone(
-            &self.lockable_internals,
-        ))?);
-        Ok(self)
-    }
-
-    pub fn lock_all_and_recover(&self) -> Result<&Self, String> {
-        let mut locked_internals = self
-            .lockable_internals
-            .write()
-            .map_err(|error| format!("Can not acquire write lock on database: {error}"))?;
-
-        for (table_id, memtable) in locked_internals.log.read()?.into_iter().enumerate() {
-            locked_internals
-                .tables
-                .get_mut(table_id)
-                .ok_or_else(|| format!("No table with id {table_id}"))?
-                .memtable = memtable;
-        }
-        Ok(self)
-    }
-
-    pub fn lock_all_and_clear(&self) -> Result<&Self, String> {
-        let mut locked_internals = self
-            .lockable_internals
-            .write()
-            .map_err(|error| format!("Can not acquire write lock on database: {error}"))?;
-
-        for table in locked_internals.tables.iter_mut() {
-            table.clear()?;
-        }
-        locked_internals.log.clear()?;
-        Ok(self)
-    }
-
-    pub fn lock_all_and_checkpoint(&self, parallel: bool) -> Result<&Self, String> {
-        let mut locked_internals = self
-            .lockable_internals
-            .write()
-            .map_err(|error| format!("Can not acquire write lock on database: {error}"))?;
-
-        if parallel {
-            thread::scope(|s| {
-                for result in locked_internals
-                    .tables
-                    .iter_mut()
-                    .enumerate()
-                    .map(|(table_index, table)| {
-                        s.spawn(move || {
-                            table.checkpoint().map_err(|error| {
-                                format!(
-                                    "Checkpoint of table with index {table_index:?} failed: {error}"
-                                )
-                            })
-                        })
-                    })
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .map(|handle| handle.join())
-                    .collect::<Vec<_>>()
-                {
-                    match result {
-                        Ok(_) => {}
-                        Err(error_string) => {
-                            if let Some(s) = error_string.downcast_ref::<&'static str>() {
-                                return Err((*s).to_string());
-                            } else if let Some(s) = error_string.downcast_ref::<String>() {
-                                return Err(s.as_str().into());
-                            } else {
-                                return Err("Unknown error in checkpointing thread".into());
-                            }
+                pub fn iter(&mut self) -> Result<LogIterator, String> {
+                    Ok(
+                        LogIterator {
+                            reader: BufReader::new(
+                                fs::File::open(&self.config.path).map_err(|error| {
+                                    format!(
+                                        "Can not open file at path {} for read: {error}",
+                                        &self.config.path.display()
+                                    )
+                                })?
+                            )
                         }
+                    )
+                }
+            }
+
+            struct LogIterator {
+                reader: BufReader<fs::File>,
+            }
+            impl FallibleIterator for LogIterator {
+                type Item = LogRecord;
+                type Error = String;
+
+                fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
+                    Ok(
+                        if self.reader
+                               .fill_buf()
+                                      .map_err(|error| format!("Can not read log: {error}"))?.is_empty() {
+                            None
+                        } else {
+                            Some(bincode::decode_from_std_read(&mut self.reader, bincode::config::standard())
+                                    .map_err(|error| format!("Can not decode log record: {error}"))?)
+                        }
+                    )
+                }
+            }
+
+            pub struct TablesConfig {
+                $(
+                    pub $table_name: table::TableConfig<$key_type, $value_type>,
+                )+
+            }
+
+            #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+            pub struct DatabaseConfig {
+                pub tables: TablesConfig,
+                pub log: LogConfig,
+            }
+
+            pub struct TableTransaction<K: Key, V: Value>{
+                table: table::Table<K, V>,
+                changes: BTreeMap<K, Option<V>>,
+            }
+            impl<K: Key, V: Value> TableTransaction<K, V> {
+                pub fn insert(&mut self, key: K, value: V) -> &mut Self {
+                    self.changes.insert(key, Some(value));
+                    self
+                }
+
+                pub fn remove(&mut self, key: &K) -> &mut Self {
+                    self.changes.remove(key);
+                    self
+                }
+
+                pub fn get(&self, key: &K) -> Result<Option<V>, String> {
+                    match self.changes.get(key) {
+                        Some(result_from_changes) => Ok(result_from_changes.clone()),
+                        None => self.table.get(key),
                     }
                 }
-                Ok(())
-            })?;
-        } else {
-            for table in locked_internals.tables.iter_mut() {
-                table.checkpoint()?;
+
+                pub fn iter(
+                    &'_ self,
+                    from_key: Option<&K>,
+                ) -> Result<Box<dyn FallibleIterator<Item = (K, V), Error = String> + '_>, String>
+                {
+                    Ok(Box::new(MergingIterator::new(
+                        self.changes
+                            .range::<K, _>((
+                                (if let Some(from_key) = from_key {
+                                    Included(from_key)
+                                } else {
+                                    Unbounded
+                                }),
+                                Unbounded,
+                            )),
+                        self.table
+                            .iter(from_key)?,
+                    )?))
+                }
+            }
+
+        pub struct TablesTransactions {
+            $(
+                pub $table_name: TableTransaction<$key_type, $value_type>,
+            )+
+        }
+
+        pub struct DatabaseLockableInternals {
+            pub tables: TablesTransactions,
+            log: Log,
+        }
+
+        pub struct ReadTransaction<'a> {
+            pub database_locked_internals: RwLockReadGuard<'a, DatabaseLockableInternals>,
+        }
+        impl<'a> ReadTransaction<'a> {
+            fn new(database_lock: &'a RwLock<DatabaseLockableInternals>) -> Result<Self, String> {
+                Ok(Self {
+                    database_locked_internals: database_lock
+                        .read()
+                        .map_err(|error| format!("Can not acquire read lock on database: {error}"))?,
+                })
             }
         }
 
-        locked_internals.log.clear()?;
-        Ok(self)
-    }
+        pub struct WriteTransaction<'a> {
+            pub database_locked_internals: RwLockWriteGuard<'a, DatabaseLockableInternals>,
+        }
+        impl<'a> WriteTransaction<'a> {
+            fn new(database_lock: &'a RwLock<DatabaseLockableInternals>) -> Result<Self, String> {
+                Ok(Self {
+                    database_locked_internals: database_lock
+                        .write()
+                        .map_err(|error| format!("Can not acquire write lock on database: {error}"))?,
+                })
+            }
 
-    pub fn lock_all_writes_and_spawn_read(
-        &self,
-        f: fn(ReadTransaction) -> (),
-    ) -> JoinHandle<Result<(), String>> {
-        let locked_internals = Arc::clone(&self.lockable_internals);
-        thread::spawn(move || Ok(f(ReadTransaction::new(&locked_internals)?)))
-    }
+            pub fn commit(&mut self) -> Result<(), String> {
+                let log_record = LogRecord {
+                    $(
+                        $table_name: self.database_locked_internals
+                                            .tables
+                                            .$table_name
+                                            .changes
+                                            .iter()
+                                            .map(|(key, value)| (key.clone(), value.clone()))
+                                            .collect(),
+                    )+
+                };
+                self.database_locked_internals
+                    .log
+                    .write(log_record)?;
+                $({
+                    let mut table_changes = std::mem::take(&mut self.database_locked_internals
+                                                                    .tables
+                                                                    .$table_name.changes);
+                    self.database_locked_internals
+                        .tables
+                        .$table_name
+                        .table
+                        .merge(&mut table_changes);
+                })+
+                Ok(())
+            }
+        }
 
-    pub fn lock_all_and_spawn_write(
-        &self,
-        f: fn(WriteTransaction) -> (),
-    ) -> JoinHandle<Result<(), String>> {
-        let locked_internals = Arc::clone(&self.lockable_internals);
-        thread::spawn(move || Ok(f(WriteTransaction::new(&locked_internals)?)))
-    }
+        pub struct Database {
+            lockable_internals: Arc<RwLock<DatabaseLockableInternals>>,
+        }
+
+        impl Database {
+            pub fn new(config: DatabaseConfig) -> Result<Self, String> {
+                Ok(Self {
+                    lockable_internals: Arc::new(RwLock::new(DatabaseLockableInternals {
+                        tables: TablesTransactions {
+                            $(
+                                $table_name: TableTransaction {
+                                    table: table::Table::<$key_type, $value_type>::new(config.tables.$table_name)?,
+                                    changes: BTreeMap::new(),
+                                },
+                            )+
+                        },
+                        log: Log::new(config.log)?,
+                    })),
+                })
+            }
+
+            pub fn lock_all_writes_and_read<F>(&self, closure: F) -> Result<&Self, String>
+            where
+                F: Fn(ReadTransaction) -> (),
+            {
+                closure(ReadTransaction::new(&Arc::clone(&self.lockable_internals))?);
+                Ok(self)
+            }
+
+            pub fn lock_all_and_write<F>(&self, f: F) -> Result<&Self, String>
+            where
+                F: Fn(WriteTransaction) -> (),
+            {
+                f(WriteTransaction::new(&Arc::clone(
+                    &self.lockable_internals,
+                ))?);
+                Ok(self)
+            }
+
+            pub fn lock_all_and_recover(&self) -> Result<&Self, String> {
+                let mut locked_internals = self
+                    .lockable_internals
+                    .write()
+                    .map_err(|error| format!("Can not acquire write lock on database: {error}"))?;
+
+                locked_internals.log.iter()?.for_each(|log_record| {
+                    $(
+                        for (key, value) in log_record.$table_name {
+                            locked_internals.tables.$table_name.table.memtable.insert(key, value);
+                        }
+                    )+
+                    Ok(())
+                });
+                Ok(self)
+            }
+
+            pub fn lock_all_and_clear(&self) -> Result<&Self, String> {
+                let mut locked_internals = self
+                    .lockable_internals
+                    .write()
+                    .map_err(|error| format!("Can not acquire write lock on database: {error}"))?;
+
+                $(
+                    locked_internals.tables.$table_name.table.clear();
+                )+
+                locked_internals.log.clear()?;
+                Ok(self)
+            }
+
+            pub fn lock_all_and_checkpoint(&self) -> Result<&Self, String> {
+                let mut locked_internals = self
+                    .lockable_internals
+                    .write()
+                    .map_err(|error| format!("Can not acquire write lock on database: {error}"))?;
+
+                $(
+                    locked_internals.tables.$table_name.table.checkpoint();
+                )+
+                locked_internals.log.clear()?;
+                Ok(self)
+            }
+
+            pub fn lock_all_writes_and_spawn_read(
+                &self,
+                f: fn(ReadTransaction) -> (),
+            ) -> JoinHandle<Result<(), String>> {
+                let locked_internals = Arc::clone(&self.lockable_internals);
+                thread::spawn(move || Ok(f(ReadTransaction::new(&locked_internals)?)))
+            }
+
+            pub fn lock_all_and_spawn_write(
+                &self,
+                f: fn(WriteTransaction) -> (),
+            ) -> JoinHandle<Result<(), String>> {
+                let locked_internals = Arc::clone(&self.lockable_internals);
+                thread::spawn(move || Ok(f(WriteTransaction::new(&locked_internals)?)))
+            }
+        }
+        }
+    };
 }
+
+define_database!(test_database {
+    vecs<Vec<u8>, Vec<u8>>,
+    count<String, usize>
+});
 
 #[cfg(test)]
 mod tests {
@@ -435,15 +349,16 @@ mod tests {
         index::IndexConfig, table::TableConfig, variable_data_pool::VariableDataPoolConfig,
     };
     use nanorand::{Rng, WyRand};
+    use std::collections::BTreeMap;
     use std::path::Path;
     use std::sync::Arc;
 
     use pretty_assertions::assert_eq;
 
-    fn new_default_database(test_name_for_isolation: String) -> Database {
+    fn new_default_database(test_name_for_isolation: String) -> test_database::Database {
         let database_dir =
             Path::new(format!("/tmp/lawn/test/{test_name_for_isolation}").as_str()).to_path_buf();
-        Database::new(DatabaseConfig {
+        test_database::Database::new(test_database::DatabaseConfig {
             tables: vec![TableConfig {
                 index: IndexConfig {
                     path: database_dir
@@ -461,7 +376,7 @@ mod tests {
                     max_element_size: 65536 as usize,
                 }),
             }],
-            log: LogConfig {
+            log: test_database::LogConfig {
                 path: database_dir.join("log.dat").to_path_buf(),
             },
         })
@@ -499,10 +414,11 @@ mod tests {
                         database
                             .lock_all_and_write(|mut transaction| {
                                 transaction
-                                    .insert_raw(0, key.clone(), value.clone())
-                                    .unwrap()
-                                    .commit()
-                                    .unwrap();
+                                    .database_locked_internals
+                                    .tables
+                                    .vecs
+                                    .insert(key.clone(), value.clone());
+                                transaction.commit().unwrap();
                             })
                             .unwrap();
                     }
@@ -516,10 +432,11 @@ mod tests {
                         database
                             .lock_all_and_write(|mut transaction| {
                                 transaction
-                                    .remove_raw(0, key_to_remove.clone())
-                                    .unwrap()
-                                    .commit()
-                                    .unwrap();
+                                    .database_locked_internals
+                                    .tables
+                                    .vecs
+                                    .remove(&key_to_remove);
+                                transaction.commit().unwrap();
                             })
                             .unwrap();
                     }
@@ -531,13 +448,19 @@ mod tests {
                 .lock_all_writes_and_read(|transaction| {
                     for (key, value) in previously_added_keyvalues_arc.iter() {
                         assert_eq!(
-                            transaction.get_raw(0, &key).unwrap().clone(),
+                            transaction
+                                .database_locked_internals
+                                .tables
+                                .vecs
+                                .get(&key)
+                                .unwrap()
+                                .clone(),
                             Some(value.clone())
                         );
                     }
                 })
                 .unwrap();
-            database.lock_all_and_checkpoint(true).unwrap();
+            database.lock_all_and_checkpoint().unwrap();
         }
     }
 
@@ -553,34 +476,35 @@ mod tests {
             .unwrap()
             .lock_all_and_write(|mut transaction| {
                 transaction
-                    .insert(0 as usize, &"key".to_string(), &(0 as usize))
-                    .unwrap()
-                    .commit()
-                    .unwrap();
+                    .database_locked_internals
+                    .tables
+                    .count
+                    .insert("key".to_string(), 0);
+                transaction.commit().unwrap();
             })
             .unwrap();
 
-        let threads_handles: Vec<JoinHandle<Result<(), String>>> = (0..THREADS_COUNT)
+        let threads_handles = (0..THREADS_COUNT)
             .map(|_| {
                 database.lock_all_and_spawn_write(|mut transaction| {
                     for _ in 0..INCREMENTS_PER_THREAD_COUNT {
-                        transaction
-                            .insert(
-                                0 as usize,
-                                &"key".to_string(),
-                                &(transaction
-                                    .get::<String, usize>(0, &"key".to_string())
-                                    .unwrap()
-                                    .unwrap()
-                                    + 1),
-                            )
+                        let current_value = transaction
+                            .database_locked_internals
+                            .tables
+                            .count
+                            .get(&"key".to_string())
                             .unwrap()
-                            .commit()
                             .unwrap();
+                        transaction
+                            .database_locked_internals
+                            .tables
+                            .count
+                            .insert("key".to_string(), current_value + 1);
+                        transaction.commit().unwrap();
                     }
                 })
             })
-            .collect();
+            .collect::<Vec<_>>();
         for thread_handle in threads_handles {
             thread_handle.join().unwrap().unwrap();
         }
@@ -589,7 +513,10 @@ mod tests {
             .lock_all_writes_and_read(|transaction| {
                 assert_eq!(
                     transaction
-                        .get::<String, usize>(0, &"key".to_string())
+                        .database_locked_internals
+                        .tables
+                        .count
+                        .get(&"key".to_string())
                         .unwrap()
                         .unwrap(),
                     FINAL_VALUE
@@ -605,10 +532,11 @@ mod tests {
             .unwrap()
             .lock_all_and_write(|mut transaction| {
                 transaction
-                    .insert_raw(0, "key".as_bytes().to_vec(), "value".as_bytes().to_vec())
-                    .unwrap()
-                    .commit()
-                    .unwrap();
+                    .database_locked_internals
+                    .tables
+                    .vecs
+                    .insert("key".as_bytes().to_vec(), "value".as_bytes().to_vec());
+                transaction.commit().unwrap();
             })
             .unwrap();
         new_default_database("test_recover_from_log".to_string())
@@ -617,7 +545,10 @@ mod tests {
             .lock_all_writes_and_read(|transaction| {
                 assert_eq!(
                     transaction
-                        .get_raw(0, &"key".as_bytes().to_vec())
+                        .database_locked_internals
+                        .tables
+                        .vecs
+                        .get(&"key".as_bytes().to_vec())
                         .unwrap()
                         .clone()
                         .unwrap(),

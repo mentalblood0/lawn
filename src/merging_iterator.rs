@@ -2,17 +2,19 @@ use std::cmp::Ordering;
 
 use fallible_iterator::FallibleIterator;
 
-pub struct MergingIterator<'a> {
-    pub new_iter: std::collections::btree_map::Range<'a, Vec<u8>, Option<Vec<u8>>>,
-    pub old_iter: Box<dyn FallibleIterator<Item = (Vec<u8>, Vec<u8>), Error = String> + 'a>,
-    pub current_new_keyvalue_option: Option<(&'a Vec<u8>, &'a Option<Vec<u8>>)>,
-    pub current_old_keyvalue_option: Option<(Vec<u8>, Vec<u8>)>,
+use crate::keyvalue::{Key, Value};
+
+pub struct MergingIterator<'a, K: Key, V: Value> {
+    pub new_iter: std::collections::btree_map::Range<'a, K, Option<V>>,
+    pub old_iter: Box<dyn FallibleIterator<Item = (K, V), Error = String> + 'a>,
+    pub current_new_keyvalue_option: Option<(&'a K, &'a Option<V>)>,
+    pub current_old_keyvalue_option: Option<(K, V)>,
 }
 
-impl<'a> MergingIterator<'a> {
+impl<'a, K: Key, V: Value> MergingIterator<'a, K, V> {
     pub fn new(
-        mut new_iter: std::collections::btree_map::Range<'a, Vec<u8>, Option<Vec<u8>>>,
-        mut old_iter: Box<dyn FallibleIterator<Item = (Vec<u8>, Vec<u8>), Error = String> + 'a>,
+        mut new_iter: std::collections::btree_map::Range<'a, K, Option<V>>,
+        mut old_iter: Box<dyn FallibleIterator<Item = (K, V), Error = String> + 'a>,
     ) -> Result<Self, String> {
         let current_new_keyvalue_option = new_iter.next();
         let current_old_keyvalue_option = old_iter.next()?;
@@ -25,8 +27,8 @@ impl<'a> MergingIterator<'a> {
     }
 }
 
-impl<'a> FallibleIterator for MergingIterator<'a> {
-    type Item = (Vec<u8>, Vec<u8>);
+impl<'a, K: Key, V: Value> FallibleIterator for MergingIterator<'a, K, V> {
+    type Item = (K, V);
     type Error = String;
 
     fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {

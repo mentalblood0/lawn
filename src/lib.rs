@@ -2,7 +2,7 @@ pub mod data_pool;
 pub mod database;
 pub mod fixed_data_pool;
 pub mod index;
-pub mod log;
+pub mod keyvalue;
 pub mod merging_iterator;
 pub mod partition_point;
 pub mod table;
