@@ -182,7 +182,6 @@ impl<K: Key, V: Value> Table<K, V> {
                 index_file_path.display()
             )
         })?;
-        println!("self.index = Index::new");
         self.index = Index::new(IndexConfig {
             path: self.index.config.path.clone(),
         })?;

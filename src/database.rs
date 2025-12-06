@@ -1,5 +1,6 @@
 macro_rules! define_database {
     ($database_name:ident { $($table_name:ident<$key_type:ty, $value_type:ty>),+ $(,)? }) => {
+        #[allow(dead_code)]
         mod $database_name {
             use std::ops::Bound::{Included, Unbounded};
             use std::path::PathBuf;
