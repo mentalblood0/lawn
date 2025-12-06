@@ -359,23 +359,42 @@ mod tests {
         let database_dir =
             Path::new(format!("/tmp/lawn/test/{test_name_for_isolation}").as_str()).to_path_buf();
         test_database::Database::new(test_database::DatabaseConfig {
-            tables: vec![TableConfig {
-                index: IndexConfig {
-                    path: database_dir
-                        .join("database")
-                        .join("0")
-                        .join("index.idx")
-                        .to_path_buf(),
+            tables: test_database::TablesConfig {
+                vecs: TableConfig {
+                    index: IndexConfig {
+                        path: database_dir
+                            .join("database")
+                            .join("vecs")
+                            .join("index.idx")
+                            .to_path_buf(),
+                    },
+                    data_pool: Box::new(VariableDataPoolConfig {
+                        directory: database_dir
+                            .join("database")
+                            .join("vecs")
+                            .join("data_pool")
+                            .to_path_buf(),
+                        max_element_size: 65536 as usize,
+                    }),
                 },
-                data_pool: Box::new(VariableDataPoolConfig {
-                    directory: database_dir
-                        .join("database")
-                        .join("0")
-                        .join("data_pool")
-                        .to_path_buf(),
-                    max_element_size: 65536 as usize,
-                }),
-            }],
+                count: TableConfig {
+                    index: IndexConfig {
+                        path: database_dir
+                            .join("database")
+                            .join("count")
+                            .join("index.idx")
+                            .to_path_buf(),
+                    },
+                    data_pool: Box::new(VariableDataPoolConfig {
+                        directory: database_dir
+                            .join("database")
+                            .join("count")
+                            .join("data_pool")
+                            .to_path_buf(),
+                        max_element_size: 65536 as usize,
+                    }),
+                },
+            },
             log: test_database::LogConfig {
                 path: database_dir.join("log.dat").to_path_buf(),
             },

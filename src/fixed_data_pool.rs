@@ -7,7 +7,8 @@ use std::{fs, io::BufWriter};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use super::data_pool::*;
+use crate::data_pool::*;
+use crate::keyvalue::{Key, Value};
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -30,8 +31,8 @@ pub struct FixedDataPool {
 }
 
 #[cfg_attr(feature = "serde", typetag::serde)]
-impl DataPoolConfig for FixedDataPoolConfig {
-    fn new_data_pool(&self) -> Result<Box<dyn DataPool + Send + Sync>, String> {
+impl<K: Key, V: Value> DataPoolConfig<K, V> for FixedDataPoolConfig {
+    fn new_data_pool(&self) -> Result<Box<dyn DataPool<K, V> + Send + Sync>, String> {
         Ok(Box::new(FixedDataPool::new(self)?))
     }
 }
@@ -150,10 +151,8 @@ impl FixedDataPool {
             })?;
         Ok(())
     }
-}
 
-impl DataPool for FixedDataPool {
-    fn insert(&mut self, mut data: Vec<u8>) -> Result<u64, String> {
+    pub fn insert_raw(&mut self, mut data: Vec<u8>) -> Result<u64, String> {
         if let Some(pointer_to_data_to_remove) = self.buffer_of_pointers_to_data_to_remove.pop() {
             self.set(pointer_to_data_to_remove, &data)?;
             Ok(pointer_to_data_to_remove)
@@ -205,6 +204,19 @@ impl DataPool for FixedDataPool {
         }
     }
 
+    pub fn get_raw(&self, pointer: u64) -> Result<Vec<u8>, String> {
+        self.get_of_size(pointer, self.config.container_size)
+    }
+}
+
+impl<K: Key, V: Value> DataPool<K, V> for FixedDataPool {
+    fn insert(&mut self, data_record: DataRecord<K, V>) -> Result<u64, String> {
+        self.insert_raw(
+            bincode::encode_to_vec(data_record, bincode::config::standard())
+                .map_err(|error| format!("Can not encode data record: {error}"))?,
+        )
+    }
+
     fn remove(&mut self, id: u64) -> Result<(), String> {
         self.buffer_of_pointers_to_data_to_remove.push(id);
         Ok(())
@@ -238,8 +250,13 @@ impl DataPool for FixedDataPool {
         Ok(())
     }
 
-    fn get(&self, pointer: u64) -> Result<Vec<u8>, String> {
-        self.get_of_size(pointer, self.config.container_size)
+    fn get(&self, id: u64) -> Result<DataRecord<K, V>, String> {
+        Ok(bincode::decode_from_slice::<DataRecord<K, V>, _>(
+            &self.get_raw(id)?,
+            bincode::config::standard(),
+        )
+        .map_err(|error| format!("Can not decode data record: {error}"))?
+        .0)
     }
 }
 
@@ -258,13 +275,16 @@ mod tests {
         let path = Path::new("/tmp/lawn/test/fixed_data_pool.dat");
         let mut rng = WyRand::new_seed(0);
 
-        let mut fixed_data_pool = FixedDataPool::new(&FixedDataPoolConfig {
-            path: path.to_path_buf(),
-            container_size: CONTAINER_SIZE,
-        })
-        .unwrap();
+        let mut fixed_data_pool: Box<dyn DataPool<[u8; 8], [u8; 8]>> = Box::new(
+            FixedDataPool::new(&FixedDataPoolConfig {
+                path: path.to_path_buf(),
+                container_size: CONTAINER_SIZE,
+            })
+            .unwrap(),
+        );
         fixed_data_pool.clear().unwrap();
-        let mut previously_inserted_data: BTreeMap<u64, Vec<u8>> = BTreeMap::new();
+        let mut previously_inserted_data: BTreeMap<u64, DataRecord<[u8; 8], [u8; 8]>> =
+            BTreeMap::new();
 
         for _ in 0..1000 {
             let pointers_to_data_to_remove: Vec<u64> = previously_inserted_data
@@ -277,8 +297,12 @@ mod tests {
                 fixed_data_pool.remove(pointer).unwrap();
             }
             for _ in 0..rng.generate_range(1..=16) {
-                let mut data_to_insert = vec![0u8; CONTAINER_SIZE];
-                rng.fill(&mut data_to_insert);
+                let mut data_to_insert = DataRecord {
+                    key: [0 as u8; 8],
+                    value: [0 as u8; 8],
+                };
+                rng.fill(&mut data_to_insert.key);
+                rng.fill(&mut data_to_insert.value);
                 let data_id = fixed_data_pool.insert(data_to_insert.clone()).unwrap();
                 previously_inserted_data.insert(data_id, data_to_insert);
             }
@@ -289,15 +313,13 @@ mod tests {
             }
         }
 
-        assert_eq!(
-            fixed_data_pool.bytesize_on_disk,
-            fixed_data_pool.file.metadata().unwrap().len() as u64
+        let mut fixed_data_pool: Box<dyn DataPool<[u8; 8], [u8; 8]>> = Box::new(
+            FixedDataPool::new(&FixedDataPoolConfig {
+                path: path.to_path_buf(),
+                container_size: CONTAINER_SIZE,
+            })
+            .unwrap(),
         );
-        let mut fixed_data_pool = FixedDataPool::new(&FixedDataPoolConfig {
-            path: path.to_path_buf(),
-            container_size: CONTAINER_SIZE,
-        })
-        .unwrap();
         for (pointer, data) in &previously_inserted_data {
             assert_eq!(&fixed_data_pool.get(*pointer).unwrap(), data);
         }

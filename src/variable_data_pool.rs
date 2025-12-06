@@ -4,8 +4,9 @@ use std::path::PathBuf;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use super::data_pool::*;
-use super::fixed_data_pool::*;
+use crate::data_pool::*;
+use crate::fixed_data_pool::*;
+use crate::keyvalue::{Key, Value};
 
 const CONTAINERS_SIZES_COUNT: usize = 256;
 const CONTAINER_SIZE_MIN: usize = 2;
@@ -108,8 +109,8 @@ pub struct Container {
 }
 
 #[cfg_attr(feature = "serde", typetag::serde)]
-impl DataPoolConfig for VariableDataPoolConfig {
-    fn new_data_pool(&self) -> Result<Box<dyn DataPool + Send + Sync>, String> {
+impl<K: Key, V: Value> DataPoolConfig<K, V> for VariableDataPoolConfig {
+    fn new_data_pool(&self) -> Result<Box<dyn DataPool<K, V> + Send + Sync>, String> {
         Ok(Box::new(VariableDataPool::new(self)?))
     }
 }
@@ -140,10 +141,8 @@ impl VariableDataPool {
             jump_point: jump_point.unwrap_or(0 as usize)
         })
     }
-}
 
-impl DataPool for VariableDataPool {
-    fn insert(&mut self, data: Vec<u8>) -> Result<u64, String> {
+    fn insert_raw(&mut self, data: Vec<u8>) -> Result<u64, String> {
         let encoded_data = if data.len() > self.jump_point {
             bincode::encode_to_vec(
                 Container { data: data.clone() },
@@ -159,48 +158,73 @@ impl DataPool for VariableDataPool {
                 fixed_data_pool.config.container_size < encoded_data.len()
             });
         let pointer = self.container_size_index_to_fixed_data_pool[container_size_index]
-            .insert(encoded_data)?;
+            .insert_raw(encoded_data)?;
         Ok(u64::from(Id {
             container_size_index: container_size_index as u8,
             pointer: pointer,
         }))
     }
 
+    fn get_raw(&self, id: u64) -> Result<Vec<u8>, String> {
+        let parsed_id = Id::from(id);
+        self.container_size_index_to_fixed_data_pool
+            .get(parsed_id.container_size_index as usize)
+            .ok_or_else(|| format!("Can not get {id:?}: no such container index"))?
+            .get_raw(parsed_id.pointer)
+    }
+}
+
+impl<K: Key, V: Value> DataPool<K, V> for VariableDataPool {
+    fn insert(&mut self, data_record: DataRecord<K, V>) -> Result<u64, String> {
+        self.insert_raw(
+            bincode::encode_to_vec(data_record, bincode::config::standard())
+                .map_err(|error| format!("Can not encode data record: {error}"))?,
+        )
+    }
+
     fn remove(&mut self, id: u64) -> Result<(), String> {
         let parsed_id = Id::from(id);
-        self.container_size_index_to_fixed_data_pool[parsed_id.container_size_index as usize]
-            .remove(parsed_id.pointer)
+        <FixedDataPool as DataPool<K, V>>::remove(
+            &mut self.container_size_index_to_fixed_data_pool
+                [parsed_id.container_size_index as usize],
+            parsed_id.pointer,
+        )
     }
 
     fn flush(&mut self) -> Result<(), String> {
         for fixed_data_pool in self.container_size_index_to_fixed_data_pool.iter_mut() {
-            fixed_data_pool.flush()?;
+            <FixedDataPool as DataPool<K, V>>::flush(fixed_data_pool)?;
         }
         Ok(())
     }
 
     fn clear(&mut self) -> Result<(), String> {
         for fixed_data_pool in self.container_size_index_to_fixed_data_pool.iter_mut() {
-            fixed_data_pool.clear()?;
+            <FixedDataPool as DataPool<K, V>>::clear(fixed_data_pool)?;
         }
         Ok(())
     }
 
-    fn get(&self, id: u64) -> Result<Vec<u8>, String> {
-        let parsed_id = Id::from(id);
-        let encoded_data = self
-            .container_size_index_to_fixed_data_pool
-            .get(parsed_id.container_size_index as usize)
-            .ok_or_else(|| format!("Can not get {id:?}: no such container index"))?
-            .get(parsed_id.pointer)?;
-        let container: Container = if encoded_data.len() > self.jump_point {
-            bincode::decode_from_slice(&encoded_data, bincode::config::standard())
-                .map_err(|error| format!("Can not decode got data: {error}"))?
-                .0
+    fn get(&self, id: u64) -> Result<DataRecord<K, V>, String> {
+        let encoded_container_or_data_record = self.get_raw(id)?;
+        let container: Container = if encoded_container_or_data_record.len() > self.jump_point {
+            bincode::decode_from_slice(
+                &encoded_container_or_data_record,
+                bincode::config::standard(),
+            )
+            .map_err(|error| format!("Can not decode data container: {error}"))?
+            .0
         } else {
-            Container { data: encoded_data }
+            Container {
+                data: encoded_container_or_data_record,
+            }
         };
-        Ok(container.data)
+        Ok(bincode::decode_from_slice::<DataRecord<K, V>, _>(
+            &container.data,
+            bincode::config::standard(),
+        )
+        .map_err(|error| format!("Can not decode data record: {error}"))?
+        .0)
     }
 }
 
@@ -226,14 +250,17 @@ mod tests {
 
     #[test]
     fn test_generative() {
-        let mut variable_data_pool = VariableDataPool::new(&VariableDataPoolConfig {
-            directory: Path::new("/tmp/lawn/test/variable_data_pool").to_path_buf(),
-            max_element_size: 65536,
-        })
-        .unwrap();
+        let mut variable_data_pool: Box<dyn DataPool<Vec<u8>, Vec<u8>>> = Box::new(
+            VariableDataPool::new(&VariableDataPoolConfig {
+                directory: Path::new("/tmp/lawn/test/variable_data_pool").to_path_buf(),
+                max_element_size: 65536,
+            })
+            .unwrap(),
+        );
         variable_data_pool.clear().unwrap();
 
-        let mut previously_inserted_data: BTreeMap<u64, Vec<u8>> = BTreeMap::new();
+        let mut previously_inserted_data: BTreeMap<u64, DataRecord<Vec<u8>, Vec<u8>>> =
+            BTreeMap::new();
         let mut rng = WyRand::new_seed(0);
 
         for _ in 0..1000 {
@@ -247,8 +274,12 @@ mod tests {
                 variable_data_pool.remove(*id).unwrap();
             }
             for _ in 0..rng.generate_range(1..=16) {
-                let mut data_to_insert = vec![0u8; rng.generate_range(1..1024)];
-                rng.fill(&mut data_to_insert);
+                let mut data_to_insert = DataRecord {
+                    key: vec![0u8; rng.generate_range(1..512)],
+                    value: vec![0u8; rng.generate_range(1..512)],
+                };
+                rng.fill(&mut data_to_insert.key);
+                rng.fill(&mut data_to_insert.value);
                 let data_id = variable_data_pool.insert(data_to_insert.clone()).unwrap();
                 previously_inserted_data.insert(data_id, data_to_insert);
             }

@@ -3,7 +3,7 @@ use typetag;
 
 use crate::keyvalue::{Key, Value};
 
-#[derive(bincode::Encode, bincode::Decode, Debug)]
+#[derive(bincode::Encode, bincode::Decode, Debug, Clone, PartialEq)]
 pub struct DataRecord<K: Key, V: Value> {
     pub key: K,
     pub value: V,
@@ -15,8 +15,6 @@ pub trait DataPoolConfig<K: Key, V: Value> {
 }
 
 pub trait DataPool<K: Key, V: Value> {
-    fn insert_raw(&mut self, data: Vec<u8>) -> Result<u64, String>;
-
     fn insert(&mut self, data_record: DataRecord<K, V>) -> Result<u64, String>;
 
     fn remove(&mut self, id: u64) -> Result<(), String>;
