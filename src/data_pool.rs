@@ -1,21 +1,15 @@
 #[cfg(feature = "serde")]
 use typetag;
 
-use crate::keyvalue::{Key, Value};
-
-#[derive(bincode::Encode, bincode::Decode, Debug, Clone, PartialEq)]
-pub struct DataRecord<K: Key, V: Value> {
-    pub key: K,
-    pub value: V,
-}
+use crate::keyvalue::Value;
 
 #[cfg_attr(feature = "serde", typetag::serde(tag = "type"))]
-pub trait DataPoolConfig<K: Key, V: Value> {
-    fn new_data_pool(&self) -> Result<Box<dyn DataPool<K, V> + Send + Sync>, String>;
+pub trait DataPoolConfig<D: Value> {
+    fn new_data_pool(&self) -> Result<Box<dyn DataPool<D> + Send + Sync>, String>;
 }
 
-pub trait DataPool<K: Key, V: Value> {
-    fn insert(&mut self, data_record: DataRecord<K, V>) -> Result<u64, String>;
+pub trait DataPool<D: Value> {
+    fn insert(&mut self, data_record: D) -> Result<u64, String>;
 
     fn remove(&mut self, id: u64) -> Result<(), String>;
 
@@ -23,5 +17,5 @@ pub trait DataPool<K: Key, V: Value> {
 
     fn clear(&mut self) -> Result<(), String>;
 
-    fn get(&self, id: u64) -> Result<DataRecord<K, V>, String>;
+    fn get(&self, id: u64) -> Result<D, String>;
 }

@@ -9,7 +9,7 @@ use fallible_iterator::FallibleIterator;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::data_pool::{DataPool, DataPoolConfig, DataRecord};
+use crate::data_pool::{DataPool, DataPoolConfig};
 use crate::index::{Index, IndexConfig, IndexHeader, IndexIterator};
 use crate::keyvalue::{Key, Value};
 use crate::merging_iterator::MergingIterator;
@@ -18,12 +18,12 @@ use crate::partition_point::PartitionPoint;
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TableConfig<K: Key, V: Value> {
     pub index: IndexConfig,
-    pub data_pool: Box<dyn DataPoolConfig<K, V>>,
+    pub data_pool: Box<dyn DataPoolConfig<DataRecord<K, V>>>,
 }
 
 pub struct Table<K: Key, V: Value> {
     pub index: Index,
-    pub data_pool: Box<dyn DataPool<K, V> + Send + Sync>,
+    pub data_pool: Box<dyn DataPool<DataRecord<K, V>> + Send + Sync>,
     pub memtable: BTreeMap<K, Option<V>>,
 }
 
@@ -51,6 +51,12 @@ impl<K: Key, V: Value> Ord for MemtableRecord<K, V> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.key.cmp(&other.key)
     }
+}
+
+#[derive(bincode::Encode, bincode::Decode, Debug, Clone, PartialEq)]
+pub struct DataRecord<K: Key, V: Value> {
+    pub key: K,
+    pub value: V,
 }
 
 fn write_data_id(
@@ -583,7 +589,7 @@ impl<K: Key, V: Value> Table<K, V> {
 }
 
 struct TableIndexIterator<'a, K: Key, V: Value> {
-    data_pool: &'a Box<dyn DataPool<K, V> + Send + Sync>,
+    data_pool: &'a Box<dyn DataPool<DataRecord<K, V>> + Send + Sync>,
     index_iter: IndexIterator,
 }
 
