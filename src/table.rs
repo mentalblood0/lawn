@@ -1,4 +1,3 @@
-use bincode;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, VecDeque};
 use std::fs::{self, File};
@@ -10,7 +9,7 @@ use fallible_iterator::FallibleIterator;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::data_pool::{DataPool, DataPoolConfig};
+use crate::data_pool::{DataPool, DataPoolConfig, DataRecord};
 use crate::index::{Index, IndexConfig, IndexHeader, IndexIterator};
 use crate::keyvalue::{Key, Value};
 use crate::merging_iterator::MergingIterator;
@@ -26,12 +25,6 @@ pub struct Table<K: Key, V: Value> {
     pub index: Index,
     pub data_pool: Box<dyn DataPool<K, V> + Send + Sync>,
     pub memtable: BTreeMap<K, Option<V>>,
-}
-
-#[derive(bincode::Encode, bincode::Decode, Debug)]
-struct DataRecord<K: Key, V: Value> {
-    key: K,
-    value: V,
 }
 
 #[derive(Debug)]
@@ -92,12 +85,7 @@ impl<K: Key, V: Value> Table<K, V> {
     }
 
     fn get_from_index_by_id(&self, id: u64) -> Result<DataRecord<K, V>, String> {
-        let result_encoded = self.data_pool.get(id)?;
-        let result: DataRecord<K, V> =
-            bincode::decode_from_slice(&result_encoded, bincode::config::standard())
-                .map_err(|error| format!("Can not decode data record: {error}"))?
-                .0;
-        Ok(result)
+        self.data_pool.get(id)
     }
 
     fn get_from_index(&self, key: &K) -> Result<Option<V>, String> {
@@ -143,17 +131,10 @@ impl<K: Key, V: Value> Table<K, V> {
         let mut max_id: u64 = 0;
         for current_record in std::mem::take(&mut self.memtable).into_iter() {
             if let Some(value) = current_record.1 {
-                let current_record_as_data_record_encoded = bincode::encode_to_vec(
-                    DataRecord {
-                        key: current_record.0,
-                        value: value,
-                    },
-                    bincode::config::standard(),
-                )
-                .map_err(|error| format!("Can not encode data record: {error}"))?;
-                let id = self
-                    .data_pool
-                    .insert(current_record_as_data_record_encoded)?;
+                let id = self.data_pool.insert(DataRecord {
+                    key: current_record.0,
+                    value: value,
+                })?;
                 if id > max_id {
                     max_id = id;
                 }
@@ -209,17 +190,10 @@ impl<K: Key, V: Value> Table<K, V> {
         let mut max_new_id: u64 = 0;
         for current_new_record in std::mem::take(&mut self.memtable).into_iter() {
             if let Some(value) = current_new_record.1 {
-                let current_record_as_data_record_encoded = bincode::encode_to_vec(
-                    DataRecord {
-                        key: current_new_record.0.clone(),
-                        value: value,
-                    },
-                    bincode::config::standard(),
-                )
-                .map_err(|error| format!("Can not encode data record: {error}"))?;
-                let id = self
-                    .data_pool
-                    .insert(current_record_as_data_record_encoded)?;
+                let id = self.data_pool.insert(DataRecord {
+                    key: current_new_record.0.clone(),
+                    value: value,
+                })?;
                 if id > max_new_id {
                     max_new_id = id;
                 }
@@ -412,17 +386,10 @@ impl<K: Key, V: Value> Table<K, V> {
                 self.data_pool.remove(merge_location.additional_data)?;
             }
             if let Some(value) = &current_record.value {
-                let current_record_as_data_record_encoded = bincode::encode_to_vec(
-                    DataRecord {
-                        key: current_record.key.clone(),
-                        value: value.clone(),
-                    },
-                    bincode::config::standard(),
-                )
-                .map_err(|error| format!("Can not encode data record: {error}"))?;
-                let new_id = self
-                    .data_pool
-                    .insert(current_record_as_data_record_encoded)?;
+                let new_id = self.data_pool.insert(DataRecord {
+                    key: current_record.key.clone(),
+                    value: value.clone(),
+                })?;
                 if new_id > max_new_id {
                     max_new_id = new_id;
                 }
@@ -623,12 +590,8 @@ impl<'a, K: Key, V: Value> FallibleIterator for TableIndexIterator<'a, K, V> {
     fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
         Ok(match self.index_iter.next()? {
             Some(id) => {
-                let result_encoded = self.data_pool.get(id)?;
-                let result: DataRecord<K, V> =
-                    bincode::decode_from_slice(&result_encoded, bincode::config::standard())
-                        .map_err(|error| format!("Can not decode data record: {error}"))?
-                        .0;
-                Some((result.key, result.value))
+                let data_record = self.data_pool.get(id)?;
+                Some((data_record.key, data_record.value))
             }
             None => None,
         })
