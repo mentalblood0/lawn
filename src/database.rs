@@ -38,7 +38,7 @@ macro_rules! define_database {
             }
 
             impl Log {
-                pub fn new(config: LogConfig) -> Result<Self, String> {
+                fn new(config: LogConfig) -> Result<Self, String> {
                     if let Some(path_parent_directory) = config.path.parent() {
                         std::fs::create_dir_all(path_parent_directory).map_err(|error| {
                             format!(
@@ -61,7 +61,7 @@ macro_rules! define_database {
                     Ok(Self { config, file })
                 }
 
-                pub fn write(&mut self, record: LogRecord) -> Result<(), String> {
+                fn write(&mut self, record: LogRecord) -> Result<(), String> {
                     let buffer = bincode::encode_to_vec(record, bincode::config::standard())
                         .map_err(|error| format!("Can not encode transaction to log record: {error}"))?;
                     self.file
@@ -70,14 +70,14 @@ macro_rules! define_database {
                     Ok(())
                 }
 
-                pub fn clear(&mut self) -> Result<(), String> {
+                fn clear(&mut self) -> Result<(), String> {
                     self.file
                         .set_len(0)
                         .map_err(|error| format!("Can not truncate log file {:?}: {error}", self.file))?;
                     Ok(())
                 }
 
-                pub fn iter(&mut self) -> Result<LogIterator, String> {
+                fn iter(&mut self) -> Result<LogIterator, String> {
                     Ok(
                         LogIterator {
                             reader: BufReader::new(
@@ -297,7 +297,7 @@ macro_rules! define_database {
                     .map_err(|error| format!("Can not acquire write lock on database: {error}"))?;
 
                 $(
-                    locked_internals.tables.$table_name.table.clear();
+                    locked_internals.tables.$table_name.table.clear()?;
                 )+
                 locked_internals.log.clear()?;
                 Ok(self)
@@ -310,7 +310,7 @@ macro_rules! define_database {
                     .map_err(|error| format!("Can not acquire write lock on database: {error}"))?;
 
                 $(
-                    locked_internals.tables.$table_name.table.checkpoint();
+                    locked_internals.tables.$table_name.table.checkpoint()?;
                 )+
                 locked_internals.log.clear()?;
                 Ok(self)
@@ -363,14 +363,14 @@ mod tests {
                 vecs: TableConfig {
                     index: IndexConfig {
                         path: database_dir
-                            .join("database")
+                            .join("tables")
                             .join("vecs")
                             .join("index.idx")
                             .to_path_buf(),
                     },
                     data_pool: Box::new(VariableDataPoolConfig {
                         directory: database_dir
-                            .join("database")
+                            .join("tables")
                             .join("vecs")
                             .join("data_pool")
                             .to_path_buf(),
@@ -380,14 +380,14 @@ mod tests {
                 count: TableConfig {
                     index: IndexConfig {
                         path: database_dir
-                            .join("database")
+                            .join("tables")
                             .join("count")
                             .join("index.idx")
                             .to_path_buf(),
                     },
                     data_pool: Box::new(VariableDataPoolConfig {
                         directory: database_dir
-                            .join("database")
+                            .join("tables")
                             .join("count")
                             .join("data_pool")
                             .to_path_buf(),

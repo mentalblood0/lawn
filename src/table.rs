@@ -117,12 +117,16 @@ impl<K: Key, V: Value> Table<K, V> {
     }
 
     pub fn checkpoint(&mut self) -> Result<(), String> {
-        if self.index.records_count == 0 {
-            self.checkpoint_using_dump()
-        } else if self.index.records_count <= 2 * self.memtable.len() as u64 {
-            self.checkpoint_using_linear_merge()
+        if self.memtable.is_empty() {
+            Ok(())
         } else {
-            self.checkpoint_using_sparse_merge()
+            if self.index.records_count == 0 {
+                self.checkpoint_using_dump()
+            } else if self.index.records_count <= 2 * self.memtable.len() as u64 {
+                self.checkpoint_using_linear_merge()
+            } else {
+                self.checkpoint_using_sparse_merge()
+            }
         }
     }
 
@@ -178,6 +182,7 @@ impl<K: Key, V: Value> Table<K, V> {
                 index_file_path.display()
             )
         })?;
+        println!("self.index = Index::new");
         self.index = Index::new(IndexConfig {
             path: self.index.config.path.clone(),
         })?;
