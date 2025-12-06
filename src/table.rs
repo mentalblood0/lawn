@@ -55,8 +55,8 @@ impl<K: Key, V: Value> Ord for MemtableRecord<K, V> {
 
 #[derive(bincode::Encode, bincode::Decode, Debug, Clone, PartialEq)]
 pub struct DataRecord<K: Key, V: Value> {
-    pub key: K,
-    pub value: V,
+    key: K,
+    value: V,
 }
 
 fn write_data_id(
