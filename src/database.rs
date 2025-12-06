@@ -287,7 +287,7 @@ macro_rules! define_database {
                         }
                     )+
                     Ok(())
-                });
+                })?;
                 Ok(self)
             }
 
