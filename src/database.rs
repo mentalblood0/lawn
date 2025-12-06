@@ -339,7 +339,7 @@ macro_rules! define_database {
 
 define_database!(test_database {
     vecs<Vec<u8>, Vec<u8>>,
-    count<String, usize>
+    count<(), usize>
 });
 
 #[cfg(test)]
@@ -499,7 +499,7 @@ mod tests {
                     .database_locked_internals
                     .tables
                     .count
-                    .insert("key".to_string(), 0);
+                    .insert((), 0);
                 transaction.commit().unwrap();
             })
             .unwrap();
@@ -512,14 +512,14 @@ mod tests {
                             .database_locked_internals
                             .tables
                             .count
-                            .get(&"key".to_string())
+                            .get(&())
                             .unwrap()
                             .unwrap();
                         transaction
                             .database_locked_internals
                             .tables
                             .count
-                            .insert("key".to_string(), current_value + 1);
+                            .insert((), current_value + 1);
                         transaction.commit().unwrap();
                     }
                 })
@@ -536,7 +536,7 @@ mod tests {
                         .database_locked_internals
                         .tables
                         .count
-                        .get(&"key".to_string())
+                        .get(&())
                         .unwrap()
                         .unwrap(),
                     FINAL_VALUE
