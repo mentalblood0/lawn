@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 bincode = { version = "2.0", features = ["derive"] }
+bitcode = "0.6.7"
 fallible-iterator = {version = "0.3", features = ["std"]}
 serde = { optional = true, version = "1.0", features = ["derive"] }
 serde-saphyr = { optional = true, git = "https://github.com/bourumir-wyngs/serde-saphyr" }

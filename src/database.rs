@@ -577,4 +577,34 @@ mod tests {
             })
             .unwrap();
     }
+
+    #[derive(bitcode::Encode, bincode::Encode)]
+    struct TestBitcodeStruct {
+        key: Vec<u8>,
+        value: Vec<u8>,
+    }
+
+    #[test]
+    fn test_bitcode() {
+        {
+            println!("bitcode");
+            let encoded = bitcode::encode(&TestBitcodeStruct {
+                key: "key".as_bytes().to_vec(),
+                value: "value".as_bytes().to_vec(),
+            });
+            dbg!(&encoded, encoded.len());
+        }
+        {
+            println!("bincode");
+            let encoded = bincode::encode_to_vec(
+                &TestBitcodeStruct {
+                    key: "key".as_bytes().to_vec(),
+                    value: "value".as_bytes().to_vec(),
+                },
+                bincode::config::standard(),
+            )
+            .unwrap();
+            dbg!(&encoded, encoded.len());
+        }
+    }
 }
