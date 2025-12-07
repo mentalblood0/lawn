@@ -235,6 +235,28 @@ macro_rules! define_database {
             }
         }
 
+        impl<'a> std::ops::Deref for WriteTransaction<'a> {
+            type Target = TablesTransactions;
+
+            fn deref(&self) -> &Self::Target {
+                &self.database_locked_internals.tables
+            }
+        }
+
+        impl<'a> std::ops::DerefMut for WriteTransaction<'a> {
+            fn deref_mut(&mut self) -> &mut Self::Target {
+                &mut self.database_locked_internals.tables
+            }
+        }
+
+        impl<'a> std::ops::Deref for ReadTransaction<'a> {
+            type Target = TablesTransactions;
+
+            fn deref(&self) -> &Self::Target {
+                &self.database_locked_internals.tables
+            }
+        }
+
         pub struct Database {
             lockable_internals: Arc<RwLock<DatabaseLockableInternals>>,
         }
@@ -433,11 +455,7 @@ mod tests {
                         previously_added_keyvalues.insert(key.clone(), value.clone());
                         database
                             .lock_all_and_write(|mut transaction| {
-                                transaction
-                                    .database_locked_internals
-                                    .tables
-                                    .vecs
-                                    .insert(key.clone(), value.clone());
+                                transaction.vecs.insert(key.clone(), value.clone());
                                 transaction.commit().unwrap();
                             })
                             .unwrap();
@@ -451,11 +469,7 @@ mod tests {
                         previously_added_keyvalues.remove(&key_to_remove);
                         database
                             .lock_all_and_write(|mut transaction| {
-                                transaction
-                                    .database_locked_internals
-                                    .tables
-                                    .vecs
-                                    .remove(&key_to_remove);
+                                transaction.vecs.remove(&key_to_remove);
                                 transaction.commit().unwrap();
                             })
                             .unwrap();
@@ -468,13 +482,7 @@ mod tests {
                 .lock_all_writes_and_read(|transaction| {
                     for (key, value) in previously_added_keyvalues_arc.iter() {
                         assert_eq!(
-                            transaction
-                                .database_locked_internals
-                                .tables
-                                .vecs
-                                .get(&key)
-                                .unwrap()
-                                .clone(),
+                            transaction.vecs.get(&key).unwrap().clone(),
                             Some(value.clone())
                         );
                     }
@@ -495,11 +503,7 @@ mod tests {
             .lock_all_and_clear()
             .unwrap()
             .lock_all_and_write(|mut transaction| {
-                transaction
-                    .database_locked_internals
-                    .tables
-                    .count
-                    .insert((), 0);
+                transaction.count.insert((), 0);
                 transaction.commit().unwrap();
             })
             .unwrap();
@@ -508,18 +512,8 @@ mod tests {
             .map(|_| {
                 database.lock_all_and_spawn_write(|mut transaction| {
                     for _ in 0..INCREMENTS_PER_THREAD_COUNT {
-                        let current_value = transaction
-                            .database_locked_internals
-                            .tables
-                            .count
-                            .get(&())
-                            .unwrap()
-                            .unwrap();
-                        transaction
-                            .database_locked_internals
-                            .tables
-                            .count
-                            .insert((), current_value + 1);
+                        let current_value = transaction.count.get(&()).unwrap().unwrap();
+                        transaction.count.insert((), current_value + 1);
                         transaction.commit().unwrap();
                     }
                 })
@@ -531,16 +525,7 @@ mod tests {
 
         database
             .lock_all_writes_and_read(|transaction| {
-                assert_eq!(
-                    transaction
-                        .database_locked_internals
-                        .tables
-                        .count
-                        .get(&())
-                        .unwrap()
-                        .unwrap(),
-                    FINAL_VALUE
-                );
+                assert_eq!(transaction.count.get(&()).unwrap().unwrap(), FINAL_VALUE);
             })
             .unwrap();
     }
@@ -552,8 +537,6 @@ mod tests {
             .unwrap()
             .lock_all_and_write(|mut transaction| {
                 transaction
-                    .database_locked_internals
-                    .tables
                     .vecs
                     .insert("key".as_bytes().to_vec(), "value".as_bytes().to_vec());
                 transaction.commit().unwrap();
@@ -565,8 +548,6 @@ mod tests {
             .lock_all_writes_and_read(|transaction| {
                 assert_eq!(
                     transaction
-                        .database_locked_internals
-                        .tables
                         .vecs
                         .get(&"key".as_bytes().to_vec())
                         .unwrap()
@@ -576,5 +557,27 @@ mod tests {
                 );
             })
             .unwrap();
+    }
+
+    #[derive(bitcode::Encode, bitcode::Decode, bincode::Encode, Debug)]
+    struct TestStruct {
+        key: Vec<u8>,
+        value: Vec<u8>,
+    }
+
+    #[test]
+    fn test_encoding() {
+        let input = TestStruct {
+            key: "key".as_bytes().to_vec(),
+            value: "value".as_bytes().to_vec(),
+        };
+        {
+            let encoded = bitcode::encode(&input);
+            assert_eq!(encoded.len(), 12);
+        }
+        {
+            let encoded = bincode::encode_to_vec(&input, bincode::config::standard()).unwrap();
+            assert_eq!(encoded.len(), 10);
+        }
     }
 }
