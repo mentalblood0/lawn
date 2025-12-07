@@ -349,7 +349,6 @@ mod tests {
     use crate::{
         index::IndexConfig, table::TableConfig, variable_data_pool::VariableDataPoolConfig,
     };
-    use deku::DekuContainerWrite;
     use nanorand::{Rng, WyRand};
     use std::collections::BTreeMap;
     use std::path::Path;
@@ -577,37 +576,5 @@ mod tests {
                 );
             })
             .unwrap();
-    }
-
-    #[derive(deku::DekuWrite, bincode::Encode)]
-    struct TestStruct {
-        key: Vec<u8>,
-        value: Vec<u8>,
-    }
-
-    #[test]
-    fn test_encoding() {
-        {
-            println!("deku");
-            let encoded = TestStruct {
-                key: "key".as_bytes().to_vec(),
-                value: "value".as_bytes().to_vec(),
-            }
-            .to_bytes()
-            .unwrap();
-            dbg!(&encoded, encoded.len());
-        }
-        {
-            println!("bincode");
-            let encoded = bincode::encode_to_vec(
-                &TestStruct {
-                    key: "key".as_bytes().to_vec(),
-                    value: "value".as_bytes().to_vec(),
-                },
-                bincode::config::standard(),
-            )
-            .unwrap();
-            dbg!(&encoded, encoded.len());
-        }
     }
 }
