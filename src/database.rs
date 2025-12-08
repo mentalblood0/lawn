@@ -284,21 +284,21 @@ macro_rules! define_database {
                 })
             }
 
-            pub fn lock_all_writes_and_read<F>(&self, closure: F) -> Result<&Self, String>
+            pub fn lock_all_writes_and_read<F>(&self, f: F) -> Result<&Self, String>
             where
-                F: Fn(ReadTransaction) -> (),
+                F: Fn(ReadTransaction) -> Result<(), String>,
             {
-                closure(ReadTransaction::new(&Arc::clone(&self.lockable_internals))?);
+                f(ReadTransaction::new(&Arc::clone(&self.lockable_internals))?)?;
                 Ok(self)
             }
 
             pub fn lock_all_and_write<F>(&self, f: F) -> Result<&Self, String>
             where
-                F: Fn(WriteTransaction) -> (),
+                F: Fn(WriteTransaction) -> Result<(), String>,
             {
                 f(WriteTransaction::new(&Arc::clone(
                     &self.lockable_internals,
-                ))?);
+                ))?)?;
                 Ok(self)
             }
 
@@ -480,6 +480,7 @@ mod tests {
                             .lock_all_and_write(|mut transaction| {
                                 transaction.vecs.insert(key.clone(), value.clone());
                                 transaction.commit().unwrap();
+                                Ok(())
                             })
                             .unwrap();
                     }
@@ -494,6 +495,7 @@ mod tests {
                             .lock_all_and_write(|mut transaction| {
                                 transaction.vecs.remove(&key_to_remove);
                                 transaction.commit().unwrap();
+                                Ok(())
                             })
                             .unwrap();
                     }
@@ -509,6 +511,7 @@ mod tests {
                             Some(value.clone())
                         );
                     }
+                    Ok(())
                 })
                 .unwrap();
             database.lock_all_and_checkpoint().unwrap();
@@ -528,6 +531,7 @@ mod tests {
             .lock_all_and_write(|mut transaction| {
                 transaction.count.insert((), 0);
                 transaction.commit().unwrap();
+                Ok(())
             })
             .unwrap();
 
@@ -549,6 +553,7 @@ mod tests {
         database
             .lock_all_writes_and_read(|transaction| {
                 assert_eq!(transaction.count.get(&()).unwrap().unwrap(), FINAL_VALUE);
+                Ok(())
             })
             .unwrap();
     }
@@ -566,6 +571,7 @@ mod tests {
                     },
                 );
                 transaction.commit().unwrap();
+                Ok(())
             })
             .unwrap();
         new_default_database("test_recover_from_log".to_string())
@@ -583,6 +589,7 @@ mod tests {
                         data: "value".as_bytes().to_vec()
                     }
                 );
+                Ok(())
             })
             .unwrap();
     }
