@@ -1,6 +1,15 @@
 #[macro_export]
 macro_rules! define_database {
     ($database_name:ident { $($table_name:ident<$key_type:ty, $value_type:ty>),+ $(,)? }) => {
+        define_database!($database_name {
+            $($table_name<$key_type, $value_type>),+
+        } use {});
+    };
+
+    ($database_name:ident {
+        $($table_name:ident<$key_type:ty, $value_type:ty>),+ $(,)?
+    }
+    use { $($use_item:item),* $(,)? }) => {
         #[allow(dead_code)]
         mod $database_name {
             use std::ops::Bound::{Included, Unbounded};
