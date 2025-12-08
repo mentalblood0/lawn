@@ -359,6 +359,8 @@ macro_rules! define_database {
     };
 }
 
+pub(crate) use define_database;
+
 define_database!(test_database {
     vecs<Vec<u8>, Vec<u8>>,
     count<(), usize>
