@@ -1,17 +1,13 @@
 #[macro_export]
 macro_rules! define_database {
-    ($database_name:ident { $($table_name:ident<$key_type:ty, $value_type:ty>),+ $(,)? }) => {
-        define_database!($database_name {
-            $($table_name<$key_type, $value_type>),+
-        } use {});
-    };
-
     ($database_name:ident {
         $($table_name:ident<$key_type:ty, $value_type:ty>),+ $(,)?
     }
     use { $($use_item:item),* $(,)? }) => {
         #[allow(dead_code)]
         mod $database_name {
+            $( $use_item )*
+
             use std::ops::Bound::{Included, Unbounded};
             use std::path::PathBuf;
             use std::io::{BufReader, BufRead, Write};
@@ -367,13 +363,26 @@ macro_rules! define_database {
         }
         }
     };
+
+    ($database_name:ident { $($table_name:ident<$key_type:ty, $value_type:ty>),+ $(,)? }) => {
+        define_database!($database_name {
+            $($table_name<$key_type, $value_type>),+
+        } use {});
+    };
 }
 
 pub use crate::define_database;
 
+#[derive(bincode::Encode, bincode::Decode, Clone, Debug, PartialEq)]
+struct Data {
+    data: Vec<u8>,
+}
+
 define_database!(test_database {
-    vecs<Vec<u8>, Vec<u8>>,
+    vecs<Vec<u8>, Data>,
     count<(), usize>
+} use {
+    use super::Data;
 });
 
 #[cfg(test)]
@@ -442,7 +451,7 @@ mod tests {
         let database = new_default_database("test_generative".to_string());
         database.lock_all_and_clear().unwrap();
 
-        let mut previously_added_keyvalues: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
+        let mut previously_added_keyvalues: BTreeMap<Vec<u8>, Data> = BTreeMap::new();
         let mut rng = WyRand::new_seed(0);
 
         for _ in 0..100 {
@@ -459,9 +468,11 @@ mod tests {
                             rng.fill(&mut result);
                             result
                         };
-                        let value: Vec<u8> = {
-                            let mut result = vec![0u8; rng.generate_range(1..2)];
-                            rng.fill(&mut result);
+                        let value = {
+                            let mut result = Data {
+                                data: vec![0u8; rng.generate_range(1..2)],
+                            };
+                            rng.fill(&mut result.data);
                             result
                         };
                         previously_added_keyvalues.insert(key.clone(), value.clone());
@@ -548,9 +559,12 @@ mod tests {
             .lock_all_and_clear()
             .unwrap()
             .lock_all_and_write(|mut transaction| {
-                transaction
-                    .vecs
-                    .insert("key".as_bytes().to_vec(), "value".as_bytes().to_vec());
+                transaction.vecs.insert(
+                    "key".as_bytes().to_vec(),
+                    Data {
+                        data: "value".as_bytes().to_vec(),
+                    },
+                );
                 transaction.commit().unwrap();
             })
             .unwrap();
@@ -565,7 +579,9 @@ mod tests {
                         .unwrap()
                         .clone()
                         .unwrap(),
-                    "value".as_bytes().to_vec()
+                    Data {
+                        data: "value".as_bytes().to_vec()
+                    }
                 );
             })
             .unwrap();
