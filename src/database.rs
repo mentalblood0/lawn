@@ -1,3 +1,4 @@
+#[macro_export]
 macro_rules! define_database {
     ($database_name:ident { $($table_name:ident<$key_type:ty, $value_type:ty>),+ $(,)? }) => {
         #[allow(dead_code)]
