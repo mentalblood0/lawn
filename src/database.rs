@@ -558,26 +558,4 @@ mod tests {
             })
             .unwrap();
     }
-
-    #[derive(bitcode::Encode, bitcode::Decode, bincode::Encode, Debug)]
-    struct TestStruct {
-        key: Vec<u8>,
-        value: Vec<u8>,
-    }
-
-    #[test]
-    fn test_encoding() {
-        let input = TestStruct {
-            key: "key".as_bytes().to_vec(),
-            value: "value".as_bytes().to_vec(),
-        };
-        {
-            let encoded = bitcode::encode(&input);
-            assert_eq!(encoded.len(), 12);
-        }
-        {
-            let encoded = bincode::encode_to_vec(&input, bincode::config::standard()).unwrap();
-            assert_eq!(encoded.len(), 10);
-        }
-    }
 }
