@@ -18,9 +18,9 @@ macro_rules! define_database {
             #[cfg(feature = "serde")]
             use serde::{Deserialize, Serialize};
 
-            use crate::keyvalue::{Key, Value};
-            use crate::merging_iterator::MergingIterator;
-            use crate::table;
+            use $crate::keyvalue::{Key, Value};
+            use $crate::merging_iterator::MergingIterator;
+            use $crate::table;
 
             #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
             pub struct LogConfig {
