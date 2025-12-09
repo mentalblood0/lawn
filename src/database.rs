@@ -294,11 +294,12 @@ macro_rules! define_database {
 
             pub fn lock_all_and_write<F>(&self, f: F) -> Result<&Self, String>
             where
-                F: Fn(WriteTransaction) -> Result<(), String>,
+                F: Fn(&mut WriteTransaction) -> Result<(), String>,
             {
-                f(WriteTransaction::new(&Arc::clone(
-                    &self.lockable_internals,
-                ))?)?;
+                let cloned_internals = &Arc::clone(&self.lockable_internals);
+                let mut transaction = WriteTransaction::new(cloned_internals)?;
+                f(&mut transaction)?;
+                transaction.commit()?;
                 Ok(self)
             }
 
@@ -477,9 +478,8 @@ mod tests {
                         };
                         previously_added_keyvalues.insert(key.clone(), value.clone());
                         database
-                            .lock_all_and_write(|mut transaction| {
+                            .lock_all_and_write(|transaction| {
                                 transaction.vecs.insert(key.clone(), value.clone());
-                                transaction.commit().unwrap();
                                 Ok(())
                             })
                             .unwrap();
@@ -492,9 +492,8 @@ mod tests {
                             .clone();
                         previously_added_keyvalues.remove(&key_to_remove);
                         database
-                            .lock_all_and_write(|mut transaction| {
+                            .lock_all_and_write(|transaction| {
                                 transaction.vecs.remove(&key_to_remove);
-                                transaction.commit().unwrap();
                                 Ok(())
                             })
                             .unwrap();
@@ -528,9 +527,8 @@ mod tests {
         database
             .lock_all_and_clear()
             .unwrap()
-            .lock_all_and_write(|mut transaction| {
+            .lock_all_and_write(|transaction| {
                 transaction.count.insert((), 0);
-                transaction.commit().unwrap();
                 Ok(())
             })
             .unwrap();
@@ -541,7 +539,6 @@ mod tests {
                     for _ in 0..INCREMENTS_PER_THREAD_COUNT {
                         let current_value = transaction.count.get(&()).unwrap().unwrap();
                         transaction.count.insert((), current_value + 1);
-                        transaction.commit().unwrap();
                     }
                 })
             })
@@ -563,14 +560,13 @@ mod tests {
         new_default_database("test_recover_from_log".to_string())
             .lock_all_and_clear()
             .unwrap()
-            .lock_all_and_write(|mut transaction| {
+            .lock_all_and_write(|transaction| {
                 transaction.vecs.insert(
                     "key".as_bytes().to_vec(),
                     Data {
                         data: "value".as_bytes().to_vec(),
                     },
                 );
-                transaction.commit().unwrap();
                 Ok(())
             })
             .unwrap();
