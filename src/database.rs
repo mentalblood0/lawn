@@ -183,7 +183,7 @@ macro_rules! define_database {
             )+
         }
 
-        pub struct DatabaseLockableInternals {
+        struct DatabaseLockableInternals {
             tables: TablesTransactions,
             log: Log,
         }
