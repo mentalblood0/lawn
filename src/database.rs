@@ -14,11 +14,12 @@ macro_rules! define_database {
             use std::fs;
             use std::{
                 collections::BTreeMap,
-                sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
+                sync::Arc,
                 thread::{self, JoinHandle},
             };
 
             use fallible_iterator::FallibleIterator;
+            use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
             #[cfg(feature = "serde")]
             use serde::{Deserialize, Serialize};
@@ -195,7 +196,6 @@ macro_rules! define_database {
                 Ok(Self {
                     database_locked_internals: database_lock
                         .read()
-                        .map_err(|error| format!("Can not acquire read lock on database: {error}"))?,
                 })
             }
         }
@@ -208,7 +208,6 @@ macro_rules! define_database {
                 Ok(Self {
                     database_locked_internals: database_lock
                         .write()
-                        .map_err(|error| format!("Can not acquire write lock on database: {error}"))?,
                 })
             }
 
@@ -306,8 +305,7 @@ macro_rules! define_database {
             pub fn lock_all_and_recover(&self) -> Result<&Self, String> {
                 let mut locked_internals = self
                     .lockable_internals
-                    .write()
-                    .map_err(|error| format!("Can not acquire write lock on database: {error}"))?;
+                    .write();
 
                 locked_internals.log.iter()?.for_each(|log_record| {
                     $(
@@ -323,8 +321,7 @@ macro_rules! define_database {
             pub fn lock_all_and_clear(&self) -> Result<&Self, String> {
                 let mut locked_internals = self
                     .lockable_internals
-                    .write()
-                    .map_err(|error| format!("Can not acquire write lock on database: {error}"))?;
+                    .write();
 
                 $(
                     locked_internals.tables.$table_name.table.clear()?;
@@ -336,8 +333,7 @@ macro_rules! define_database {
             pub fn lock_all_and_checkpoint(&self) -> Result<&Self, String> {
                 let mut locked_internals = self
                     .lockable_internals
-                    .write()
-                    .map_err(|error| format!("Can not acquire write lock on database: {error}"))?;
+                    .write();
 
                 $(
                     locked_internals.tables.$table_name.table.checkpoint()?;
