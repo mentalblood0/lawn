@@ -184,12 +184,12 @@ macro_rules! define_database {
         }
 
         pub struct DatabaseLockableInternals {
-            pub tables: TablesTransactions,
+            tables: TablesTransactions,
             log: Log,
         }
 
         pub struct ReadTransaction<'a> {
-            pub database_locked_internals: RwLockReadGuard<'a, DatabaseLockableInternals>,
+            database_locked_internals: RwLockReadGuard<'a, DatabaseLockableInternals>,
         }
         impl<'a> ReadTransaction<'a> {
             fn new(database_lock: &'a RwLock<DatabaseLockableInternals>) -> Result<Self, String> {
@@ -201,7 +201,7 @@ macro_rules! define_database {
         }
 
         pub struct WriteTransaction<'a> {
-            pub database_locked_internals: RwLockWriteGuard<'a, DatabaseLockableInternals>,
+            database_locked_internals: RwLockWriteGuard<'a, DatabaseLockableInternals>,
         }
         impl<'a> WriteTransaction<'a> {
             fn new(database_lock: &'a RwLock<DatabaseLockableInternals>) -> Result<Self, String> {
