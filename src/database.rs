@@ -344,18 +344,18 @@ macro_rules! define_database {
 
             pub fn lock_all_writes_and_spawn_read(
                 &self,
-                f: fn(ReadTransaction) -> (),
+                f: fn(ReadTransaction) -> Result<(), String>,
             ) -> JoinHandle<Result<(), String>> {
                 let locked_internals = Arc::clone(&self.lockable_internals);
-                thread::spawn(move || Ok(f(ReadTransaction::new(&locked_internals)?)))
+                thread::spawn(move || f(ReadTransaction::new(&locked_internals)?))
             }
 
             pub fn lock_all_and_spawn_write(
                 &self,
-                f: fn(WriteTransaction) -> (),
+                f: fn(WriteTransaction) -> Result<(), String>,
             ) -> JoinHandle<Result<(), String>> {
                 let locked_internals = Arc::clone(&self.lockable_internals);
-                thread::spawn(move || Ok(f(WriteTransaction::new(&locked_internals)?)))
+                thread::spawn(move || f(WriteTransaction::new(&locked_internals)?))
             }
         }
         }
@@ -533,9 +533,10 @@ mod tests {
             .map(|_| {
                 database.lock_all_and_spawn_write(|mut transaction| {
                     for _ in 0..INCREMENTS_PER_THREAD_COUNT {
-                        let current_value = transaction.count.get(&()).unwrap().unwrap();
+                        let current_value = transaction.count.get(&())?.unwrap();
                         transaction.count.insert((), current_value + 1);
                     }
+                    Ok(())
                 })
             })
             .collect::<Vec<_>>();
