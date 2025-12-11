@@ -1,6 +1,8 @@
 use bincode;
 use std::path::PathBuf;
 
+use anyhow::{Context, Result, anyhow};
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -11,11 +13,9 @@ use crate::keyvalue::Value;
 const CONTAINERS_SIZES_COUNT: usize = 256;
 const CONTAINER_SIZE_MIN: usize = 2;
 
-fn split_scale_logarithmically(
-    max_value: usize,
-) -> Result<[usize; CONTAINERS_SIZES_COUNT], String> {
+fn split_scale_logarithmically(max_value: usize) -> Result<[usize; CONTAINERS_SIZES_COUNT]> {
     if max_value < CONTAINERS_SIZES_COUNT {
-        return Err(format!(
+        return Err(anyhow!(
             "Can not split scale: maximum value {max_value} must be greater or equal to values count {CONTAINERS_SIZES_COUNT}"
         ));
     }
@@ -110,13 +110,13 @@ pub struct Container {
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl<D: Value> DataPoolConfig<D> for VariableDataPoolConfig {
-    fn new_data_pool(&self) -> Result<Box<dyn DataPool<D> + Send + Sync>, String> {
+    fn new_data_pool(&self) -> Result<Box<dyn DataPool<D> + Send + Sync>> {
         Ok(Box::new(VariableDataPool::new(self)?))
     }
 }
 
 impl VariableDataPool {
-    pub fn new(config: &VariableDataPoolConfig) -> Result<Self, String> {
+    pub fn new(config: &VariableDataPoolConfig) -> Result<Self> {
         let mut fixed_data_pools: Vec<FixedDataPool> = Vec::with_capacity(CONTAINERS_SIZES_COUNT);
         let mut jump_point: Option<usize> = None;
         for (size_index, container_size) in split_scale_logarithmically(config.max_element_size)?
@@ -135,20 +135,20 @@ impl VariableDataPool {
         }
         Ok(Self {
             config: config.clone(),
-            container_size_index_to_fixed_data_pool: fixed_data_pools.try_into().map_err(|source_type| {
-                format!("Can not convert fixed data pools vec to static array with required size: {source_type:?}")
-            })?,
-            jump_point: jump_point.unwrap_or(0 as usize)
+            container_size_index_to_fixed_data_pool: fixed_data_pools.try_into().map_err(|source_type|
+                anyhow!("Can not convert fixed data pools vec to static array with required size: {source_type:?}"),
+            )?,
+            jump_point: jump_point.unwrap_or(0 as usize),
         })
     }
 
-    fn insert_raw(&mut self, data: Vec<u8>) -> Result<u64, String> {
+    fn insert_raw(&mut self, data: Vec<u8>) -> Result<u64> {
         let encoded_data = if data.len() > self.jump_point {
             bincode::encode_to_vec(
                 Container { data: data.clone() },
                 bincode::config::standard(),
             )
-            .map_err(|error| format!("Can not encode data to container structure: {error}"))?
+            .with_context(|| format!("Can not encode data to container structure"))?
         } else {
             data
         };
@@ -165,24 +165,24 @@ impl VariableDataPool {
         }))
     }
 
-    fn get_raw(&self, id: u64) -> Result<Vec<u8>, String> {
+    fn get_raw(&self, id: u64) -> Result<Vec<u8>> {
         let parsed_id = Id::from(id);
         self.container_size_index_to_fixed_data_pool
             .get(parsed_id.container_size_index as usize)
-            .ok_or_else(|| format!("Can not get {id:?}: no such container index"))?
+            .ok_or_else(|| anyhow!("Can not get {id:?}: no such container index"))?
             .get_raw(parsed_id.pointer)
     }
 }
 
 impl<D: Value> DataPool<D> for VariableDataPool {
-    fn insert(&mut self, data_record: D) -> Result<u64, String> {
+    fn insert(&mut self, data_record: D) -> Result<u64> {
         self.insert_raw(
             bincode::encode_to_vec(data_record, bincode::config::standard())
-                .map_err(|error| format!("Can not encode data record: {error}"))?,
+                .with_context(|| format!("Can not encode data record"))?,
         )
     }
 
-    fn remove(&mut self, id: u64) -> Result<(), String> {
+    fn remove(&mut self, id: u64) -> Result<()> {
         let parsed_id = Id::from(id);
         <FixedDataPool as DataPool<D>>::remove(
             &mut self.container_size_index_to_fixed_data_pool
@@ -191,28 +191,28 @@ impl<D: Value> DataPool<D> for VariableDataPool {
         )
     }
 
-    fn flush(&mut self) -> Result<(), String> {
+    fn flush(&mut self) -> Result<()> {
         for fixed_data_pool in self.container_size_index_to_fixed_data_pool.iter_mut() {
             <FixedDataPool as DataPool<D>>::flush(fixed_data_pool)?;
         }
         Ok(())
     }
 
-    fn clear(&mut self) -> Result<(), String> {
+    fn clear(&mut self) -> Result<()> {
         for fixed_data_pool in self.container_size_index_to_fixed_data_pool.iter_mut() {
             <FixedDataPool as DataPool<D>>::clear(fixed_data_pool)?;
         }
         Ok(())
     }
 
-    fn get(&self, id: u64) -> Result<D, String> {
+    fn get(&self, id: u64) -> Result<D> {
         let encoded_container_or_data_record = self.get_raw(id)?;
         let container: Container = if encoded_container_or_data_record.len() > self.jump_point {
             bincode::decode_from_slice(
                 &encoded_container_or_data_record,
                 bincode::config::standard(),
             )
-            .map_err(|error| format!("Can not decode data container: {error}"))?
+            .with_context(|| format!("Can not decode data container"))?
             .0
         } else {
             Container {
@@ -221,7 +221,7 @@ impl<D: Value> DataPool<D> for VariableDataPool {
         };
         Ok(
             bincode::decode_from_slice::<D, _>(&container.data, bincode::config::standard())
-                .map_err(|error| format!("Can not decode data record: {error}"))?
+                .with_context(|| format!("Can not decode data record"))?
                 .0,
         )
     }

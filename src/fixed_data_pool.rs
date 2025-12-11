@@ -4,6 +4,8 @@ use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
 use std::{fs, io::BufWriter};
 
+use anyhow::{Context, Result, anyhow};
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -32,17 +34,17 @@ pub struct FixedDataPool {
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl<D: Value> DataPoolConfig<D> for FixedDataPoolConfig {
-    fn new_data_pool(&self) -> Result<Box<dyn DataPool<D> + Send + Sync>, String> {
+    fn new_data_pool(&self) -> Result<Box<dyn DataPool<D> + Send + Sync>> {
         Ok(Box::new(FixedDataPool::new(self)?))
     }
 }
 
 impl FixedDataPool {
-    pub fn new(config: &FixedDataPoolConfig) -> Result<Self, String> {
+    pub fn new(config: &FixedDataPoolConfig) -> Result<Self> {
         if let Some(path_parent_directory) = config.path.parent() {
-            std::fs::create_dir_all(path_parent_directory).map_err(|error| {
+            std::fs::create_dir_all(path_parent_directory).with_context(|| {
                 format!(
-                    "Can not create parent directories for path {}: {error}",
+                    "Can not create parent directories for path {}",
                     &config.path.display()
                 )
             })?;
@@ -52,12 +54,7 @@ impl FixedDataPool {
             .read(true)
             .write(true)
             .open(&config.path)
-            .map_err(|error| {
-                format!(
-                    "Can not open file at path {}: {error}",
-                    config.path.display()
-                )
-            })?;
+            .with_context(|| format!("Can not open file at path {}", config.path.display()))?;
         let mut result = Self {
             config: config.clone(),
             file: file,
@@ -73,7 +70,7 @@ impl FixedDataPool {
         result.bytesize_on_disk = result
             .file
             .metadata()
-            .map_err(|error| format!("Can not get metadata of file {:?}: {error}", result.file))?
+            .with_context(|| format!("Can not get metadata of file {:?}", result.file))?
             .len() as u64;
         if result.bytesize_on_disk == 0 {
             result.initialize_empty_file()?;
@@ -81,7 +78,7 @@ impl FixedDataPool {
             result
                 .file
                 .read_exact_at(&mut result.head, 0)
-                .map_err(|error| format!("Can not read head of {result:?}: {error}"))?;
+                .with_context(|| format!("Can not read head of {result:?}"))?;
             result.containers_allocated =
                 (result.bytesize_on_disk - result.head_size as u64) / config.container_size as u64;
             result.no_holes_left = result.head.iter().all(|byte| *byte == 255);
@@ -89,7 +86,7 @@ impl FixedDataPool {
         Ok(result)
     }
 
-    fn initialize_empty_file(&mut self) -> Result<(), String> {
+    fn initialize_empty_file(&mut self) -> Result<()> {
         self.set_head(vec![255; self.head_size as usize])?;
         self.bytesize_on_disk = self.head_size as u64;
         self.containers_allocated = 0;
@@ -97,10 +94,10 @@ impl FixedDataPool {
         Ok(())
     }
 
-    fn set_head(&mut self, value: Vec<u8>) -> Result<&Self, String> {
+    fn set_head(&mut self, value: Vec<u8>) -> Result<&Self> {
         self.file
             .write_all_at(value.as_slice(), 0)
-            .map_err(|error| format!("Can not write head for file {:?}: {error}", self.file))?;
+            .with_context(|| format!("Can not write head for file {:?}", self.file))?;
         self.no_holes_left = self.head.iter().all(|byte| *byte == 255);
         Ok(self)
     }
@@ -122,37 +119,35 @@ impl FixedDataPool {
         }
     }
 
-    fn get_of_size(&self, pointer: u64, size: usize) -> Result<Vec<u8>, String> {
+    fn get_of_size(&self, pointer: u64, size: usize) -> Result<Vec<u8>> {
         let mut result = vec![0; size];
         self.file
             .read_exact_at(
                 &mut result,
                 self.head_size as u64 + pointer * self.config.container_size as u64,
             )
-            .map_err(|error| {
-                format!(
-                    "Can not get container of size {size} at pointer {pointer} of {self:?}: {error}"
-                )
+            .with_context(|| {
+                format!("Can not get container of size {size} at pointer {pointer} of {self:?}")
             })?;
         Ok(result)
     }
 
-    fn set(&mut self, pointer: u64, container: &Vec<u8>) -> Result<(), String> {
+    fn set(&mut self, pointer: u64, container: &Vec<u8>) -> Result<()> {
         self.file
             .write_all_at(
                 container,
                 self.head_size as u64 + pointer * self.config.container_size as u64,
             )
-            .map_err(|error| {
+            .with_context(|| {
                 format!(
-                    "Can not set container of size {} at pointer {pointer} of {self:?}: {error}",
+                    "Can not set container of size {} at pointer {pointer} of {self:?}",
                     container.len()
                 )
             })?;
         Ok(())
     }
 
-    pub fn insert_raw(&mut self, mut data: Vec<u8>) -> Result<u64, String> {
+    pub fn insert_raw(&mut self, mut data: Vec<u8>) -> Result<u64> {
         if let Some(pointer_to_data_to_remove) = self.buffer_of_pointers_to_data_to_remove.pop() {
             self.set(pointer_to_data_to_remove, &data)?;
             Ok(pointer_to_data_to_remove)
@@ -165,17 +160,14 @@ impl FixedDataPool {
                         .write(true)
                         .append(true)
                         .open(&self.config.path)
-                        .map_err(|error| {
-                            format!(
-                                "Can not open file at path {}: {error}",
-                                self.config.path.display()
-                            )
+                        .with_context(|| {
+                            format!("Can not open file at path {}", self.config.path.display())
                         })?;
                     self.writer = Some(BufWriter::new(file));
                 }
                 match data.len().cmp(&self.config.container_size) {
                     Ordering::Greater => {
-                        return Err(format!(
+                        return Err(anyhow!(
                             "Can not insert data of size {} into fixed data pool for containers of size {}",
                             data.len(),
                             self.config.container_size
@@ -188,9 +180,9 @@ impl FixedDataPool {
                 }
                 self.writer
                     .as_mut()
-                    .ok_or_else(|| format!("Logical error: no writer"))?
+                    .ok_or_else(|| anyhow!("Logical error: no writer"))?
                     .write_all(&data)
-                    .map_err(|error| format!("Can not write to file {:?}: {error}", self.file))?;
+                    .with_context(|| format!("Can not write to file {:?}", self.file))?;
                 self.containers_allocated += 1;
                 self.bytesize_on_disk += self.config.container_size as u64;
                 Ok(self.containers_allocated - 1)
@@ -204,25 +196,25 @@ impl FixedDataPool {
         }
     }
 
-    pub fn get_raw(&self, pointer: u64) -> Result<Vec<u8>, String> {
+    pub fn get_raw(&self, pointer: u64) -> Result<Vec<u8>> {
         self.get_of_size(pointer, self.config.container_size)
     }
 }
 
 impl<D: Value> DataPool<D> for FixedDataPool {
-    fn insert(&mut self, data_record: D) -> Result<u64, String> {
+    fn insert(&mut self, data_record: D) -> Result<u64> {
         self.insert_raw(
             bincode::encode_to_vec(data_record, bincode::config::standard())
-                .map_err(|error| format!("Can not encode data record: {error}"))?,
+                .with_context(|| format!("Can not encode data record"))?,
         )
     }
 
-    fn remove(&mut self, id: u64) -> Result<(), String> {
+    fn remove(&mut self, id: u64) -> Result<()> {
         self.buffer_of_pointers_to_data_to_remove.push(id);
         Ok(())
     }
 
-    fn flush(&mut self) -> Result<(), String> {
+    fn flush(&mut self) -> Result<()> {
         if !self.buffer_of_pointers_to_data_to_remove.is_empty() {
             let mut cached_head = self.head.clone();
             for pointer_to_data_to_remove in
@@ -236,24 +228,24 @@ impl<D: Value> DataPool<D> for FixedDataPool {
         if let Some(writer) = self.writer.as_mut() {
             writer
                 .flush()
-                .map_err(|error| format!("Can not flush fixed data pool update: {error}"))?;
+                .with_context(|| format!("Can not flush fixed data pool update"))?;
         }
         self.writer = None;
         Ok(())
     }
 
-    fn clear(&mut self) -> Result<(), String> {
+    fn clear(&mut self) -> Result<()> {
         self.file
             .set_len(0)
-            .map_err(|error| format!("Can not truncate file {:?}: {error}", self.file))?;
+            .with_context(|| format!("Can not truncate file {:?}", self.file))?;
         self.initialize_empty_file()?;
         Ok(())
     }
 
-    fn get(&self, id: u64) -> Result<D, String> {
+    fn get(&self, id: u64) -> Result<D> {
         Ok(
             bincode::decode_from_slice::<D, _>(&self.get_raw(id)?, bincode::config::standard())
-                .map_err(|error| format!("Can not decode data record: {error}"))?
+                .with_context(|| format!("Can not decode data record"))?
                 .0,
         )
     }

@@ -2,6 +2,7 @@ use std::io::{BufReader, BufWriter, Read, Seek, Write};
 use std::path::PathBuf;
 use std::{fs, os::unix::fs::FileExt};
 
+use anyhow::{Context, Error, Result};
 use fallible_iterator::FallibleIterator;
 
 #[cfg(feature = "serde")]
@@ -28,21 +29,21 @@ pub struct Index {
 }
 
 impl Index {
-    pub fn write_header(mut file: &fs::File, header: &IndexHeader) -> Result<u64, String> {
+    pub fn write_header(mut file: &fs::File, header: &IndexHeader) -> Result<u64> {
         let mut writer = BufWriter::new(&mut file);
         let result =
             bincode::encode_into_std_write(&header, &mut writer, bincode::config::standard())
-                .map_err(|error| format!("Can not encode header: {error}",))? as u64;
+                .with_context(|| format!("Can not encode header",))? as u64;
         writer
             .flush()
-            .map_err(|error| format!("Can not flush new index file header: {error}"))?;
+            .with_context(|| format!("Can not flush new index file header"))?;
         Ok(result)
     }
-    pub fn new(config: IndexConfig) -> Result<Self, String> {
+    pub fn new(config: IndexConfig) -> Result<Self> {
         if let Some(path_parent_directory) = config.path.parent() {
-            std::fs::create_dir_all(path_parent_directory).map_err(|error| {
+            std::fs::create_dir_all(path_parent_directory).with_context(|| {
                 format!(
-                    "Can not create parent directories for path {}: {error}",
+                    "Can not create parent directories for path {}",
                     &config.path.display()
                 )
             })?;
@@ -52,15 +53,10 @@ impl Index {
             .read(true)
             .write(true)
             .open(&config.path)
-            .map_err(|error| {
-                format!(
-                    "Can not open file at path {}: {error}",
-                    config.path.display()
-                )
-            })?;
+            .with_context(|| format!("Can not open file at path {}", config.path.display()))?;
         let bytes_on_disk = file
             .metadata()
-            .map_err(|error| format!("Can not get metadata of file {:?}: {error}", file))?
+            .with_context(|| format!("Can not get metadata of file {:?}", file))?
             .len() as u64;
         if bytes_on_disk == 0 {
             let header = IndexHeader { record_size: 2 };
@@ -71,15 +67,15 @@ impl Index {
                     &mut writer,
                     bincode::config::standard(),
                 )
-                .map_err(|error| {
+                .with_context(|| {
                     format!(
-                        "Can not encode header to file at path {}: {error}",
+                        "Can not encode header to file at path {}",
                         config.path.display()
                     )
                 })? as u64;
                 writer
                     .flush()
-                    .map_err(|error| format!("Can not flush new index file header: {error}"))?;
+                    .with_context(|| format!("Can not flush new index file header"))?;
                 result
             };
             Ok(Index {
@@ -95,17 +91,17 @@ impl Index {
                 let mut reader = BufReader::new(&mut file);
                 let header =
                     bincode::decode_from_std_read(&mut reader, bincode::config::standard())
-                        .map_err(|error| {
+                        .with_context(|| {
                             format!(
-                                "Can not read header from file at path {}: {error}",
+                                "Can not read header from file at path {}",
                                 config.path.display()
                             )
                         })?;
                 (
                     header,
-                    reader.stream_position().map_err(|error| {
+                    reader.stream_position().with_context(|| {
                         format!(
-                            "Can not get position in file at path {}: {error}",
+                            "Can not get position in file at path {}",
                             config.path.display()
                         )
                     })? as usize,
@@ -123,7 +119,7 @@ impl Index {
         }
     }
 
-    pub fn get(&self, record_index: u64) -> Result<Option<u64>, String> {
+    pub fn get(&self, record_index: u64) -> Result<Option<u64>> {
         let mut buffer = vec![0 as u8; self.header.record_size as usize];
         if self
             .file
@@ -143,21 +139,21 @@ impl Index {
         }
     }
 
-    pub fn clear(&mut self) -> Result<(), String> {
+    pub fn clear(&mut self) -> Result<()> {
         self.file
             .set_len(0)
-            .map_err(|error| format!("Can not truncate file {:?}: {error}", self.file))?;
+            .with_context(|| format!("Can not truncate file {:?}", self.file))?;
         Ok(())
     }
 
-    pub fn iter(&self, from_record_index: u64) -> Result<IndexIterator, String> {
+    pub fn iter(&self, from_record_index: u64) -> Result<IndexIterator> {
         let mut index_file = std::fs::OpenOptions::new()
             .create(false)
             .read(true)
             .open(&self.config.path)
-            .map_err(|error| {
+            .with_context(|| {
                 format!(
-                    "Can not open file at path {} for reading: {error}",
+                    "Can not open file at path {} for reading",
                     &self.config.path.display()
                 )
             })?;
@@ -165,7 +161,7 @@ impl Index {
             .seek(std::io::SeekFrom::Start(
                 self.header_size as u64 + from_record_index * self.header.record_size as u64,
             ))
-            .map_err(|error| format!("Can not seek in index file: {error}"))?;
+            .with_context(|| format!("Can not seek in index file"))?;
         Ok(IndexIterator {
             reader: BufReader::new(index_file),
             current_record_index: from_record_index,
@@ -184,16 +180,16 @@ pub struct IndexIterator {
 
 impl FallibleIterator for IndexIterator {
     type Item = u64;
-    type Error = String;
+    type Error = Error;
 
-    fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
+    fn next(&mut self) -> Result<Option<Self::Item>> {
         if self.records_count <= self.current_record_index {
             return Ok(None);
         }
 
         self.reader
             .read_exact(&mut self.buffer)
-            .map_err(|error| format!("Can not read index record (data id): {error}"))?;
+            .with_context(|| format!("Can not read index record (data id)"))?;
         let mut result: u64 = 0;
         for byte in self.buffer.iter().rev() {
             result = (result << 8) + *byte as u64;

@@ -1,5 +1,7 @@
 use std::cmp::Ordering;
 
+use anyhow::Result;
+
 pub struct Satisfying<V, A> {
     pub index: u64,
     pub value: V,
@@ -16,9 +18,9 @@ impl<V, A> PartitionPoint<V, A> {
         mut from_index: u64,
         mut to_index: u64,
         mut target_compare: F,
-    ) -> Result<Option<Self>, String>
+    ) -> Result<Option<Self>>
     where
-        F: FnMut(u64) -> Result<(Ordering, V, A), String>,
+        F: FnMut(u64) -> Result<(Ordering, V, A)>,
     {
         let mut first_satisfying: Option<Satisfying<V, A>> = None;
         let mut is_exact: bool = false;

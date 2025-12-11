@@ -4,6 +4,7 @@ use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::ops::Bound::{Included, Unbounded};
 
+use anyhow::{Context, Error, Result, anyhow};
 use fallible_iterator::FallibleIterator;
 
 #[cfg(feature = "serde")]
@@ -59,15 +60,11 @@ pub struct DataRecord<K: Key, V: Value> {
     value: V,
 }
 
-fn write_data_id(
-    writer: &mut BufWriter<File>,
-    data_id: u64,
-    record_size: u8,
-) -> Result<(), String> {
+fn write_data_id(writer: &mut BufWriter<File>, data_id: u64, record_size: u8) -> Result<()> {
     let data_id_encoded = data_id.to_le_bytes()[..record_size as usize].to_vec();
     writer
         .write_all(&data_id_encoded)
-        .map_err(|error| format!("Can not write data id to file: {error}"))?;
+        .with_context(|| format!("Can not write data id to file"))?;
     Ok(())
 }
 
@@ -78,7 +75,7 @@ struct LinearMergeElement<K: Key> {
 }
 
 impl<K: Key, V: Value> Table<K, V> {
-    pub fn new(config: TableConfig<K, V>) -> Result<Self, String> {
+    pub fn new(config: TableConfig<K, V>) -> Result<Self> {
         Ok(Self {
             index: Index::new(config.index)?,
             data_pool: config.data_pool.new_data_pool()?,
@@ -90,14 +87,14 @@ impl<K: Key, V: Value> Table<K, V> {
         self.memtable.append(changes);
     }
 
-    fn get_from_index_by_id(&self, id: u64) -> Result<DataRecord<K, V>, String> {
+    fn get_from_index_by_id(&self, id: u64) -> Result<DataRecord<K, V>> {
         self.data_pool.get(id)
     }
 
-    fn get_from_index(&self, key: &K) -> Result<Option<V>, String> {
+    fn get_from_index(&self, key: &K) -> Result<Option<V>> {
         Ok(
             PartitionPoint::new(0, self.index.records_count, |record_index| {
-                let data_record_id = self.index.get(record_index)?.ok_or(format!(
+                let data_record_id = self.index.get(record_index)?.ok_or(anyhow!(
                     "Can not get data record id at index {record_index}"
                 ))?;
                 let data_record = self.get_from_index_by_id(data_record_id)?;
@@ -108,21 +105,21 @@ impl<K: Key, V: Value> Table<K, V> {
         )
     }
 
-    pub fn get(&self, key: &K) -> Result<Option<V>, String> {
+    pub fn get(&self, key: &K) -> Result<Option<V>> {
         match self.memtable.get(key) {
             Some(value) => Ok(value.clone()),
             None => Ok(self.get_from_index(key)?),
         }
     }
 
-    pub fn clear(&mut self) -> Result<(), String> {
+    pub fn clear(&mut self) -> Result<()> {
         self.index.clear()?;
         self.data_pool.clear()?;
         self.memtable.clear();
         Ok(())
     }
 
-    pub fn checkpoint(&mut self) -> Result<(), String> {
+    pub fn checkpoint(&mut self) -> Result<()> {
         if self.memtable.is_empty() {
             Ok(())
         } else {
@@ -136,7 +133,7 @@ impl<K: Key, V: Value> Table<K, V> {
         }
     }
 
-    fn checkpoint_using_dump(&mut self) -> Result<(), String> {
+    fn checkpoint_using_dump(&mut self) -> Result<()> {
         let mut ids: Vec<u64> = Vec::new();
         let mut max_id: u64 = 0;
         for current_record in std::mem::take(&mut self.memtable).into_iter() {
@@ -160,9 +157,9 @@ impl<K: Key, V: Value> Table<K, V> {
             .append(true)
             .write(true)
             .open(&index_file_path)
-            .map_err(|error| {
+            .with_context(|| {
                 format!(
-                    "Can not create file at path {} for writing: {error}",
+                    "Can not create file at path {} for writing",
                     &index_file_path.display()
                 )
             })?;
@@ -179,11 +176,11 @@ impl<K: Key, V: Value> Table<K, V> {
         }
         index_writer
             .flush()
-            .map_err(|error| format!("Can not flush new index file: {error}"))?;
+            .with_context(|| format!("Can not flush new index file"))?;
 
-        fs::rename(&index_file_path, &self.index.config.path).map_err(|error| {
+        fs::rename(&index_file_path, &self.index.config.path).with_context(|| {
             format!(
-                "Can not overwrite old index at {} with new index at {}: {error}",
+                "Can not overwrite old index at {} with new index at {}",
                 self.index.config.path.display(),
                 index_file_path.display()
             )
@@ -195,7 +192,7 @@ impl<K: Key, V: Value> Table<K, V> {
         Ok(())
     }
 
-    fn checkpoint_using_linear_merge(&mut self) -> Result<(), String> {
+    fn checkpoint_using_linear_merge(&mut self) -> Result<()> {
         let mut new_elements: Vec<LinearMergeElement<K>> = Vec::new();
         let mut max_new_id: u64 = 0;
         for current_new_record in std::mem::take(&mut self.memtable).into_iter() {
@@ -230,9 +227,9 @@ impl<K: Key, V: Value> Table<K, V> {
             .append(true)
             .write(true)
             .open(&new_index_file_path)
-            .map_err(|error| {
+            .with_context(|| {
                 format!(
-                    "Can not create file at path {} for writing: {error}",
+                    "Can not create file at path {} for writing",
                     &new_index_file_path.display()
                 )
             })?;
@@ -341,11 +338,11 @@ impl<K: Key, V: Value> Table<K, V> {
         self.data_pool.flush()?;
         new_index_writer
             .flush()
-            .map_err(|error| format!("Can not flush new index file: {error}"))?;
+            .with_context(|| format!("Can not flush new index file"))?;
 
-        fs::rename(&new_index_file_path, &self.index.config.path).map_err(|error| {
+        fs::rename(&new_index_file_path, &self.index.config.path).with_context(|| {
             format!(
-                "Can not overwrite old index at {} with new index at {}: {error}",
+                "Can not overwrite old index at {} with new index at {}",
                 self.index.config.path.display(),
                 new_index_file_path.display()
             )
@@ -357,7 +354,7 @@ impl<K: Key, V: Value> Table<K, V> {
         Ok(())
     }
 
-    fn checkpoint_using_sparse_merge(&mut self) -> Result<(), String> {
+    fn checkpoint_using_sparse_merge(&mut self) -> Result<()> {
         if self.memtable.is_empty() {
             return Ok(());
         }
@@ -370,7 +367,7 @@ impl<K: Key, V: Value> Table<K, V> {
         let merge_locations = sparse_merge(
             self.index.records_count,
             |data_record_id_index| {
-                let data_record_id = self.index.get(data_record_id_index)?.ok_or(format!(
+                let data_record_id = self.index.get(data_record_id_index)?.ok_or(anyhow!(
                     "Can not get data record id at index {data_record_id_index}"
                 ))?;
                 let data_record = self.get_from_index_by_id(data_record_id)?;
@@ -425,9 +422,9 @@ impl<K: Key, V: Value> Table<K, V> {
             .append(true)
             .write(true)
             .open(&new_index_file_path)
-            .map_err(|error| {
+            .with_context(|| {
                 format!(
-                    "Can not create file at path {} for writing: {error}",
+                    "Can not create file at path {} for writing",
                     &new_index_file_path.display()
                 )
             })?;
@@ -530,11 +527,11 @@ impl<K: Key, V: Value> Table<K, V> {
         }
         new_index_writer
             .flush()
-            .map_err(|error| format!("Can not flush new index file: {error}"))?;
+            .with_context(|| format!("Can not flush new index file"))?;
 
-        fs::rename(&new_index_file_path, &self.index.config.path).map_err(|error| {
+        fs::rename(&new_index_file_path, &self.index.config.path).with_context(|| {
             format!(
-                "Can not overwrite old index at {} with new index at {}: {error}",
+                "Can not overwrite old index at {} with new index at {}",
                 self.index.config.path.display(),
                 new_index_file_path.display()
             )
@@ -546,13 +543,13 @@ impl<K: Key, V: Value> Table<K, V> {
         Ok(())
     }
 
-    fn iter_index(&'_ self, from_key: Option<&K>) -> Result<TableIndexIterator<'_, K, V>, String> {
+    fn iter_index(&'_ self, from_key: Option<&K>) -> Result<TableIndexIterator<'_, K, V>> {
         if let Some(from_key) = from_key {
             Ok(TableIndexIterator {
                 data_pool: &self.data_pool,
                 index_iter: self.index.iter(
                     PartitionPoint::new(0, self.index.records_count, |record_index| {
-                        let data_record_id = self.index.get(record_index)?.ok_or(format!(
+                        let data_record_id = self.index.get(record_index)?.ok_or(anyhow!(
                             "Can not get data record id at index {record_index}"
                         ))?;
                         let data_record = self.get_from_index_by_id(data_record_id)?;
@@ -573,7 +570,7 @@ impl<K: Key, V: Value> Table<K, V> {
     pub fn iter(
         &'_ self,
         from_key: Option<&K>,
-    ) -> Result<Box<dyn FallibleIterator<Item = (K, V), Error = String> + '_>, String> {
+    ) -> Result<Box<dyn FallibleIterator<Item = (K, V), Error = Error> + '_>> {
         Ok(Box::new(MergingIterator::new(
             self.memtable.range::<K, _>((
                 (if let Some(from_key) = from_key {
@@ -595,7 +592,7 @@ struct TableIndexIterator<'a, K: Key, V: Value> {
 
 impl<'a, K: Key, V: Value> FallibleIterator for TableIndexIterator<'a, K, V> {
     type Item = (K, V);
-    type Error = String;
+    type Error = Error;
 
     fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
         Ok(match self.index_iter.next()? {
@@ -665,9 +662,9 @@ fn sparse_merge<F, T, A>(
     big_len: u64,
     mut big_get_element: F,
     small: &Vec<T>,
-) -> Result<Vec<MergeLocation<A>>, String>
+) -> Result<Vec<MergeLocation<A>>>
 where
-    F: FnMut(u64) -> Result<Option<(T, A)>, String>,
+    F: FnMut(u64) -> Result<Option<(T, A)>>,
     T: Ord,
     A: Clone + Ord + Default,
 {
@@ -692,7 +689,7 @@ where
         result_insert_indices[middle.middle_index] = Some({
             PartitionPoint::new(left_bound, right_bound, |element_index| {
                 let current = big_get_element(element_index)?
-                    .ok_or(format!("Can not get element at index {element_index}"))?;
+                    .ok_or(anyhow!("Can not get element at index {element_index}"))?;
                 Ok((current.0.cmp(element_to_insert), current.0, current.1))
             })?
             .map_or(
@@ -711,7 +708,9 @@ where
     }
     let mut result: Vec<MergeLocation<A>> = Vec::with_capacity(result_insert_indices.len());
     for insert_index in result_insert_indices.into_iter() {
-        result.push(insert_index.ok_or("Can not find where to insert element using sparse merge")?);
+        result.push(insert_index.ok_or(anyhow!(
+            "Can not find where to insert element using sparse merge"
+        ))?);
     }
     Ok(result)
 }

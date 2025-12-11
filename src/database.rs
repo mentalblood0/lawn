@@ -12,6 +12,7 @@ macro_rules! define_database {
             use std::path::PathBuf;
             use std::io::{BufReader, BufRead, Write};
             use std::fs;
+            use anyhow::{Context, Result, Error};
             use std::{
                 collections::BTreeMap,
                 sync::Arc,
@@ -46,11 +47,11 @@ macro_rules! define_database {
             }
 
             impl Log {
-                fn new(config: LogConfig) -> Result<Self, String> {
+                fn new(config: LogConfig) -> Result<Self> {
                     if let Some(path_parent_directory) = config.path.parent() {
-                        std::fs::create_dir_all(path_parent_directory).map_err(|error| {
+                        std::fs::create_dir_all(path_parent_directory).with_context(|| {
                             format!(
-                                "Can not create parent directories for path {}: {error}",
+                                "Can not create parent directories for path {}",
                                 &config.path.display()
                             )
                         })?;
@@ -60,38 +61,38 @@ macro_rules! define_database {
                         .append(true)
                         .write(true)
                         .open(&config.path)
-                        .map_err(|error| {
+                        .with_context(|| {
                             format!(
-                                "Can not open file at path {}: {error}",
+                                "Can not open file at path {}",
                                 config.path.display()
                             )
                         })?;
                     Ok(Self { config, file })
                 }
 
-                fn write(&mut self, record: LogRecord) -> Result<(), String> {
+                fn write(&mut self, record: LogRecord) -> Result<()> {
                     let buffer = bincode::encode_to_vec(record, bincode::config::standard())
-                        .map_err(|error| format!("Can not encode transaction to log record: {error}"))?;
+                        .with_context(|| format!("Can not encode transaction to log record"))?;
                     self.file
                         .write_all(&buffer.as_slice())
-                        .map_err(|error| format!("Can not write transaction log record to file: {error}"))?;
+                        .with_context(|| format!("Can not write transaction log record to file"))?;
                     Ok(())
                 }
 
-                fn clear(&mut self) -> Result<(), String> {
+                fn clear(&mut self) -> Result<()> {
                     self.file
                         .set_len(0)
-                        .map_err(|error| format!("Can not truncate log file {:?}: {error}", self.file))?;
+                        .with_context(|| format!("Can not truncate log file {:?}", self.file))?;
                     Ok(())
                 }
 
-                fn iter(&mut self) -> Result<LogIterator, String> {
+                fn iter(&mut self) -> Result<LogIterator> {
                     Ok(
                         LogIterator {
                             reader: BufReader::new(
-                                fs::File::open(&self.config.path).map_err(|error| {
+                                fs::File::open(&self.config.path).with_context(|| {
                                     format!(
-                                        "Can not open file at path {} for read: {error}",
+                                        "Can not open file at path {} for read",
                                         &self.config.path.display()
                                     )
                                 })?
@@ -106,17 +107,17 @@ macro_rules! define_database {
             }
             impl FallibleIterator for LogIterator {
                 type Item = LogRecord;
-                type Error = String;
+                type Error = Error;
 
                 fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
                     Ok(
                         if self.reader
                                .fill_buf()
-                                      .map_err(|error| format!("Can not read log: {error}"))?.is_empty() {
+                                      .with_context(|| format!("Can not read log"))?.is_empty() {
                             None
                         } else {
                             Some(bincode::decode_from_std_read(&mut self.reader, bincode::config::standard())
-                                    .map_err(|error| format!("Can not decode log record: {error}"))?)
+                                    .with_context(|| format!("Can not decode log record"))?)
                         }
                     )
                 }
@@ -149,7 +150,7 @@ macro_rules! define_database {
                     self
                 }
 
-                pub fn get(&self, key: &K) -> Result<Option<V>, String> {
+                pub fn get(&self, key: &K) -> Result<Option<V>> {
                     match self.changes.get(key) {
                         Some(result_from_changes) => Ok(result_from_changes.clone()),
                         None => self.table.get(key),
@@ -159,7 +160,7 @@ macro_rules! define_database {
                 pub fn iter(
                     &'_ self,
                     from_key: Option<&K>,
-                ) -> Result<Box<dyn FallibleIterator<Item = (K, V), Error = String> + '_>, String>
+                ) -> Result<Box<dyn FallibleIterator<Item = (K, V), Error = Error> + '_>>
                 {
                     Ok(Box::new(MergingIterator::new(
                         self.changes
@@ -192,7 +193,7 @@ macro_rules! define_database {
             database_locked_internals: RwLockReadGuard<'a, DatabaseLockableInternals>,
         }
         impl<'a> ReadTransaction<'a> {
-            fn new(database_lock: &'a RwLock<DatabaseLockableInternals>) -> Result<Self, String> {
+            fn new(database_lock: &'a RwLock<DatabaseLockableInternals>) -> Result<Self> {
                 Ok(Self {
                     database_locked_internals: database_lock
                         .read()
@@ -204,14 +205,14 @@ macro_rules! define_database {
             database_locked_internals: RwLockWriteGuard<'a, DatabaseLockableInternals>,
         }
         impl<'a> WriteTransaction<'a> {
-            fn new(database_lock: &'a RwLock<DatabaseLockableInternals>) -> Result<Self, String> {
+            fn new(database_lock: &'a RwLock<DatabaseLockableInternals>) -> Result<Self> {
                 Ok(Self {
                     database_locked_internals: database_lock
                         .write()
                 })
             }
 
-            pub fn commit(&mut self) -> Result<(), String> {
+            pub fn commit(&mut self) -> Result<()> {
                 let log_record = LogRecord {
                     $(
                         $table_name: self.database_locked_internals
@@ -267,7 +268,7 @@ macro_rules! define_database {
         }
 
         impl Database {
-            pub fn new(config: DatabaseConfig) -> Result<Self, String> {
+            pub fn new(config: DatabaseConfig) -> Result<Self> {
                 Ok(Self {
                     lockable_internals: Arc::new(RwLock::new(DatabaseLockableInternals {
                         tables: TablesTransactions {
@@ -283,17 +284,17 @@ macro_rules! define_database {
                 })
             }
 
-            pub fn lock_all_writes_and_read<F>(&self, f: F) -> Result<&Self, String>
+            pub fn lock_all_writes_and_read<F>(&self, f: F) -> Result<&Self>
             where
-                F: Fn(ReadTransaction) -> Result<(), String>,
+                F: Fn(ReadTransaction) -> Result<()>,
             {
                 f(ReadTransaction::new(&Arc::clone(&self.lockable_internals))?)?;
                 Ok(self)
             }
 
-            pub fn lock_all_and_write<F>(&self, f: F) -> Result<&Self, String>
+            pub fn lock_all_and_write<F>(&self, f: F) -> Result<&Self>
             where
-                F: Fn(&mut WriteTransaction) -> Result<(), String>,
+                F: Fn(&mut WriteTransaction) -> Result<()>,
             {
                 let cloned_internals = &Arc::clone(&self.lockable_internals);
                 let mut transaction = WriteTransaction::new(cloned_internals)?;
@@ -302,7 +303,7 @@ macro_rules! define_database {
                 Ok(self)
             }
 
-            pub fn lock_all_and_recover(&self) -> Result<&Self, String> {
+            pub fn lock_all_and_recover(&self) -> Result<&Self> {
                 let mut locked_internals = self
                     .lockable_internals
                     .write();
@@ -318,7 +319,7 @@ macro_rules! define_database {
                 Ok(self)
             }
 
-            pub fn lock_all_and_clear(&self) -> Result<&Self, String> {
+            pub fn lock_all_and_clear(&self) -> Result<&Self> {
                 let mut locked_internals = self
                     .lockable_internals
                     .write();
@@ -330,7 +331,7 @@ macro_rules! define_database {
                 Ok(self)
             }
 
-            pub fn lock_all_and_checkpoint(&self) -> Result<&Self, String> {
+            pub fn lock_all_and_checkpoint(&self) -> Result<&Self> {
                 let mut locked_internals = self
                     .lockable_internals
                     .write();
@@ -344,16 +345,16 @@ macro_rules! define_database {
 
             pub fn lock_all_writes_and_spawn_read(
                 &self,
-                f: fn(ReadTransaction) -> Result<(), String>,
-            ) -> JoinHandle<Result<(), String>> {
+                f: fn(ReadTransaction) -> Result<()>,
+            ) -> JoinHandle<Result<()>> {
                 let locked_internals = Arc::clone(&self.lockable_internals);
                 thread::spawn(move || f(ReadTransaction::new(&locked_internals)?))
             }
 
             pub fn lock_all_and_spawn_write(
                 &self,
-                f: fn(WriteTransaction) -> Result<(), String>,
-            ) -> JoinHandle<Result<(), String>> {
+                f: fn(WriteTransaction) -> Result<()>,
+            ) -> JoinHandle<Result<()>> {
                 let locked_internals = Arc::clone(&self.lockable_internals);
                 thread::spawn(move || f(WriteTransaction::new(&locked_internals)?))
             }
