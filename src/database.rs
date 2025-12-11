@@ -1,3 +1,10 @@
+pub extern crate anyhow;
+pub extern crate fallible_iterator;
+pub extern crate parking_lot;
+
+#[cfg(feature = "serde")]
+pub extern crate serde;
+
 #[macro_export]
 macro_rules! define_database {
     ($database_name:ident {
@@ -12,18 +19,18 @@ macro_rules! define_database {
             use std::path::PathBuf;
             use std::io::{BufReader, BufRead, Write};
             use std::fs;
-            use anyhow::{Context, Result, Error};
             use std::{
                 collections::BTreeMap,
                 sync::Arc,
                 thread::{self, JoinHandle},
             };
 
-            use fallible_iterator::FallibleIterator;
-            use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+            use $crate::database::anyhow::{Context, Result, Error};
+            use $crate::database::fallible_iterator::FallibleIterator;
+            use $crate::database::parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
             #[cfg(feature = "serde")]
-            use serde::{Deserialize, Serialize};
+            use $crate::serde::{Deserialize, Serialize};
 
             use $crate::keyvalue::{Key, Value};
             use $crate::merging_iterator::MergingIterator;
