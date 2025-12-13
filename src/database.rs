@@ -291,17 +291,17 @@ macro_rules! define_database {
                 })
             }
 
-            pub fn lock_all_writes_and_read<F>(&self, f: F) -> Result<&Self>
+            pub fn lock_all_writes_and_read<F>(&self, mut f: F) -> Result<&Self>
             where
-                F: Fn(ReadTransaction) -> Result<()>,
+                F: FnMut(ReadTransaction) -> Result<()>,
             {
                 f(ReadTransaction::new(&Arc::clone(&self.lockable_internals))?)?;
                 Ok(self)
             }
 
-            pub fn lock_all_and_write<F>(&self, f: F) -> Result<&Self>
+            pub fn lock_all_and_write<F>(&self, mut f: F) -> Result<&Self>
             where
-                F: Fn(&mut WriteTransaction) -> Result<()>,
+                F: FnMut(&mut WriteTransaction) -> Result<()>,
             {
                 let cloned_internals = &Arc::clone(&self.lockable_internals);
                 let mut transaction = WriteTransaction::new(cloned_internals)?;
