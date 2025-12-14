@@ -10,10 +10,9 @@ fallible-iterator = { version = "0.3", features = ["std"] }
 parking_lot = { version = "0.12.5", features = ["hardware-lock-elision"] }
 serde = { optional = true, version = "1.0", features = ["derive"] }
 serde-saphyr = { optional = true, git = "https://github.com/bourumir-wyngs/serde-saphyr" }
-typetag = { optional = true, version = "0.2" }
 
 [features]
-serde = ["dep:serde", "dep:serde-saphyr", "dep:typetag"]
+serde = ["dep:serde", "dep:serde-saphyr"]
 
 [dev-dependencies]
 nanorand = "0.8"

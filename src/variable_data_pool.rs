@@ -108,7 +108,6 @@ pub struct Container {
     pub data: Vec<u8>,
 }
 
-#[cfg_attr(feature = "serde", typetag::serde)]
 impl<D: Value> DataPoolConfig<D> for VariableDataPoolConfig {
     fn new_data_pool(&self) -> Result<Box<dyn DataPool<D> + Send + Sync>> {
         Ok(Box::new(VariableDataPool::new(self)?))

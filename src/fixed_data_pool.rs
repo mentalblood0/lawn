@@ -32,7 +32,6 @@ pub struct FixedDataPool {
     buffer_of_pointers_to_data_to_remove: Vec<u64>,
 }
 
-#[cfg_attr(feature = "serde", typetag::serde)]
 impl<D: Value> DataPoolConfig<D> for FixedDataPoolConfig {
     fn new_data_pool(&self) -> Result<Box<dyn DataPool<D> + Send + Sync>> {
         Ok(Box::new(FixedDataPool::new(self)?))

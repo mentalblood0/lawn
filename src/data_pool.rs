@@ -1,11 +1,7 @@
 use anyhow::Result;
 
-#[cfg(feature = "serde")]
-use typetag;
-
 use crate::keyvalue::Value;
 
-#[cfg_attr(feature = "serde", typetag::serde(tag = "type"))]
 pub trait DataPoolConfig<D: Value> {
     fn new_data_pool(&self) -> Result<Box<dyn DataPool<D> + Send + Sync>>;
 }

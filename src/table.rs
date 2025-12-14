@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, VecDeque};
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
+use std::marker::PhantomData;
 use std::ops::Bound::{Included, Unbounded};
 
 use anyhow::{Context, Error, Result, anyhow};
@@ -11,15 +12,24 @@ use fallible_iterator::FallibleIterator;
 use serde::{Deserialize, Serialize};
 
 use crate::data_pool::{DataPool, DataPoolConfig};
+use crate::fixed_data_pool::FixedDataPoolConfig;
 use crate::index::{Index, IndexConfig, IndexHeader, IndexIterator};
 use crate::keyvalue::{Key, Value};
 use crate::merging_iterator::MergingIterator;
 use crate::partition_point::PartitionPoint;
+use crate::variable_data_pool::VariableDataPoolConfig;
+
+pub enum DataPoolConfigEnum {
+    Fixed(FixedDataPoolConfig),
+    Variable(VariableDataPoolConfig),
+}
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TableConfig<K: Key, V: Value> {
     pub index: IndexConfig,
-    pub data_pool: Box<dyn DataPoolConfig<DataRecord<K, V>>>,
+    pub data_pool: DataPoolConfigEnum,
+    pub _key: PhantomData<K>,
+    pub _value: PhantomData<V>,
 }
 
 pub struct Table<K: Key, V: Value> {
@@ -78,7 +88,16 @@ impl<K: Key, V: Value> Table<K, V> {
     pub fn new(config: TableConfig<K, V>) -> Result<Self> {
         Ok(Self {
             index: Index::new(config.index)?,
-            data_pool: config.data_pool.new_data_pool()?,
+            data_pool: match config.data_pool {
+                DataPoolConfigEnum::Fixed(config) => <FixedDataPoolConfig as DataPoolConfig<
+                    DataRecord<K, V>,
+                >>::new_data_pool(&config)?,
+                DataPoolConfigEnum::Variable(config) => {
+                    <VariableDataPoolConfig as DataPoolConfig<DataRecord<K, V>>>::new_data_pool(
+                        &config,
+                    )?
+                }
+            },
             memtable: BTreeMap::new(),
         })
     }
@@ -822,10 +841,12 @@ mod tests {
             index: IndexConfig {
                 path: table_dir.join("index.idx").to_path_buf(),
             },
-            data_pool: Box::new(VariableDataPoolConfig {
+            data_pool: DataPoolConfigEnum::Variable(VariableDataPoolConfig {
                 directory: table_dir.join("data_pool").to_path_buf(),
                 max_element_size: 65536 as usize,
             }),
+            _key: PhantomData,
+            _value: PhantomData,
         })
         .unwrap();
         result.clear().unwrap();

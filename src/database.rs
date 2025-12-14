@@ -383,12 +383,14 @@ mod tests {
     use super::*;
 
     use crate::{
-        index::IndexConfig, table::TableConfig, variable_data_pool::VariableDataPoolConfig,
+        index::IndexConfig,
+        table::{DataPoolConfigEnum, TableConfig},
+        variable_data_pool::VariableDataPoolConfig,
     };
     use nanorand::{Rng, WyRand};
-    use std::collections::BTreeMap;
     use std::path::Path;
     use std::sync::Arc;
+    use std::{collections::BTreeMap, marker::PhantomData};
 
     use pretty_assertions::assert_eq;
 
@@ -417,7 +419,7 @@ mod tests {
                             .join("index.idx")
                             .to_path_buf(),
                     },
-                    data_pool: Box::new(VariableDataPoolConfig {
+                    data_pool: DataPoolConfigEnum::Variable(VariableDataPoolConfig {
                         directory: database_dir
                             .join("tables")
                             .join("vecs")
@@ -425,6 +427,8 @@ mod tests {
                             .to_path_buf(),
                         max_element_size: 65536 as usize,
                     }),
+                    _key: PhantomData,
+                    _value: PhantomData,
                 },
                 count: TableConfig {
                     index: IndexConfig {
@@ -434,7 +438,7 @@ mod tests {
                             .join("index.idx")
                             .to_path_buf(),
                     },
-                    data_pool: Box::new(VariableDataPoolConfig {
+                    data_pool: DataPoolConfigEnum::Variable(VariableDataPoolConfig {
                         directory: database_dir
                             .join("tables")
                             .join("count")
@@ -442,6 +446,8 @@ mod tests {
                             .to_path_buf(),
                         max_element_size: 65536 as usize,
                     }),
+                    _key: PhantomData,
+                    _value: PhantomData,
                 },
             },
             log: test_database::LogConfig {
