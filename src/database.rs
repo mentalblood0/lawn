@@ -12,7 +12,7 @@ macro_rules! define_database {
     }
     use { $($use_item:item),* $(,)? }) => {
         #[allow(dead_code)]
-        mod $database_name {
+        pub mod $database_name {
             $( $use_item )*
 
             use std::ops::Bound::{Included, Unbounded};
@@ -378,18 +378,6 @@ macro_rules! define_database {
 
 pub use crate::define_database;
 
-#[derive(bincode::Encode, bincode::Decode, Clone, Debug, PartialEq)]
-struct Data {
-    data: Vec<u8>,
-}
-
-define_database!(test_database {
-    vecs<Vec<u8>, Data>,
-    count<(), usize>
-} use {
-    use super::Data;
-});
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -403,6 +391,18 @@ mod tests {
     use std::sync::Arc;
 
     use pretty_assertions::assert_eq;
+
+    #[derive(bincode::Encode, bincode::Decode, Clone, Debug, PartialEq)]
+    struct Data {
+        data: Vec<u8>,
+    }
+
+    define_database!(test_database {
+        vecs<Vec<u8>, Data>,
+        count<(), usize>
+    } use {
+        use super::Data;
+    });
 
     fn new_default_database(test_name_for_isolation: String) -> test_database::Database {
         let database_dir =
