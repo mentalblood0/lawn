@@ -25,7 +25,6 @@ pub struct Index {
     pub header: IndexHeader,
     header_size: usize,
     pub records_count: u64,
-    bytes_on_disk: u64,
 }
 
 impl Index {
@@ -84,7 +83,6 @@ impl Index {
                 header,
                 header_size: bytes_on_disk as usize,
                 records_count: 0,
-                bytes_on_disk,
             })
         } else {
             let (header, header_size): (IndexHeader, usize) = {
@@ -114,7 +112,6 @@ impl Index {
                 header,
                 header_size,
                 records_count,
-                bytes_on_disk,
             })
         }
     }

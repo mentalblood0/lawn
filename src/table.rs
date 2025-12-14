@@ -19,6 +19,7 @@ use crate::merging_iterator::MergingIterator;
 use crate::partition_point::PartitionPoint;
 use crate::variable_data_pool::VariableDataPoolConfig;
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum DataPoolConfigEnum {
     Fixed(FixedDataPoolConfig),
     Variable(VariableDataPoolConfig),
@@ -28,7 +29,10 @@ pub enum DataPoolConfigEnum {
 pub struct TableConfig<K: Key, V: Value> {
     pub index: IndexConfig,
     pub data_pool: DataPoolConfigEnum,
+
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub _key: PhantomData<K>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub _value: PhantomData<V>,
 }
 

@@ -30,7 +30,7 @@ macro_rules! define_database {
             use $crate::database::parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
             #[cfg(feature = "serde")]
-            use $crate::serde::{Deserialize, Serialize};
+            use $crate::database::serde::{Deserialize, Serialize};
 
             use $crate::keyvalue::{Key, Value};
             use $crate::merging_iterator::MergingIterator;
@@ -130,6 +130,7 @@ macro_rules! define_database {
                 }
             }
 
+            #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
             pub struct TablesConfig {
                 $(
                     pub $table_name: table::TableConfig<$key_type, $value_type>,
@@ -379,23 +380,18 @@ macro_rules! define_database {
 pub use crate::define_database;
 
 #[cfg(test)]
+#[cfg(feature = "serde")]
 mod tests {
     use super::*;
 
-    use crate::{
-        index::IndexConfig,
-        table::{DataPoolConfigEnum, TableConfig},
-        variable_data_pool::VariableDataPoolConfig,
-    };
     use nanorand::{Rng, WyRand};
-    use std::path::Path;
+    use std::collections::BTreeMap;
     use std::sync::Arc;
-    use std::{collections::BTreeMap, marker::PhantomData};
 
     use pretty_assertions::assert_eq;
 
     #[derive(bincode::Encode, bincode::Decode, Clone, Debug, PartialEq)]
-    struct Data {
+    pub struct Data {
         data: Vec<u8>,
     }
 
@@ -406,60 +402,21 @@ mod tests {
         use super::Data;
     });
 
-    fn new_default_database(test_name_for_isolation: String) -> test_database::Database {
-        let database_dir =
-            Path::new(format!("/tmp/lawn/test/{test_name_for_isolation}").as_str()).to_path_buf();
-        test_database::Database::new(test_database::DatabaseConfig {
-            tables: test_database::TablesConfig {
-                vecs: TableConfig {
-                    index: IndexConfig {
-                        path: database_dir
-                            .join("tables")
-                            .join("vecs")
-                            .join("index.idx")
-                            .to_path_buf(),
-                    },
-                    data_pool: DataPoolConfigEnum::Variable(VariableDataPoolConfig {
-                        directory: database_dir
-                            .join("tables")
-                            .join("vecs")
-                            .join("data_pool")
-                            .to_path_buf(),
-                        max_element_size: 65536 as usize,
-                    }),
-                    _key: PhantomData,
-                    _value: PhantomData,
-                },
-                count: TableConfig {
-                    index: IndexConfig {
-                        path: database_dir
-                            .join("tables")
-                            .join("count")
-                            .join("index.idx")
-                            .to_path_buf(),
-                    },
-                    data_pool: DataPoolConfigEnum::Variable(VariableDataPoolConfig {
-                        directory: database_dir
-                            .join("tables")
-                            .join("count")
-                            .join("data_pool")
-                            .to_path_buf(),
-                        max_element_size: 65536 as usize,
-                    }),
-                    _key: PhantomData,
-                    _value: PhantomData,
-                },
-            },
-            log: test_database::LogConfig {
-                path: database_dir.join("log.dat").to_path_buf(),
-            },
-        })
+    fn new_default_database(test_name_for_isolation: &str) -> test_database::Database {
+        test_database::Database::new(
+            serde_saphyr::from_str(
+                &std::fs::read_to_string("src/test_database_config.yml")
+                    .unwrap()
+                    .replace("TEST_NAME", test_name_for_isolation),
+            )
+            .unwrap(),
+        )
         .unwrap()
     }
 
     #[test]
     fn test_generative() {
-        let database = new_default_database("test_generative".to_string());
+        let database = new_default_database("test_generative");
         database.lock_all_and_clear().unwrap();
 
         let mut previously_added_keyvalues: BTreeMap<Vec<u8>, Data> = BTreeMap::new();
@@ -533,7 +490,7 @@ mod tests {
         const INCREMENTS_PER_THREAD_COUNT: usize = 1000;
         const FINAL_VALUE: usize = THREADS_COUNT * INCREMENTS_PER_THREAD_COUNT;
 
-        let database = new_default_database("test_transactions_concurrency".to_string());
+        let database = new_default_database("test_transactions_concurrency");
         database
             .lock_all_and_clear()
             .unwrap()
@@ -568,7 +525,7 @@ mod tests {
 
     #[test]
     fn test_recover_from_log() {
-        new_default_database("test_recover_from_log".to_string())
+        new_default_database("test_recover_from_log")
             .lock_all_and_clear()
             .unwrap()
             .lock_all_and_write(|transaction| {
@@ -581,7 +538,7 @@ mod tests {
                 Ok(())
             })
             .unwrap();
-        new_default_database("test_recover_from_log".to_string())
+        new_default_database("test_recover_from_log")
             .lock_all_and_recover()
             .unwrap()
             .lock_all_writes_and_read(|transaction| {
