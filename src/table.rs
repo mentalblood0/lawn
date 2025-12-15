@@ -21,7 +21,9 @@ use crate::variable_data_pool::VariableDataPoolConfig;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum DataPoolConfigEnum {
+    #[cfg_attr(feature = "serde", serde(alias = "fixed"))]
     Fixed(FixedDataPoolConfig),
+    #[cfg_attr(feature = "serde", serde(alias = "variable"))]
     Variable(VariableDataPoolConfig),
 }
 

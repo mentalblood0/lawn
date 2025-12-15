@@ -3,14 +3,14 @@ tables:
     index:
       path: /tmp/lawn/test/TEST_NAME/tables/vecs/index.idx
     data_pool:
-      Variable:
+      variable:
         directory: /tmp/lawn/test/TEST_NAME/tables/vecs/data_pool
         max_element_size: 65536
   count:
     index:
       path: /tmp/lawn/test/TEST_NAME/tables/vecs/index.idx
     data_pool:
-      Variable:
+      variable:
         directory: /tmp/lawn/test/TEST_NAME/tables/vecs/data_pool
         max_element_size: 65536
 log:
