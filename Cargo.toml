@@ -9,11 +9,11 @@ bincode = { version = "2.0", features = ["derive"] }
 fallible-iterator = { version = "0.3", features = ["std"] }
 parking_lot = { version = "0.12.5", features = ["hardware-lock-elision"] }
 serde = { optional = true, version = "1.0", features = ["derive"] }
-serde-saphyr = { optional = true, git = "https://github.com/bourumir-wyngs/serde-saphyr" }
 
 [features]
-serde = ["dep:serde", "dep:serde-saphyr"]
+serde = ["dep:serde"]
 
 [dev-dependencies]
 nanorand = "0.8"
 pretty_assertions = "1.4"
+serde-saphyr = { git = "https://github.com/bourumir-wyngs/serde-saphyr" }
