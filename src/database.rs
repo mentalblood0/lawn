@@ -1,8 +1,6 @@
 pub extern crate anyhow;
 pub extern crate fallible_iterator;
 pub extern crate parking_lot;
-
-#[cfg(feature = "serde")]
 pub extern crate serde;
 
 #[macro_export]
@@ -29,14 +27,13 @@ macro_rules! define_database {
             use $crate::database::fallible_iterator::FallibleIterator;
             use $crate::database::parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-            #[cfg(feature = "serde")]
             use $crate::database::serde::{Deserialize, Serialize};
 
             use $crate::keyvalue::{Key, Value};
             use $crate::merging_iterator::MergingIterator;
             use $crate::table;
 
-            #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+            #[derive(Serialize, Deserialize)]
             pub struct LogConfig {
                 pub path: PathBuf,
             }
@@ -130,14 +127,14 @@ macro_rules! define_database {
                 }
             }
 
-            #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+            #[derive(Serialize, Deserialize)]
             pub struct TablesConfig {
                 $(
                     pub $table_name: table::TableConfig<$key_type, $value_type>,
                 )+
             }
 
-            #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+            #[derive(Serialize, Deserialize)]
             pub struct DatabaseConfig {
                 pub tables: TablesConfig,
                 pub log: LogConfig,
@@ -380,7 +377,6 @@ macro_rules! define_database {
 pub use crate::define_database;
 
 #[cfg(test)]
-#[cfg(feature = "serde")]
 mod tests {
     use super::*;
 

@@ -3,7 +3,6 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
 
-#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::data_pool::*;
@@ -68,8 +67,7 @@ fn split_scale_logarithmically(max_value: usize) -> Result<[usize; CONTAINERS_SI
     Ok(result)
 }
 
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VariableDataPoolConfig {
     pub directory: PathBuf,
     pub max_element_size: usize,

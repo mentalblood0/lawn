@@ -8,7 +8,6 @@ use std::ops::Bound::{Included, Unbounded};
 use anyhow::{Context, Error, Result, anyhow};
 use fallible_iterator::FallibleIterator;
 
-#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::data_pool::{DataPool, DataPoolConfig};
@@ -19,22 +18,22 @@ use crate::merging_iterator::MergingIterator;
 use crate::partition_point::PartitionPoint;
 use crate::variable_data_pool::VariableDataPoolConfig;
 
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Serialize, Deserialize)]
 pub enum DataPoolConfigEnum {
-    #[cfg_attr(feature = "serde", serde(alias = "fixed"))]
+    #[serde(alias = "fixed")]
     Fixed(FixedDataPoolConfig),
-    #[cfg_attr(feature = "serde", serde(alias = "variable"))]
+    #[serde(alias = "variable")]
     Variable(VariableDataPoolConfig),
 }
 
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Serialize, Deserialize)]
 pub struct TableConfig<K: Key, V: Value> {
     pub index: IndexConfig,
     pub data_pool: DataPoolConfigEnum,
 
-    #[cfg_attr(feature = "serde", serde(skip))]
+    #[serde(skip)]
     pub _key: PhantomData<K>,
-    #[cfg_attr(feature = "serde", serde(skip))]
+    #[serde(skip)]
     pub _value: PhantomData<V>,
 }
 

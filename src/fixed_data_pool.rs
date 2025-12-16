@@ -6,14 +6,12 @@ use std::{fs, io::BufWriter};
 
 use anyhow::{Context, Result, anyhow};
 
-#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::data_pool::*;
 use crate::keyvalue::Value;
 
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FixedDataPoolConfig {
     pub path: PathBuf,
     pub container_size: usize,

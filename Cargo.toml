@@ -8,10 +8,7 @@ anyhow = { version = "1.0.100", features = ["std", "backtrace"] }
 bincode = { version = "2.0", features = ["derive"] }
 fallible-iterator = { version = "0.3", features = ["std"] }
 parking_lot = { version = "0.12.5", features = ["hardware-lock-elision"] }
-serde = { optional = true, version = "1.0", features = ["derive"] }
-
-[features]
-serde = ["dep:serde"]
+serde = { version = "1.0", features = ["derive"] }
 
 [dev-dependencies]
 nanorand = "0.8"

@@ -5,11 +5,9 @@ use std::{fs, os::unix::fs::FileExt};
 use anyhow::{Context, Error, Result};
 use fallible_iterator::FallibleIterator;
 
-#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct IndexConfig {
     pub path: PathBuf,
 }
