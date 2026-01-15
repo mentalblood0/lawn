@@ -2,12 +2,14 @@ use std::cmp::Ordering;
 
 use anyhow::Result;
 
+#[derive(Debug)]
 pub struct Satisfying<V, A> {
     pub index: u64,
     pub value: V,
     pub additional_data: A,
 }
 
+#[derive(Debug)]
 pub struct PartitionPoint<V, A> {
     pub first_satisfying: Satisfying<V, A>,
     pub is_exact: bool,

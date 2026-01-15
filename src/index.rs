@@ -17,6 +17,7 @@ pub struct IndexHeader {
     pub record_size: u8,
 }
 
+#[derive(Debug)]
 pub struct Index {
     pub config: IndexConfig,
     file: fs::File,
@@ -166,6 +167,7 @@ impl Index {
     }
 }
 
+#[derive(Debug)]
 pub struct IndexIterator {
     reader: BufReader<fs::File>,
     current_record_index: u64,

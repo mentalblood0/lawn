@@ -101,7 +101,7 @@ impl From<Id> for u64 {
     }
 }
 
-#[derive(bincode::Encode, bincode::Decode)]
+#[derive(bincode::Encode, bincode::Decode, Debug)]
 pub struct Container {
     pub data: Vec<u8>,
 }

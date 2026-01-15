@@ -18,7 +18,7 @@ use crate::merging_iterator::MergingIterator;
 use crate::partition_point::PartitionPoint;
 use crate::variable_data_pool::VariableDataPoolConfig;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum DataPoolConfigEnum {
     #[serde(alias = "fixed")]
     Fixed(FixedDataPoolConfig),
@@ -26,7 +26,7 @@ pub enum DataPoolConfigEnum {
     Variable(VariableDataPoolConfig),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct TableConfig<K: Key, V: Value> {
     pub index: IndexConfig,
     pub data_pool: DataPoolConfigEnum,
@@ -629,6 +629,7 @@ impl<'a, K: Key, V: Value> FallibleIterator for TableIndexIterator<'a, K, V> {
     }
 }
 
+#[derive(Debug)]
 struct Middles {
     queue: VecDeque<(usize, usize)>,
 }
@@ -641,6 +642,7 @@ impl Middles {
     }
 }
 
+#[derive(Debug)]
 struct Middle {
     left_index: usize,
     middle_index: usize,
