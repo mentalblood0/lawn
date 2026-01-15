@@ -7,12 +7,12 @@ use fallible_iterator::FallibleIterator;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct IndexConfig {
     pub path: PathBuf,
 }
 
-#[derive(bincode::Encode, bincode::Decode, Debug)]
+#[derive(bincode::Encode, bincode::Decode, Debug, Clone)]
 pub struct IndexHeader {
     pub record_size: u8,
 }

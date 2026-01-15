@@ -33,7 +33,7 @@ macro_rules! define_database {
             use $crate::merging_iterator::MergingIterator;
             use $crate::table;
 
-            #[derive(Serialize, Deserialize, Debug)]
+            #[derive(Serialize, Deserialize, Debug, Clone)]
             pub struct LogConfig {
                 pub path: PathBuf,
             }
@@ -44,7 +44,7 @@ macro_rules! define_database {
                 file: fs::File,
             }
 
-            #[derive(bincode::Encode, bincode::Decode, Debug)]
+            #[derive(bincode::Encode, bincode::Decode, Debug, Clone)]
             struct LogRecord {
                 $(
                     $table_name: Vec<($key_type, Option<$value_type>)>,
@@ -129,14 +129,14 @@ macro_rules! define_database {
                 }
             }
 
-            #[derive(Serialize, Deserialize, Debug)]
+            #[derive(Serialize, Deserialize, Debug, Clone)]
             pub struct TablesConfig {
                 $(
                     pub $table_name: table::TableConfig<$key_type, $value_type>,
                 )+
             }
 
-            #[derive(Serialize, Deserialize, Debug)]
+            #[derive(Serialize, Deserialize, Debug, Clone)]
             pub struct DatabaseConfig {
                 pub tables: TablesConfig,
                 pub log: LogConfig,

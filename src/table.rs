@@ -18,7 +18,7 @@ use crate::merging_iterator::MergingIterator;
 use crate::partition_point::PartitionPoint;
 use crate::variable_data_pool::VariableDataPoolConfig;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum DataPoolConfigEnum {
     #[serde(alias = "fixed")]
     Fixed(FixedDataPoolConfig),
@@ -26,7 +26,7 @@ pub enum DataPoolConfigEnum {
     Variable(VariableDataPoolConfig),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TableConfig<K: Key, V: Value> {
     pub index: IndexConfig,
     pub data_pool: DataPoolConfigEnum,
@@ -43,7 +43,7 @@ pub struct Table<K: Key, V: Value> {
     pub memtable: BTreeMap<K, Option<V>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct MemtableRecord<K: Key, V: Value> {
     key: K,
     value: Option<V>,
@@ -83,7 +83,7 @@ fn write_data_id(writer: &mut BufWriter<File>, data_id: u64, record_size: u8) ->
     Ok(())
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct LinearMergeElement<K: Key> {
     key: K,
     id: Option<u64>,
@@ -629,7 +629,7 @@ impl<'a, K: Key, V: Value> FallibleIterator for TableIndexIterator<'a, K, V> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Middles {
     queue: VecDeque<(usize, usize)>,
 }
@@ -642,7 +642,7 @@ impl Middles {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Middle {
     left_index: usize,
     middle_index: usize,
