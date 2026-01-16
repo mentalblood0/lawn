@@ -719,12 +719,17 @@ impl<K: Key, V: Value> Table<K, V> {
         Ok(())
     }
 
-    fn iter_index(&'_ self, from_key: Option<&K>) -> Result<TableIndexIterator<'_, K, V>> {
+    fn iter_index(
+        &'_ self,
+        from_key: Option<&K>,
+        including: bool,
+        backwards: bool,
+    ) -> Result<TableIndexIterator<'_, K, V>> {
         if let Some(from_key) = from_key {
             Ok(TableIndexIterator {
                 data_pool: &self.data_pool,
                 index_iter: self.index.iter(
-                    PartitionPoint::new(0, self.index.records_count, |record_index| {
+                    if let Some(partition_point) = PartitionPoint::new(0, self.index.records_count, |record_index| {
                         let data_record_id = self.index.get(record_index)?.with_context(|| {
                             format!("Can not get data record id at index {record_index}")
                         })?;
@@ -739,9 +744,23 @@ impl<K: Key, V: Value> Table<K, V> {
                             "Can not create partition point for {:?} to iterate table from key {from_key:?}",
                             self.index
                         )
-                    })?
-                    .map(|partition_point| partition_point.first_satisfying.index)
-                    .unwrap_or(self.index.records_count + 1),
+                    })? {
+                        if backwards {
+                            if including {
+                                partition_point.first_satisfying.index
+                            } else {
+                                if partition_point.first_satisfying.index == 0 {
+                                    self.index.records_count + 1
+                                } else {
+                                    partition_point.first_satisfying.index - 1
+                                }
+                            }
+                        } else {
+                            partition_point.first_satisfying.index + if including {0} else {1}
+                        }
+                    } else {
+                        self.index.records_count + 1
+                    }
                 ).with_context(|| format!("Can not initiate iteration over index {:?} from key {from_key:?}", self.index))?,
             })
         } else {
@@ -771,7 +790,7 @@ impl<K: Key, V: Value> Table<K, V> {
                     }),
                     Unbounded,
                 )),
-                Box::new(self.iter_index(from_key).with_context(|| {
+                Box::new(self.iter_index(from_key, true, false).with_context(|| {
                     format!("Can not initiate iteration over table index from key {from_key:?}")
                 })?),
             )
