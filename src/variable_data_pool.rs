@@ -108,7 +108,9 @@ pub struct Container {
 
 impl<D: Value> DataPoolConfig<D> for VariableDataPoolConfig {
     fn new_data_pool(&self) -> Result<Box<dyn DataPool<D> + Send + Sync>> {
-        Ok(Box::new(VariableDataPool::new(self)?))
+        Ok(Box::new(VariableDataPool::new(self).with_context(
+            || format!("Can not create variable data pool from config {self:?}"),
+        )?))
     }
 }
 
@@ -116,19 +118,33 @@ impl VariableDataPool {
     pub fn new(config: &VariableDataPoolConfig) -> Result<Self> {
         let mut fixed_data_pools: Vec<FixedDataPool> = Vec::with_capacity(CONTAINERS_SIZES_COUNT);
         let mut jump_point: Option<usize> = None;
-        for (size_index, container_size) in split_scale_logarithmically(config.max_element_size)?
+        for (size_index, container_size) in split_scale_logarithmically(config.max_element_size)
+            .with_context(|| {
+                format!(
+                    "Can not split scale logarithmically for maximum element size {:?}",
+                    config.max_element_size
+                )
+            })?
             .into_iter()
             .enumerate()
         {
             if jump_point.is_none() && container_size - size_index > CONTAINER_SIZE_MIN {
                 jump_point = Some(size_index - 1 + CONTAINER_SIZE_MIN);
             }
-            fixed_data_pools.push(FixedDataPool::new(&FixedDataPoolConfig {
-                path: config
-                    .directory
-                    .join(format!("containers_of_size_{container_size:0>10}.dat")),
-                container_size,
-            })?);
+            fixed_data_pools.push(
+                FixedDataPool::new(&FixedDataPoolConfig {
+                    path: config
+                        .directory
+                        .join(format!("containers_of_size_{container_size:0>10}.dat")),
+                    container_size,
+                })
+                .with_context(|| {
+                    format!(
+                        "Can not create {:?}-nth fixed data pool for variable data pool",
+                        fixed_data_pools.len() + 2
+                    )
+                })?,
+            );
         }
         Ok(Self {
             config: config.clone(),
@@ -155,7 +171,7 @@ impl VariableDataPool {
                 fixed_data_pool.config.container_size < encoded_data.len()
             });
         let pointer = self.container_size_index_to_fixed_data_pool[container_size_index]
-            .insert_raw(encoded_data)?;
+            .insert_raw(encoded_data.clone()).with_context(|| format!("Can not insert encoded data {encoded_data:?} into {:?}-nth fixed data pool of variable data pool", container_size_index + 1))?;
         Ok(u64::from(Id {
             container_size_index: container_size_index as u8,
             pointer: pointer,
@@ -166,7 +182,7 @@ impl VariableDataPool {
         let parsed_id = Id::from(id);
         self.container_size_index_to_fixed_data_pool
             .get(parsed_id.container_size_index as usize)
-            .ok_or_else(|| anyhow!("Can not get {id:?}: no such container index"))?
+            .with_context(|| format!("Can not get {id:?}: no such container index"))?
             .get_raw(parsed_id.pointer)
     }
 }
@@ -190,20 +206,26 @@ impl<D: Value> DataPool<D> for VariableDataPool {
 
     fn flush(&mut self) -> Result<()> {
         for fixed_data_pool in self.container_size_index_to_fixed_data_pool.iter_mut() {
-            <FixedDataPool as DataPool<D>>::flush(fixed_data_pool)?;
+            <FixedDataPool as DataPool<D>>::flush(fixed_data_pool).with_context(|| {
+                format!("Can not flush fixed data pool {fixed_data_pool:?} of variable data pool")
+            })?;
         }
         Ok(())
     }
 
     fn clear(&mut self) -> Result<()> {
         for fixed_data_pool in self.container_size_index_to_fixed_data_pool.iter_mut() {
-            <FixedDataPool as DataPool<D>>::clear(fixed_data_pool)?;
+            <FixedDataPool as DataPool<D>>::clear(fixed_data_pool).with_context(|| {
+                format!("Can not clear fixed data pool {fixed_data_pool:?} of variable data pool")
+            })?;
         }
         Ok(())
     }
 
     fn get(&self, id: u64) -> Result<D> {
-        let encoded_container_or_data_record = self.get_raw(id)?;
+        let encoded_container_or_data_record = self
+            .get_raw(id)
+            .with_context(|| format!("Can not get raw data from fixed data pool by id {id:?}"))?;
         let container: Container = if encoded_container_or_data_record.len() > self.jump_point {
             bincode::decode_from_slice(
                 &encoded_container_or_data_record,

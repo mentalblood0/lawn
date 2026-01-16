@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 #[derive(Debug)]
 pub struct Satisfying<V, A> {
@@ -29,7 +29,11 @@ impl<V, A> PartitionPoint<V, A> {
         while from_index < to_index {
             let mid = from_index + ((to_index - from_index) >> 1);
 
-            match target_compare(mid)? {
+            match target_compare(mid).with_context(|| {
+                format!(
+                    "Can not use user-provided function target_compare for comparison with value at index {mid:?}"
+                )
+            })? {
                 (Ordering::Equal, value, additional_data) => {
                     is_exact = true;
                     if first_satisfying

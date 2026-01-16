@@ -32,7 +32,9 @@ pub struct FixedDataPool {
 
 impl<D: Value> DataPoolConfig<D> for FixedDataPoolConfig {
     fn new_data_pool(&self) -> Result<Box<dyn DataPool<D> + Send + Sync>> {
-        Ok(Box::new(FixedDataPool::new(self)?))
+        Ok(Box::new(FixedDataPool::new(self).with_context(|| {
+            format!("Can not create new fixed data pool from config {self:?}")
+        })?))
     }
 }
 
@@ -70,7 +72,9 @@ impl FixedDataPool {
             .with_context(|| format!("Can not get metadata of file {:?}", result.file))?
             .len() as u64;
         if result.bytesize_on_disk == 0 {
-            result.initialize_empty_file()?;
+            result.initialize_empty_file().with_context(|| {
+                format!("Can not initialize empty file for fixed data pool with config {config:?}")
+            })?;
         } else {
             result
                 .file
@@ -84,7 +88,8 @@ impl FixedDataPool {
     }
 
     fn initialize_empty_file(&mut self) -> Result<()> {
-        self.set_head(vec![255; self.head_size as usize])?;
+        self.set_head(vec![255; self.head_size as usize])
+            .with_context(|| "Can not set head for file of empty fixed data pool")?;
         self.bytesize_on_disk = self.head_size as u64;
         self.containers_allocated = 0;
         self.no_holes_left = true;
@@ -146,7 +151,10 @@ impl FixedDataPool {
 
     pub fn insert_raw(&mut self, mut data: Vec<u8>) -> Result<u64> {
         if let Some(pointer_to_data_to_remove) = self.buffer_of_pointers_to_data_to_remove.pop() {
-            self.set(pointer_to_data_to_remove, &data)?;
+            self.set(pointer_to_data_to_remove, &data)
+                .with_context(|| {
+                    format!("Can not set replace current data at pointer {pointer_to_data_to_remove:?} with data {data:?}")
+                })?;
             Ok(pointer_to_data_to_remove)
         } else {
             if self.no_holes_left {
@@ -165,7 +173,7 @@ impl FixedDataPool {
                 match data.len().cmp(&self.config.container_size) {
                     Ordering::Greater => {
                         return Err(anyhow!(
-                            "Can not insert data of size {} into fixed data pool for containers of size {}",
+                            "Can not insert data of size {} into fixed data pool for containers of size {} at {self:?}",
                             data.len(),
                             self.config.container_size
                         ));
@@ -185,9 +193,17 @@ impl FixedDataPool {
                 Ok(self.containers_allocated - 1)
             } else {
                 let pointer = self.pointer_from_container(&self.head);
-                let new_head = self.get_of_size(pointer, self.head_size as usize)?;
-                self.set(pointer, &data)?;
-                self.set_head(new_head)?;
+                let new_head_size = self.head_size as usize;
+                let new_head = self.get_of_size(pointer, new_head_size).with_context(|| {
+                    format!(
+                        "Can not get {new_head_size:?} bytes at pointer {pointer:?} of {self:?}"
+                    )
+                })?;
+                self.set(pointer, &data).with_context(|| {
+                    format!("Can not set data {data:?} at pointer {pointer:?} of {self:?}")
+                })?;
+                self.set_head(new_head.clone())
+                    .with_context(|| format!("Can not set new head {new_head:?}"))?;
                 Ok(pointer)
             }
         }
@@ -217,15 +233,17 @@ impl<D: Value> DataPool<D> for FixedDataPool {
             for pointer_to_data_to_remove in
                 std::mem::take(&mut self.buffer_of_pointers_to_data_to_remove).into_iter()
             {
-                self.set(pointer_to_data_to_remove, &cached_head)?;
+                self.set(pointer_to_data_to_remove, &cached_head).with_context(|| format!("Can not set cached head {cached_head:?} at pointer to data to remove {pointer_to_data_to_remove:?} at {self:?} while flushing"))?;
                 cached_head = self.pointer_to_container(pointer_to_data_to_remove);
             }
-            self.set_head(cached_head)?;
+            self.set_head(cached_head.clone()).with_context(|| {
+                format!("Can not set cached head {cached_head:?} for while flushing")
+            })?;
         }
         if let Some(writer) = self.writer.as_mut() {
             writer
                 .flush()
-                .with_context(|| format!("Can not flush fixed data pool update"))?;
+                .with_context(|| format!("Can not flush file for fixed data pool update"))?;
         }
         self.writer = None;
         Ok(())
@@ -240,11 +258,16 @@ impl<D: Value> DataPool<D> for FixedDataPool {
     }
 
     fn get(&self, id: u64) -> Result<D> {
-        Ok(
-            bincode::decode_from_slice::<D, _>(&self.get_raw(id)?, bincode::config::standard())
-                .with_context(|| format!("Can not decode data record"))?
-                .0,
+        Ok(bincode::decode_from_slice::<D, _>(
+            &self
+                .get_raw(id)
+                .with_context(|| format!("Can not get raw value by id {id:?} at {self:?}"))?,
+            bincode::config::standard(),
         )
+        .with_context(|| {
+            format!("Can not decode data record got by id {id:?} from fixed data pool {self:?}")
+        })?
+        .0)
     }
 }
 

@@ -157,7 +157,7 @@ impl Index {
             .seek(std::io::SeekFrom::Start(
                 self.header_size as u64 + from_record_index * self.header.record_size as u64,
             ))
-            .with_context(|| format!("Can not seek in index file"))?;
+            .with_context(|| format!("Can not seek in index file at {self:?}"))?;
         Ok(IndexIterator {
             reader: BufReader::new(index_file),
             current_record_index: from_record_index,
@@ -184,9 +184,9 @@ impl FallibleIterator for IndexIterator {
             return Ok(None);
         }
 
-        self.reader
-            .read_exact(&mut self.buffer)
-            .with_context(|| format!("Can not read index record (data id)"))?;
+        self.reader.read_exact(&mut self.buffer).with_context(|| {
+            format!("Can not read index record (data id) while iterating index")
+        })?;
         let mut result: u64 = 0;
         for byte in self.buffer.iter().rev() {
             result = (result << 8) + *byte as u64;

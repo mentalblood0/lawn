@@ -180,8 +180,8 @@ macro_rules! define_database {
                                 Unbounded,
                             )),
                         self.table
-                            .iter(from_key)?,
-                    )?))
+                            .iter(from_key).with_context(|| format!("Can not initiate iteration over table starting from key {from_key:?}"))?,
+                    ).with_context(|| "Can not initiate merging-with-uncommitted-changes iteration over table starting from key {from_key:?}")?))
                 }
             }
 
@@ -233,7 +233,7 @@ macro_rules! define_database {
                 };
                 self.database_locked_internals
                     .log
-                    .write(log_record)?;
+                    .write(log_record.clone()).with_context(|| format!("Can not write log record {log_record:?} to database while committing write transaction"))?;
                 $({
                     let mut table_changes = std::mem::take(&mut self.database_locked_internals
                                                                     .tables
@@ -281,12 +281,12 @@ macro_rules! define_database {
                         tables: TablesTransactions {
                             $(
                                 $table_name: TableTransaction {
-                                    table: table::Table::<$key_type, $value_type>::new(config.tables.$table_name)?,
+                                    table: table::Table::<$key_type, $value_type>::new(config.tables.$table_name.clone()).with_context(|| format!("Can not create new table {:?} from config {:?}", stringify!($table_name), config.tables.$table_name))?,
                                     changes: BTreeMap::new(),
                                 },
                             )+
                         },
-                        log: Log::new(config.log)?,
+                        log: Log::new(config.log.clone()).with_context(|| format!("Can not create new log from config {:?}", config.log))?,
                     })),
                 })
             }
@@ -295,7 +295,7 @@ macro_rules! define_database {
             where
                 F: FnMut(ReadTransaction) -> Result<()>,
             {
-                f(ReadTransaction::new(&Arc::clone(&self.lockable_internals))?)?;
+                f(ReadTransaction::new(&Arc::clone(&self.lockable_internals)).with_context(|| "Can not create new read transaction from lockable internals of database")?).with_context(|| "Can not execute user-provided function for read transaction")?;
                 Ok(self)
             }
 
@@ -304,9 +304,9 @@ macro_rules! define_database {
                 F: FnMut(&mut WriteTransaction) -> Result<()>,
             {
                 let cloned_internals = &Arc::clone(&self.lockable_internals);
-                let mut transaction = WriteTransaction::new(cloned_internals)?;
-                f(&mut transaction)?;
-                transaction.commit()?;
+                let mut transaction = WriteTransaction::new(cloned_internals).with_context(|| "Can not create new write transaction from arc-cloned internals of database")?;
+                f(&mut transaction).with_context(|| "Can not execute user-provided function for read transaction")?;
+                transaction.commit().with_context(|| "Can not commit write transaction to database")?;
                 Ok(self)
             }
 
@@ -315,14 +315,14 @@ macro_rules! define_database {
                     .lockable_internals
                     .write();
 
-                locked_internals.log.iter()?.for_each(|log_record| {
+                locked_internals.log.iter().with_context(|| format!("Can not initiate iteration over log {:?} to recover database", locked_internals.log))?.for_each(|log_record| {
                     $(
                         for (key, value) in log_record.$table_name {
                             locked_internals.tables.$table_name.table.memtable.insert(key, value);
                         }
                     )+
                     Ok(())
-                })?;
+                }).with_context(|| format!("Can not recover database from log {:?}", locked_internals.log))?;
                 Ok(self)
             }
 
@@ -332,9 +332,9 @@ macro_rules! define_database {
                     .write();
 
                 $(
-                    locked_internals.tables.$table_name.table.clear()?;
+                    locked_internals.tables.$table_name.table.clear().with_context(|| format!("Can not clear table {:?} while clearing database", stringify!($table_name)))?;
                 )+
-                locked_internals.log.clear()?;
+                locked_internals.log.clear().with_context(|| format!("Can not clear log {:?} while clearing database", locked_internals.log))?;
                 Ok(self)
             }
 
@@ -344,9 +344,9 @@ macro_rules! define_database {
                     .write();
 
                 $(
-                    locked_internals.tables.$table_name.table.checkpoint()?;
+                    locked_internals.tables.$table_name.table.checkpoint().with_context(|| format!("Can not checkpoint table {:?}", stringify!($table_name)))?;
                 )+
-                locked_internals.log.clear()?;
+                locked_internals.log.clear().with_context(|| format!("Can not clear log {:?} while checkpointing database", locked_internals.log))?;
                 Ok(self)
             }
 
@@ -355,7 +355,7 @@ macro_rules! define_database {
                 f: fn(ReadTransaction) -> Result<()>,
             ) -> JoinHandle<Result<()>> {
                 let locked_internals = Arc::clone(&self.lockable_internals);
-                thread::spawn(move || f(ReadTransaction::new(&locked_internals)?))
+                thread::spawn(move || f(ReadTransaction::new(&locked_internals).with_context(|| "Can not create new read transaction from database locked internals")?))
             }
 
             pub fn lock_all_and_spawn_write(
@@ -363,7 +363,7 @@ macro_rules! define_database {
                 f: fn(WriteTransaction) -> Result<()>,
             ) -> JoinHandle<Result<()>> {
                 let locked_internals = Arc::clone(&self.lockable_internals);
-                thread::spawn(move || f(WriteTransaction::new(&locked_internals)?))
+                thread::spawn(move || f(WriteTransaction::new(&locked_internals).with_context(|| "Can not create new write transaction from database locked internals")?))
             }
         }
         }

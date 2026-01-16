@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use anyhow::{Error, Result};
+use anyhow::{Context, Error, Result};
 use fallible_iterator::FallibleIterator;
 
 use crate::keyvalue::{Key, Value};
@@ -18,7 +18,9 @@ impl<'a, K: Key, V: Value> MergingIterator<'a, K, V> {
         mut old_iter: Box<dyn FallibleIterator<Item = (K, V), Error = Error> + 'a>,
     ) -> Result<Self> {
         let current_new_keyvalue_option = new_iter.next();
-        let current_old_keyvalue_option = old_iter.next()?;
+        let current_old_keyvalue_option = old_iter.next().with_context(
+            || "Can not propagate old key-value pairs iterator further (even getting nothing)",
+        )?;
         Ok(Self {
             new_iter,
             old_iter,
@@ -66,7 +68,9 @@ impl<'a, K: Key, V: Value> FallibleIterator for MergingIterator<'a, K, V> {
                                 None
                             };
                             self.current_new_keyvalue_option = self.new_iter.next();
-                            self.current_old_keyvalue_option = self.old_iter.next()?;
+                            self.current_old_keyvalue_option = self.old_iter.next().with_context(
+                                || "Can not propagate old key-value pairs iterator further (even getting nothing)",
+                            )?;
                             if result.is_some() {
                                 return Ok(result);
                             }
@@ -86,7 +90,9 @@ impl<'a, K: Key, V: Value> FallibleIterator for MergingIterator<'a, K, V> {
                 }
                 (None, Some(current_table_index_keyvalue)) => {
                     let result = Some(current_table_index_keyvalue.clone());
-                    self.current_old_keyvalue_option = self.old_iter.next()?;
+                    self.current_old_keyvalue_option = self.old_iter.next().with_context(
+                        || "Can not propagate old key-value pairs iterator further (even getting nothing)",
+                    )?;
                     return Ok(result);
                 }
                 (None, None) => return Ok(None),
