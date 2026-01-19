@@ -805,7 +805,7 @@ impl<K: Key, V: Value> Table<K, V> {
                 if backwards {
                     Box::new(
                         self.memtable
-                            .range::<K, _>((start_bound, Bound::Unbounded))
+                            .range::<K, _>((Bound::Unbounded, start_bound))
                             .rev(),
                     )
                 } else {
@@ -1427,24 +1427,58 @@ mod tests {
                 table.memtable.insert(key, value);
             }
 
-            table
-                .iter(Bound::Unbounded, false)
-                .unwrap()
-                .map(|(key, _)| Ok(key))
-                .unwrap()
-                .zip(previously_added_keyvalues.keys())
-                .for_each(|(table_key, correct_table_key)| {
-                    assert_eq!(&table_key, correct_table_key)
-                });
-            table
-                .iter(Bound::Unbounded, true)
-                .unwrap()
-                .map(|(key, _)| Ok(key))
-                .unwrap()
-                .zip(previously_added_keyvalues.keys().rev())
-                .for_each(|(table_key, correct_table_key)| {
-                    assert_eq!(&table_key, correct_table_key)
-                });
+            let previously_added_keys = previously_added_keyvalues
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>();
+            let previously_added_keys_reversed = previously_added_keyvalues
+                .keys()
+                .rev()
+                .cloned()
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                table
+                    .iter(Bound::Unbounded, false)
+                    .unwrap()
+                    .map(|(key, _)| Ok(key))
+                    .collect::<Vec<_>>()
+                    .unwrap(),
+                previously_added_keys
+            );
+            assert_eq!(
+                table
+                    .iter(Bound::Unbounded, true)
+                    .unwrap()
+                    .map(|(key, _)| Ok(key))
+                    .collect::<Vec<_>>()
+                    .unwrap(),
+                previously_added_keys_reversed
+            );
+            dbg!(&previously_added_keys);
+
+            for (key_index, key) in previously_added_keys.iter().enumerate() {
+                dbg!(&key_index);
+                assert_eq!(
+                    table
+                        .iter(Bound::Included(key), false)
+                        .unwrap()
+                        .map(|(key, _)| Ok(key))
+                        .collect::<Vec<_>>()
+                        .unwrap(),
+                    previously_added_keys[key_index..]
+                );
+                assert_eq!(
+                    table
+                        .iter(Bound::Included(key), true)
+                        .unwrap()
+                        .map(|(key, _)| Ok(key))
+                        .collect::<Vec<_>>()
+                        .unwrap(),
+                    previously_added_keys_reversed
+                        [previously_added_keys_reversed.len() - 1 - key_index..]
+                );
+            }
 
             let correct_table_keys: Vec<Vec<u8>> =
                 previously_added_keyvalues.keys().cloned().collect();

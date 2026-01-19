@@ -143,6 +143,7 @@ impl Index {
     }
 
     pub fn iter(&self, from_record_index: u64, backwards: bool) -> Result<IndexIterator> {
+        println!("Index.iter {from_record_index:?} {backwards:?}");
         let mut index_file = std::fs::OpenOptions::new()
             .create(false)
             .read(true)
