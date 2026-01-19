@@ -13,7 +13,7 @@ macro_rules! define_database {
         pub mod $database_name {
             $( $use_item )*
 
-            use std::ops::Bound::{Included, Unbounded};
+            use std::ops::Bound;
             use std::path::PathBuf;
             use std::io::{BufReader, BufRead, Write};
             use std::fs;
@@ -166,22 +166,32 @@ macro_rules! define_database {
 
                 pub fn iter(
                     &'_ self,
-                    from_key: Option<&K>,
+                    start_bound: Bound<&K>,
+                    backwards: bool
                 ) -> Result<Box<dyn FallibleIterator<Item = (K, V), Error = Error> + '_>>
                 {
                     Ok(Box::new(MergingIterator::new(
-                        self.changes
-                            .range::<K, _>((
-                                (if let Some(from_key) = from_key {
-                                    Included(from_key)
-                                } else {
-                                    Unbounded
-                                }),
-                                Unbounded,
-                            )),
+                        if backwards {
+                            Box::new(
+                                self.changes
+                                    .range::<K, _>((
+                                        start_bound,
+                                        Bound::Unbounded,
+                                    )),
+                            )
+                        } else {
+                            Box::new(
+                                self.changes
+                                    .range::<K, _>((
+                                        start_bound,
+                                        Bound::Unbounded,
+                                    )),
+                            )
+                        },
                         self.table
-                            .iter(from_key).with_context(|| format!("Can not initiate iteration over table starting from key {from_key:?}"))?,
-                    ).with_context(|| "Can not initiate merging-with-uncommitted-changes iteration over table starting from key {from_key:?}")?))
+                            .iter(start_bound, backwards).with_context(|| format!("Can not initiate iteration over table starting from {start_bound:?}"))?,
+                        backwards,
+                    ).with_context(|| "Can not initiate merging-with-uncommitted-changes iteration over table starting from {start_bound:?}")?))
                 }
             }
 

@@ -6,16 +6,18 @@ use fallible_iterator::FallibleIterator;
 use crate::keyvalue::{Key, Value};
 
 pub struct MergingIterator<'a, K: Key, V: Value> {
-    pub new_iter: std::collections::btree_map::Range<'a, K, Option<V>>,
+    pub new_iter: Box<dyn Iterator<Item = (&'a K, &'a Option<V>)> + 'a>,
     pub old_iter: Box<dyn FallibleIterator<Item = (K, V), Error = Error> + 'a>,
     pub current_new_keyvalue_option: Option<(&'a K, &'a Option<V>)>,
     pub current_old_keyvalue_option: Option<(K, V)>,
+    pub backwards: bool,
 }
 
 impl<'a, K: Key, V: Value> MergingIterator<'a, K, V> {
     pub fn new(
-        mut new_iter: std::collections::btree_map::Range<'a, K, Option<V>>,
+        mut new_iter: Box<dyn Iterator<Item = (&'a K, &'a Option<V>)> + 'a>,
         mut old_iter: Box<dyn FallibleIterator<Item = (K, V), Error = Error> + 'a>,
+        backwards: bool,
     ) -> Result<Self> {
         let current_new_keyvalue_option = new_iter.next();
         let current_old_keyvalue_option = old_iter.next().with_context(
@@ -26,6 +28,7 @@ impl<'a, K: Key, V: Value> MergingIterator<'a, K, V> {
             old_iter,
             current_new_keyvalue_option,
             current_old_keyvalue_option,
+            backwards,
         })
     }
 }
@@ -41,10 +44,15 @@ impl<'a, K: Key, V: Value> FallibleIterator for MergingIterator<'a, K, V> {
                 &self.current_old_keyvalue_option,
             ) {
                 (Some(current_memtable_keyvalue), Some(current_table_index_keyvalue)) => {
-                    match current_memtable_keyvalue
-                        .0
-                        .cmp(&current_table_index_keyvalue.0)
-                    {
+                    match if self.backwards {
+                        current_table_index_keyvalue
+                            .0
+                            .cmp(current_memtable_keyvalue.0)
+                    } else {
+                        current_memtable_keyvalue
+                            .0
+                            .cmp(&current_table_index_keyvalue.0)
+                    } {
                         Ordering::Less => {
                             let result = if let Some(value) = current_memtable_keyvalue.1 {
                                 Some((current_memtable_keyvalue.0.clone(), value.clone()))

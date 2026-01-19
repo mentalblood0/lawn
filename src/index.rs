@@ -142,7 +142,8 @@ impl Index {
         Ok(())
     }
 
-    pub fn iter(&self, from_record_index: u64) -> Result<IndexIterator> {
+    pub fn iter(&self, from_record_index: u64, backwards: bool) -> Result<IndexIterator> {
+        println!("iter");
         let mut index_file = std::fs::OpenOptions::new()
             .create(false)
             .read(true)
@@ -163,6 +164,9 @@ impl Index {
             current_record_index: from_record_index,
             records_count: self.records_count,
             buffer: vec![0 as u8; self.header.record_size as usize],
+            header_size: self.header_size,
+            backwards,
+            first_read: true,
         })
     }
 }
@@ -173,6 +177,9 @@ pub struct IndexIterator {
     current_record_index: u64,
     records_count: u64,
     buffer: Vec<u8>,
+    header_size: usize,
+    backwards: bool,
+    first_read: bool,
 }
 
 impl FallibleIterator for IndexIterator {
@@ -183,15 +190,33 @@ impl FallibleIterator for IndexIterator {
         if self.records_count <= self.current_record_index {
             return Ok(None);
         }
-
-        self.reader.read_exact(&mut self.buffer).with_context(|| {
-            format!("Can not read index record (data id) while iterating index")
-        })?;
+        if self.backwards {
+            if !self.first_read {
+                self.reader
+                    .seek(std::io::SeekFrom::Start(
+                        self.header_size as u64
+                            + self.current_record_index * self.buffer.len() as u64,
+                    ))
+                    .with_context(|| format!("Can not seek backwards while iterating index"))?;
+            }
+            self.reader.read_exact(&mut self.buffer).with_context(|| {
+                format!("Can not read index record (data id) while iterating index")
+            })?;
+            self.current_record_index = self
+                .current_record_index
+                .checked_sub(1)
+                .unwrap_or(self.records_count);
+        } else {
+            self.reader.read_exact(&mut self.buffer).with_context(|| {
+                format!("Can not read index record (data id) while iterating index")
+            })?;
+            self.current_record_index += 1;
+        }
         let mut result: u64 = 0;
         for byte in self.buffer.iter().rev() {
             result = (result << 8) + *byte as u64;
         }
-        self.current_record_index += 1;
+        self.first_read = false;
         Ok(Some(result))
     }
 }

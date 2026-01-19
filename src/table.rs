@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::marker::PhantomData;
-use std::ops::Bound::{Included, Unbounded};
+use std::ops::Bound;
 
 use anyhow::{Context, Error, Result, anyhow};
 use fallible_iterator::FallibleIterator;
@@ -309,7 +309,7 @@ impl<K: Key, V: Value> Table<K, V> {
 
         let mut old_ids_iter = self
             .index
-            .iter(0)
+            .iter(0, false)
             .with_context(|| "Can not initiate iteration over index from the beginning")?;
         let mut current_old_id_and_key_option = if let Some(current_old_id) =
             old_ids_iter.next().with_context(|| {
@@ -572,7 +572,7 @@ impl<K: Key, V: Value> Table<K, V> {
 
         let mut old_ids_iter = self
             .index
-            .iter(0)
+            .iter(0, false)
             .with_context(|| "Can not initiate iteration over index from the beginning")?
             .enumerate();
         let mut current_old_id_option = old_ids_iter.next().with_context(|| {
@@ -721,81 +721,103 @@ impl<K: Key, V: Value> Table<K, V> {
 
     fn iter_index(
         &'_ self,
-        from_key: Option<&K>,
-        including: bool,
+        start_bound: Bound<&K>,
         backwards: bool,
     ) -> Result<TableIndexIterator<'_, K, V>> {
-        if let Some(from_key) = from_key {
-            Ok(TableIndexIterator {
-                data_pool: &self.data_pool,
-                index_iter: self.index.iter(
-                    if let Some(partition_point) = PartitionPoint::new(0, self.index.records_count, |record_index| {
-                        let data_record_id = self.index.get(record_index)?.with_context(|| {
-                            format!("Can not get data record id at index {record_index}")
-                        })?;
-                        let data_record =
-                            self.get_from_index_by_id(data_record_id).with_context(|| {
-                                format!("Can not get record from index by id {data_record_id:?}")
+        match start_bound {
+            Bound::Included(from_key) | Bound::Excluded(from_key) => {
+                let empty_iter_start = self.index.records_count;
+                Ok(TableIndexIterator {
+                    data_pool: &self.data_pool,
+                    index_iter: self.index.iter(
+                        if let Some(partition_point) = PartitionPoint::new(0, self.index.records_count, |record_index| {
+                            let data_record_id = self.index.get(record_index)?.with_context(|| {
+                                format!("Can not get data record id at index {record_index}")
                             })?;
-                        Ok((data_record.key.cmp(from_key), data_record.value, ()))
-                    })
-                    .with_context(|| {
-                        format!(
-                            "Can not create partition point for {:?} to iterate table from key {from_key:?}",
-                            self.index
-                        )
-                    })? {
-                        if backwards {
-                            if including {
-                                partition_point.first_satisfying.index
+                            let data_record =
+                                self.get_from_index_by_id(data_record_id).with_context(|| {
+                                    format!("Can not get record from index by id {data_record_id:?}")
+                                })?;
+                            Ok((data_record.key.cmp(from_key), data_record.value, ()))
+                        })
+                        .with_context(|| {
+                            format!(
+                                "Can not create partition point for {:?} to iterate table from key {from_key:?}",
+                                self.index
+                            )
+                        })? {
+                            if let Bound::Included(_) = start_bound {
+                                    partition_point.first_satisfying.index
                             } else {
-                                if partition_point.first_satisfying.index == 0 {
-                                    self.index.records_count + 1
+                                if backwards {
+                                    if partition_point.is_exact {
+                                        partition_point.first_satisfying.index.checked_sub(1).unwrap_or(empty_iter_start)
+                                    } else {
+                                        partition_point.first_satisfying.index
+                                    }
                                 } else {
-                                    partition_point.first_satisfying.index - 1
+                                    if partition_point.is_exact {
+                                        partition_point.first_satisfying.index + 1
+                                    } else {
+                                        partition_point.first_satisfying.index
+                                    }
                                 }
                             }
                         } else {
-                            partition_point.first_satisfying.index + if including {0} else {1}
-                        }
-                    } else {
-                        self.index.records_count + 1
-                    }
-                ).with_context(|| format!("Can not initiate iteration over index {:?} from key {from_key:?}", self.index))?,
-            })
-        } else {
-            Ok(TableIndexIterator {
+                            empty_iter_start
+                        },
+                        backwards
+                    ).with_context(|| format!("Can not initiate iteration over index {:?} from key {from_key:?}", self.index))?,
+                })
+            }
+            Bound::Unbounded => Ok(TableIndexIterator {
                 data_pool: &self.data_pool,
-                index_iter: self.index.iter(0).with_context(|| {
-                    format!(
-                        "Can not initiate iteration over index {:?} from the beginning",
-                        self.index
+                index_iter: self
+                    .index
+                    .iter(
+                        if backwards {
+                            self.index
+                                .records_count
+                                .checked_sub(1)
+                                .unwrap_or(self.index.records_count)
+                        } else {
+                            0
+                        },
+                        backwards,
                     )
-                })?,
-            })
+                    .with_context(|| {
+                        format!(
+                            "Can not initiate iteration over index {:?} from the beginning",
+                            self.index
+                        )
+                    })?,
+            }),
         }
     }
 
     pub fn iter(
         &'_ self,
-        from_key: Option<&K>,
+        start_bound: Bound<&K>,
+        backwards: bool,
     ) -> Result<Box<dyn FallibleIterator<Item = (K, V), Error = Error> + '_>> {
         Ok(Box::new(
             MergingIterator::new(
-                self.memtable.range::<K, _>((
-                    (if let Some(from_key) = from_key {
-                        Included(from_key)
-                    } else {
-                        Unbounded
-                    }),
-                    Unbounded,
-                )),
-                Box::new(self.iter_index(from_key, true, false).with_context(|| {
-                    format!("Can not initiate iteration over table index from key {from_key:?}")
+                if backwards {
+                    Box::new(
+                        self.memtable
+                            .range::<K, _>((start_bound, Bound::Unbounded))
+                            .rev(),
+                    )
+                } else {
+                    Box::new(self.memtable.range::<K, _>((start_bound, Bound::Unbounded)))
+                },
+                Box::new(self.iter_index(start_bound, backwards).with_context(|| {
+                    format!("Can not initiate iteration over table index from key {start_bound:?}")
                 })?),
+                backwards,
             )
             .with_context(|| {
-                format!("Can not initiate merging iteration over table from key {from_key:?}")
+                format!("Can not initiate merging iteration over table from key {start_bound:?}")
             })?,
         ))
     }
@@ -1406,11 +1428,20 @@ mod tests {
             }
 
             table
-                .iter(None)
+                .iter(Bound::Unbounded, false)
                 .unwrap()
                 .map(|(key, _)| Ok(key))
                 .unwrap()
                 .zip(previously_added_keyvalues.keys())
+                .for_each(|(table_key, correct_table_key)| {
+                    assert_eq!(&table_key, correct_table_key)
+                });
+            table
+                .iter(Bound::Unbounded, true)
+                .unwrap()
+                .map(|(key, _)| Ok(key))
+                .unwrap()
+                .zip(previously_added_keyvalues.keys().rev())
                 .for_each(|(table_key, correct_table_key)| {
                     assert_eq!(&table_key, correct_table_key)
                 });
@@ -1419,7 +1450,7 @@ mod tests {
                 previously_added_keyvalues.keys().cloned().collect();
             for key_index in 0..correct_table_keys.len() {
                 let table_keys: Vec<Vec<u8>> = table
-                    .iter(Some(&correct_table_keys[key_index]))
+                    .iter(Bound::Included(&correct_table_keys[key_index]), false)
                     .unwrap()
                     .map(|(key, _)| Ok(key))
                     .unwrap()
