@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::data_pool::{DataPool, DataPoolConfig};
 use crate::fixed_data_pool::FixedDataPoolConfig;
-use crate::index::{Index, IndexConfig, IndexHeader, IndexIterator};
+use crate::index::{Index, IndexConfig, IndexHeader};
 use crate::keyvalue::{Key, Value};
 use crate::merging_iterator::MergingIterator;
 use crate::partition_point::PartitionPoint;
@@ -726,11 +726,7 @@ impl<K: Key, V: Value> Table<K, V> {
     ) -> Result<TableIndexIterator<'_, K, V>> {
         match start_bound {
             Bound::Included(from_key) | Bound::Excluded(from_key) => {
-                let empty_iter_start = self.index.records_count;
-                Ok(TableIndexIterator {
-                    data_pool: &self.data_pool,
-                    index_iter: self.index.iter(
-                        if let Some(partition_point) = PartitionPoint::new(0, self.index.records_count, |record_index| {
+                let from_record_index = PartitionPoint::new(0, self.index.records_count, |record_index| {
                             let data_record_id = self.index.get(record_index)?.with_context(|| {
                                 format!("Can not get data record id at index {record_index}")
                             })?;
@@ -745,52 +741,67 @@ impl<K: Key, V: Value> Table<K, V> {
                                 "Can not create partition point for {:?} to iterate table from key {from_key:?}",
                                 self.index
                             )
-                        })? {
+                        })?.and_then(|partition_point| {
                             if let Bound::Included(_) = start_bound {
-                                    partition_point.first_satisfying.index
+                                    Some(partition_point.first_satisfying.index)
                             } else {
                                 if backwards {
                                     if partition_point.is_exact {
-                                        partition_point.first_satisfying.index.checked_sub(1).unwrap_or(empty_iter_start)
+                                        partition_point.first_satisfying.index.checked_sub(1)
                                     } else {
-                                        partition_point.first_satisfying.index
+                                        Some(partition_point.first_satisfying.index)
                                     }
                                 } else {
                                     if partition_point.is_exact {
-                                        partition_point.first_satisfying.index + 1
+                                        Some(partition_point.first_satisfying.index + 1)
                                     } else {
-                                        partition_point.first_satisfying.index
+                                        Some(partition_point.first_satisfying.index)
                                     }
                                 }
                             }
-                        } else {
-                            empty_iter_start
-                        },
-                        backwards
-                    ).with_context(|| format!("Can not initiate iteration over index {:?} from key {from_key:?}", self.index))?,
+                        });
+                Ok(TableIndexIterator {
+                    data_pool: &self.data_pool,
+                    index_iter: if let Some(from_record_index) = from_record_index {
+                        Box::new(self.index.iter(
+                            from_record_index,
+                            backwards
+                        ).with_context(|| format!("Can not initiate iteration over index {:?} from key {from_key:?}", self.index))?)
+                    } else {
+                        Box::new(fallible_iterator::convert(
+                            [0u64; 0].into_iter().map(|u| Ok(u)),
+                        ))
+                    },
                 })
             }
             Bound::Unbounded => Ok(TableIndexIterator {
                 data_pool: &self.data_pool,
-                index_iter: self
-                    .index
-                    .iter(
-                        if backwards {
-                            self.index
-                                .records_count
-                                .checked_sub(1)
-                                .unwrap_or(self.index.records_count)
-                        } else {
-                            0
-                        },
-                        backwards,
+                index_iter: if backwards && self.index.records_count == 0 {
+                    Box::new(fallible_iterator::convert(
+                        [0u64; 0].into_iter().map(|u| Ok(u)),
+                    ))
+                } else {
+                    Box::new(
+                        self.index
+                            .iter(
+                                if backwards {
+                                    self.index
+                                        .records_count
+                                        .checked_sub(1)
+                                        .unwrap_or(self.index.records_count)
+                                } else {
+                                    0
+                                },
+                                backwards,
+                            )
+                            .with_context(|| {
+                                format!(
+                                    "Can not initiate iteration over index {:?} from the beginning",
+                                    self.index
+                                )
+                            })?,
                     )
-                    .with_context(|| {
-                        format!(
-                            "Can not initiate iteration over index {:?} from the beginning",
-                            self.index
-                        )
-                    })?,
+                },
             }),
         }
     }
@@ -825,7 +836,7 @@ impl<K: Key, V: Value> Table<K, V> {
 
 struct TableIndexIterator<'a, K: Key, V: Value> {
     data_pool: &'a Box<dyn DataPool<DataRecord<K, V>> + Send + Sync>,
-    index_iter: IndexIterator,
+    index_iter: Box<dyn FallibleIterator<Item = u64, Error = Error> + Send + Sync>,
 }
 
 impl<'a, K: Key, V: Value> FallibleIterator for TableIndexIterator<'a, K, V> {
@@ -836,11 +847,13 @@ impl<'a, K: Key, V: Value> FallibleIterator for TableIndexIterator<'a, K, V> {
         Ok(
             match self.index_iter.next().with_context(|| {
                 format!(
-                    "Can not propagate index iterator {:?} further (even if there is nothing to receive)", self.index_iter
+                    "Can not propagate index iterator further (even if there is nothing to receive)"
                 )
             })? {
                 Some(id) => {
-                    let data_record = self.data_pool.get(id).with_context(|| format!("Can not get record from data pool by id {id:?}"))?;
+                    let data_record = self.data_pool.get(id).with_context(|| {
+                        format!("Can not get record from data pool by id {id:?}")
+                    })?;
                     Some((data_record.key, data_record.value))
                 }
                 None => None,

@@ -54,6 +54,7 @@ impl<'a, K: Key, V: Value> FallibleIterator for MergingIterator<'a, K, V> {
                             .cmp(&current_table_index_keyvalue.0)
                     } {
                         Ordering::Less => {
+                            println!("MergingIterator.next Less");
                             let result = if let Some(value) = current_memtable_keyvalue.1 {
                                 Some((current_memtable_keyvalue.0.clone(), value.clone()))
                             } else {
@@ -61,15 +62,19 @@ impl<'a, K: Key, V: Value> FallibleIterator for MergingIterator<'a, K, V> {
                             };
                             self.current_new_keyvalue_option = self.new_iter.next();
                             if result.is_some() {
+                                println!("MergingIterator.next from memtable");
                                 return Ok(result);
                             }
                         }
                         Ordering::Greater => {
+                            println!("MergingIterator.next Greater");
                             let result = Some(current_table_index_keyvalue.clone());
                             self.current_old_keyvalue_option = self.old_iter.next()?;
+                            println!("MergingIterator.next from index");
                             return Ok(result);
                         }
                         Ordering::Equal => {
+                            println!("MergingIterator.next Equal");
                             let result = if let Some(value) = current_memtable_keyvalue.1 {
                                 Some((current_memtable_keyvalue.0.clone(), value.clone()))
                             } else {
@@ -80,6 +85,7 @@ impl<'a, K: Key, V: Value> FallibleIterator for MergingIterator<'a, K, V> {
                                 || "Can not propagate old key-value pairs iterator further (even getting nothing)",
                             )?;
                             if result.is_some() {
+                                println!("MergingIterator.next from memtable");
                                 return Ok(result);
                             }
                         }
@@ -93,6 +99,7 @@ impl<'a, K: Key, V: Value> FallibleIterator for MergingIterator<'a, K, V> {
                     };
                     self.current_new_keyvalue_option = self.new_iter.next();
                     if result.is_some() {
+                        println!("MergingIterator.next from memtable");
                         return Ok(result);
                     }
                 }
@@ -101,6 +108,7 @@ impl<'a, K: Key, V: Value> FallibleIterator for MergingIterator<'a, K, V> {
                     self.current_old_keyvalue_option = self.old_iter.next().with_context(
                         || "Can not propagate old key-value pairs iterator further (even getting nothing)",
                     )?;
+                    println!("MergingIterator.next from index");
                     return Ok(result);
                 }
                 (None, None) => return Ok(None),

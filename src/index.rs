@@ -187,6 +187,10 @@ impl FallibleIterator for IndexIterator {
     type Error = Error;
 
     fn next(&mut self) -> Result<Option<Self::Item>> {
+        println!(
+            "IndexIterator.next {}[{}]",
+            self.records_count, self.current_record_index
+        );
         if self.records_count <= self.current_record_index {
             return Ok(None);
         }
