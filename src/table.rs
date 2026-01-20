@@ -726,40 +726,45 @@ impl<K: Key, V: Value> Table<K, V> {
     ) -> Result<TableIndexIterator<'_, K, V>> {
         match start_bound {
             Bound::Included(from_key) | Bound::Excluded(from_key) => {
+                let mut found = false;
                 let from_record_index = PartitionPoint::new(0, self.index.records_count, |record_index| {
-                            let data_record_id = self.index.get(record_index)?.with_context(|| {
-                                format!("Can not get data record id at index {record_index}")
+                        let data_record_id = self.index.get(if backwards {self.index.records_count - 1 - record_index} else {record_index})?.with_context(|| {
+                            format!("Can not get data record id at index {record_index}")
+                        })?;
+                        let data_record =
+                            self.get_from_index_by_id(data_record_id).with_context(|| {
+                                format!("Can not get record from index by id {data_record_id:?}")
                             })?;
-                            let data_record =
-                                self.get_from_index_by_id(data_record_id).with_context(|| {
-                                    format!("Can not get record from index by id {data_record_id:?}")
-                                })?;
-                            Ok((data_record.key.cmp(from_key), data_record.value, ()))
-                        })
-                        .with_context(|| {
-                            format!(
-                                "Can not create partition point for {:?} to iterate table from key {from_key:?}",
-                                self.index
-                            )
-                        })?.and_then(|partition_point| {
-                            if let Bound::Included(_) = start_bound {
-                                    Some(partition_point.first_satisfying.index)
-                            } else {
-                                if backwards {
-                                    if partition_point.is_exact {
-                                        partition_point.first_satisfying.index.checked_sub(1)
-                                    } else {
-                                        Some(partition_point.first_satisfying.index)
-                                    }
+                        Ok((if backwards {from_key.cmp(&data_record.key)} else {data_record.key.cmp(from_key)}, data_record.value, ()))
+                    })
+                    .with_context(|| {
+                        format!(
+                            "Can not create partition point for {:?} to iterate table from key {from_key:?}",
+                            self.index
+                        )
+                    })?.and_then(|mut partition_point| {
+                        if backwards {
+                            partition_point.first_satisfying.index = self.index.records_count - 1 - partition_point.first_satisfying.index;
+                        }
+                        found = true;
+                        if let Bound::Included(_) = start_bound {
+                            Some(partition_point.first_satisfying.index)
+                        } else {
+                            if backwards {
+                                if partition_point.is_exact {
+                                    partition_point.first_satisfying.index.checked_sub(1)
                                 } else {
-                                    if partition_point.is_exact {
-                                        Some(partition_point.first_satisfying.index + 1)
-                                    } else {
-                                        Some(partition_point.first_satisfying.index)
-                                    }
+                                    Some(partition_point.first_satisfying.index)
+                                }
+                            } else {
+                                if partition_point.is_exact {
+                                    Some(partition_point.first_satisfying.index + 1)
+                                } else {
+                                    Some(partition_point.first_satisfying.index)
                                 }
                             }
-                        });
+                        }
+                    });
                 Ok(TableIndexIterator {
                     data_pool: &self.data_pool,
                     index_iter: if let Some(from_record_index) = from_record_index {
@@ -785,10 +790,7 @@ impl<K: Key, V: Value> Table<K, V> {
                         self.index
                             .iter(
                                 if backwards {
-                                    self.index
-                                        .records_count
-                                        .checked_sub(1)
-                                        .unwrap_or(self.index.records_count)
+                                    self.index.records_count - 1
                                 } else {
                                     0
                                 },
@@ -1468,10 +1470,9 @@ mod tests {
                     .unwrap(),
                 previously_added_keys_reversed
             );
-            dbg!(&previously_added_keys);
 
             for (key_index, key) in previously_added_keys.iter().enumerate() {
-                dbg!(&key_index);
+                println!("key_index = {}/{}", key_index, previously_added_keys.len());
                 assert_eq!(
                     table
                         .iter(Bound::Included(key), false)

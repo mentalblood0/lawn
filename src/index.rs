@@ -143,7 +143,6 @@ impl Index {
     }
 
     pub fn iter(&self, from_record_index: u64, backwards: bool) -> Result<IndexIterator> {
-        println!("Index.iter {from_record_index:?} {backwards:?}");
         let mut index_file = std::fs::OpenOptions::new()
             .create(false)
             .read(true)
@@ -187,10 +186,6 @@ impl FallibleIterator for IndexIterator {
     type Error = Error;
 
     fn next(&mut self) -> Result<Option<Self::Item>> {
-        println!(
-            "IndexIterator.next {}[{}]",
-            self.records_count, self.current_record_index
-        );
         if self.records_count <= self.current_record_index {
             return Ok(None);
         }
