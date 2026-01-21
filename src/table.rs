@@ -1510,6 +1510,16 @@ mod tests {
                                     .unwrap(),
                                 previously_added_keys[key_index + 1..]
                             );
+                            assert_eq!(
+                                table
+                                    .iter(Bound::Included(&vec![0u8, direct_next]), true)
+                                    .unwrap()
+                                    .map(|(key, _)| Ok(key))
+                                    .collect::<Vec<_>>()
+                                    .unwrap(),
+                                previously_added_keys_reversed
+                                    [previously_added_keys_reversed.len() - 1 - (key_index + 1)..]
+                            );
                         }
                     }
                 }
