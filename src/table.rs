@@ -1495,7 +1495,7 @@ mod tests {
                 );
 
                 let current = previously_added_keys[key_index][1];
-                if let Some(next) = previously_added_keys_reversed
+                if let Some(next) = previously_added_keys
                     .get(key_index + 1)
                     .and_then(|next| Some(next[1]))
                 {
@@ -1518,7 +1518,7 @@ mod tests {
                                     .collect::<Vec<_>>()
                                     .unwrap(),
                                 previously_added_keys_reversed
-                                    [previously_added_keys_reversed.len() - 1 - (key_index + 1)..]
+                                    [previously_added_keys_reversed.len() - 1 - key_index..]
                             );
                         }
                     }
