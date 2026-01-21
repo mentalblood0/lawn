@@ -175,9 +175,9 @@ macro_rules! define_database {
                             Box::new(
                                 self.changes
                                     .range::<K, _>((
-                                        start_bound,
                                         Bound::Unbounded,
-                                    )),
+                                        start_bound,
+                                    )).rev(),
                             )
                         } else {
                             Box::new(

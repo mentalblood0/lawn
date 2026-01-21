@@ -1418,6 +1418,75 @@ mod tests {
     }
 
     #[test]
+    fn test_sort_complex() {
+        let mut table = new_default_table::<([u8; 16], String), u8>("test_sort_complex");
+
+        let keyvalues = vec![
+            (
+                (
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    "0000000000.0000000002".to_string(),
+                ),
+                0u8,
+            ),
+            (
+                (
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    "0000000000.0000000003".to_string(),
+                ),
+                0u8,
+            ),
+            (
+                (
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    "0000000001".to_string(),
+                ),
+                0u8,
+            ),
+            (
+                (
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    "0000000002".to_string(),
+                ),
+                0u8,
+            ),
+        ];
+        for (key, value) in keyvalues.iter() {
+            table.memtable.insert(key.clone(), Some(value.clone()));
+        }
+        // table.checkpoint().unwrap();
+        assert_eq!(
+            table
+                .iter(
+                    Bound::Included(&(
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        "0000000000.9".to_string(),
+                    )),
+                    true
+                )
+                .unwrap()
+                .collect::<Vec<_>>()
+                .unwrap(),
+            [
+                (
+                    (
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        "0000000000.0000000003".to_string(),
+                    ),
+                    0u8,
+                ),
+                (
+                    (
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        "0000000000.0000000002".to_string(),
+                    ),
+                    0u8,
+                ),
+            ],
+        );
+    }
+
+    #[test]
     fn test_checkpoint_generative() {
         let mut table = new_default_table::<Vec<u8>, Vec<u8>>("test_checkpoint_generative");
 
