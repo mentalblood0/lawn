@@ -1493,6 +1493,26 @@ mod tests {
                     previously_added_keys_reversed
                         [previously_added_keys_reversed.len() - 1 - key_index..]
                 );
+
+                let current = previously_added_keys[key_index][1];
+                if let Some(next) = previously_added_keys_reversed
+                    .get(key_index + 1)
+                    .and_then(|next| Some(next[1]))
+                {
+                    if let Some(direct_next) = current.checked_add(1) {
+                        if direct_next < next {
+                            assert_eq!(
+                                table
+                                    .iter(Bound::Included(&vec![0u8, direct_next]), false)
+                                    .unwrap()
+                                    .map(|(key, _)| Ok(key))
+                                    .collect::<Vec<_>>()
+                                    .unwrap(),
+                                previously_added_keys[key_index + 1..]
+                            );
+                        }
+                    }
+                }
             }
 
             let correct_table_keys: Vec<Vec<u8>> =
