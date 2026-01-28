@@ -1610,7 +1610,7 @@ mod tests {
                 table.checkpoint().unwrap();
             }
             for (key, value) in previously_added_keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), Some(value.clone()));
+                assert_eq!(table.get(&key).unwrap(), Some(value.clone()));
             }
         }
     }
