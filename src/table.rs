@@ -1486,8 +1486,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_checkpoint_generative() {
+    fn generative(use_checkpoints: bool) {
         let mut table = new_default_table::<Vec<u8>, Vec<u8>>("test_checkpoint_generative");
 
         let mut previously_added_keyvalues: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
@@ -1606,11 +1605,23 @@ mod tests {
                 assert_eq!(table_keys, correct_table_keys[key_index..]);
             }
 
-            println!("checkpoint {checkpoint_number}\n");
-            table.checkpoint().unwrap();
+            if use_checkpoints {
+                println!("checkpoint {checkpoint_number}\n");
+                table.checkpoint().unwrap();
+            }
             for (key, value) in previously_added_keyvalues.iter() {
                 assert_eq!(table.get_from_index(&key).unwrap(), Some(value.clone()));
             }
         }
+    }
+
+    #[test]
+    fn test_memtable_generative() {
+        generative(false);
+    }
+
+    #[test]
+    fn test_checkpoint_generative() {
+        generative(true);
     }
 }
