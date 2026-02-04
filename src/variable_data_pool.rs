@@ -188,22 +188,6 @@ pub struct VariableDataPool {
 ///   fixed-size pool contains the element
 /// - **Upper 56 bits**: The `pointer` offset within that container
 ///
-/// # Conversion
-///
-/// The ID can be converted to/from `u64` using `From` traits:
-///
-/// ```rust
-/// use variable_data_pool::Id;
-///
-/// let id = Id {
-///     container_size_index: 42,
-///     pointer: 12345,
-/// };
-/// let as_u64: u64 = id.into();
-/// let recovered: Id = as_u64.into();
-/// assert_eq!(id, recovered);
-/// ```
-///
 /// # Serialization
 ///
 /// This struct implements [`bincode::Encode`] and [`bincode::Decode`] for

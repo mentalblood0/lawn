@@ -639,8 +639,6 @@ pub use crate::define_database;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use nanorand::{Rng, WyRand};
     use std::collections::BTreeMap;
     use std::sync::Arc;
