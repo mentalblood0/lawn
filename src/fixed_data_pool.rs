@@ -1,3 +1,9 @@
+//! Fixed-size data pool implementation.
+//!
+//! This module provides a [`FixedDataPool`] that stores data records in fixed-size containers
+//! within a file. It implements a free-list pattern for efficient memory reuse after deletions.
+//! The pool uses a bitmap (head) at the beginning of the file to track free and allocated containers.
+
 use std::cmp::Ordering;
 use std::io::Write;
 use std::os::unix::fs::FileExt;
@@ -11,22 +17,60 @@ use serde::{Deserialize, Serialize};
 use crate::data_pool::*;
 use crate::keyvalue::Value;
 
+/// Configuration for creating a [`FixedDataPool`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FixedDataPoolConfig {
+    /// The file path where the data pool will be stored.
     pub path: PathBuf,
+    /// The fixed size of each container in bytes. All data records are stored in containers of this size.
     pub container_size: usize,
 }
 
+/// A data pool that stores fixed-size containers in a file.
+///
+/// The `FixedDataPool` uses a bitmap at the beginning of the file (called the "head") to track
+/// which containers are allocated and which are free. When containers are removed, they are
+/// added to a free-list for reuse. If no freed containers are available, new containers are
+/// appended to the end of the file.
+///
+/// # File Structure
+/// The file consists of:
+/// 1. **Head (bitmap)**: A sequence of bytes where each byte represents a container slot.
+///    - Value `255` (all bits set) means the container is allocated
+///    - Other values point to the next free container in the free-list chain
+/// 2. **Containers**: Fixed-size slots for storing data records
+///
+/// # Example
+/// ```
+/// use fixed_data_pool::{FixedDataPool, FixedDataPoolConfig};
+/// use std::path::Path;
+///
+/// let config = FixedDataPoolConfig {
+///     path: Path::new("/tmp/mydata.dat").to_path_buf(),
+///     container_size: 64,
+/// };
+///
+/// let pool = FixedDataPool::new(&config).unwrap();
+/// ```
 #[derive(Debug)]
 pub struct FixedDataPool {
+    /// Configuration for this data pool.
     pub config: FixedDataPoolConfig,
+    /// The total number of containers that have been allocated.
     containers_allocated: u64,
+    /// The total size of the file on disk in bytes.
     bytesize_on_disk: u64,
+    /// The underlying file handle for the data pool storage.
     file: fs::File,
+    /// The size of the head (bitmap) in bytes.
     head_size: u8,
+    /// The current head (bitmap) cached in memory.
     head: Vec<u8>,
+    /// Whether there are no free containers left in the free-list.
     no_holes_left: bool,
+    /// Buffered writer for appending new containers to the file.
     writer: Option<BufWriter<fs::File>>,
+    /// Buffer of pointers to containers that have been removed but not yet flushed.
     buffer_of_pointers_to_data_to_remove: Vec<u64>,
 }
 
@@ -39,6 +83,19 @@ impl<D: Value> DataPoolConfig<D> for FixedDataPoolConfig {
 }
 
 impl FixedDataPool {
+    /// Creates a new `FixedDataPool` with the given configuration.
+    ///
+    /// If the file at the specified path exists, it will be opened and the existing
+    /// data pool state will be recovered. If the file doesn't exist, a new empty
+    /// data pool will be created.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The parent directory cannot be created
+    /// - The file cannot be opened
+    /// - The file metadata cannot be read
+    /// - The existing file is corrupt or invalid
     pub fn new(config: &FixedDataPoolConfig) -> Result<Self> {
         if let Some(path_parent_directory) = config.path.parent() {
             std::fs::create_dir_all(path_parent_directory).with_context(|| {
@@ -87,6 +144,10 @@ impl FixedDataPool {
         Ok(result)
     }
 
+    /// Initializes an empty file structure for a new data pool.
+    ///
+    /// Creates a head (bitmap) filled with 255 (all containers free) and sets
+    /// initial metadata.
     fn initialize_empty_file(&mut self) -> Result<()> {
         self.set_head(vec![255; self.head_size as usize])
             .with_context(|| "Can not set head for file of empty fixed data pool")?;
@@ -96,6 +157,11 @@ impl FixedDataPool {
         Ok(())
     }
 
+    /// Writes the head (bitmap) to the file and updates the cached head.
+    ///
+    /// The head tracks free containers using a free-list chain. When a container
+    /// is freed, its slot is set to point to the current head, and the freed
+    /// container's position becomes the new head.
     fn set_head(&mut self, value: Vec<u8>) -> Result<&Self> {
         self.file
             .write_all_at(value.as_slice(), 0)
@@ -104,6 +170,9 @@ impl FixedDataPool {
         Ok(self)
     }
 
+    /// Extracts a pointer value from a container's bytes.
+    ///
+    /// The pointer is stored in little-endian format in the first min(8, container_size) bytes.
     fn pointer_from_container(&self, container: &Vec<u8>) -> u64 {
         let mut result: u64 = 0;
         for byte in container[..std::cmp::min(8, container.len())].iter() {
@@ -112,6 +181,10 @@ impl FixedDataPool {
         result
     }
 
+    /// Converts a pointer value to bytes suitable for storage in a container.
+    ///
+    /// If container_size is >= 8, stores the full 8-byte pointer.
+    /// Otherwise, stores only the last container_size bytes.
     fn pointer_to_container(&self, pointer: u64) -> Vec<u8> {
         let result_not_cutted = pointer.to_le_bytes();
         if self.config.container_size >= 8 {
@@ -121,6 +194,7 @@ impl FixedDataPool {
         }
     }
 
+    /// Reads data of a specific size from a container at the given pointer.
     fn get_of_size(&self, pointer: u64, size: usize) -> Result<Vec<u8>> {
         let mut result = vec![0; size];
         self.file
@@ -134,6 +208,7 @@ impl FixedDataPool {
         Ok(result)
     }
 
+    /// Writes data to a container at the given pointer.
     fn set(&mut self, pointer: u64, container: &Vec<u8>) -> Result<()> {
         self.file
             .write_all_at(
@@ -149,6 +224,19 @@ impl FixedDataPool {
         Ok(())
     }
 
+    /// Inserts raw data into the data pool and returns its pointer.
+    ///
+    /// If there are previously removed containers available for reuse, one will be reused.
+    /// Otherwise, a new container will be appended to the end of the file.
+    ///
+    /// Data smaller than `container_size` will be zero-padded to fill the container.
+    /// Data larger than `container_size` will return an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The data size exceeds the container size
+    /// - Writing to the file fails
     pub fn insert_raw(&mut self, mut data: Vec<u8>) -> Result<u64> {
         if let Some(pointer_to_data_to_remove) = self.buffer_of_pointers_to_data_to_remove.pop() {
             self.set(pointer_to_data_to_remove, &data)
@@ -209,12 +297,18 @@ impl FixedDataPool {
         }
     }
 
+    /// Retrieves raw data from the container at the given pointer.
+    ///
+    /// Returns the full container contents of `container_size` bytes.
     pub fn get_raw(&self, pointer: u64) -> Result<Vec<u8>> {
         self.get_of_size(pointer, self.config.container_size)
     }
 }
 
 impl<D: Value> DataPool<D> for FixedDataPool {
+    /// Inserts a data record into the pool and returns its unique identifier.
+    ///
+    /// The data record is serialized using bincode before storage.
     fn insert(&mut self, data_record: D) -> Result<u64> {
         self.insert_raw(
             bincode::encode_to_vec(data_record, bincode::config::standard())
@@ -222,11 +316,19 @@ impl<D: Value> DataPool<D> for FixedDataPool {
         )
     }
 
+    /// Marks a container for removal.
+    ///
+    /// The container will be added to the free-list for reuse when `flush` is called.
     fn remove(&mut self, id: u64) -> Result<()> {
         self.buffer_of_pointers_to_data_to_remove.push(id);
         Ok(())
     }
 
+    /// Flushes all pending operations to disk.
+    ///
+    /// This includes:
+    /// - Reclaiming removed containers by updating the free-list
+    /// - Flushing any buffered writes to the file
     fn flush(&mut self) -> Result<()> {
         if !self.buffer_of_pointers_to_data_to_remove.is_empty() {
             let mut cached_head = self.head.clone();
@@ -249,6 +351,7 @@ impl<D: Value> DataPool<D> for FixedDataPool {
         Ok(())
     }
 
+    /// Clears all data from the pool and resets it to an empty state.
     fn clear(&mut self) -> Result<()> {
         self.file
             .set_len(0)
@@ -257,6 +360,9 @@ impl<D: Value> DataPool<D> for FixedDataPool {
         Ok(())
     }
 
+    /// Retrieves a data record by its identifier.
+    ///
+    /// The data is deserialized using bincode before being returned.
     fn get(&self, id: u64) -> Result<D> {
         Ok(bincode::decode_from_slice::<D, _>(
             &self

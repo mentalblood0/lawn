@@ -1,4 +1,45 @@
-use bincode;
+//! Variable-sized data pool implementation for efficient storage of data elements with varying sizes.
+//!
+//! This module provides a data pool that optimizes storage by using multiple fixed-size containers
+//! organized logarithmically by size. Data elements are placed in the smallest container that can
+//! accommodate them, reducing internal fragmentation.
+//!
+//! # Architecture
+//!
+//! The [`VariableDataPool`] uses a collection of [`FixedDataPool`] instances, each configured
+//! with a different container size. Container sizes are distributed logarithmically between a
+//! minimum size and a configured maximum element size. This allows efficient storage of data
+//! elements ranging from small to large sizes.
+//!
+//! When inserting data, the pool determines the smallest container that can hold the encoded data
+//! and stores it there. When retrieving, it reads from the appropriate container using a compact
+//! ID that encodes both the container size index and the pointer within that container.
+//!
+//! # Example
+//!
+//! ```rust
+//! use variable_data_pool::{VariableDataPool, VariableDataPoolConfig};
+//! use std::path::Path;
+//!
+//! // Create a configuration for a pool that can store elements up to 64KB
+//! let config = VariableDataPoolConfig {
+//!     directory: Path::new("/tmp/my_data_pool").to_path_buf(),
+//!     max_element_size: 65536,
+//! };
+//!
+//! // Create the data pool (requires implementing DataPool trait for your type)
+//! // let mut pool = VariableDataPool::new(&config).unwrap();
+//! ```
+//!
+//! # Key Features
+//!
+//! - **Logarithmic size distribution**: Container sizes grow logarithmically to efficiently cover
+//!   a wide range of data sizes with minimal overhead
+//! - **Compact IDs**: Each element is identified by a 64-bit ID containing both container index
+//!   and pointer
+//! - **Overflow handling**: Large elements exceeding the jump point threshold are wrapped in
+//!   a container structure for proper serialization
+//! - **Thread-safe**: Implements [`DataPool`] trait with Send + Sync bounds
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
@@ -9,9 +50,36 @@ use crate::data_pool::*;
 use crate::fixed_data_pool::*;
 use crate::keyvalue::Value;
 
+/// Number of distinct container sizes in the logarithmic scale.
+/// This determines how many fixed-size data pools will be created.
 const CONTAINERS_SIZES_COUNT: usize = 256;
+
+/// Minimum size for a container in the scale.
+/// Any calculated size below this threshold is clamped up to this value.
 const CONTAINER_SIZE_MIN: usize = 2;
 
+/// Generates a logarithmic scale of container sizes from minimum to maximum.
+///
+/// This function creates an array of container sizes distributed logarithmically
+/// between `CONTAINER_SIZE_MIN` and `max_value`. The distribution ensures efficient
+/// storage by having more smaller containers and fewer larger ones.
+///
+/// The algorithm:
+/// 1. Calculates logarithmic steps from 0 to `max_value`
+/// 2. Fills in any gaps between steps with intermediate values
+/// 3. Ensures exactly `CONTAINERS_SIZES_COUNT` entries are produced
+///
+/// # Arguments
+///
+/// * `max_value` - The maximum container size to include in the scale
+///
+/// # Returns
+///
+/// An array of `CONTAINERS_SIZES_COUNT` container sizes, sorted in ascending order
+///
+/// # Errors
+///
+/// Returns an error if `max_value` is less than `CONTAINERS_SIZES_COUNT`
 fn split_scale_logarithmically(max_value: usize) -> Result<[usize; CONTAINERS_SIZES_COUNT]> {
     if max_value < CONTAINERS_SIZES_COUNT {
         return Err(anyhow!(
@@ -67,26 +135,122 @@ fn split_scale_logarithmically(max_value: usize) -> Result<[usize; CONTAINERS_SI
     Ok(result)
 }
 
+/// Configuration for creating a [`VariableDataPool`].
+///
+/// This struct holds the settings required to initialize a variable-sized data pool.
+/// It specifies where the pool stores its data files and the maximum size of elements
+/// it can accommodate.
+///
+/// # Examples
+///
+/// ```rust
+/// use std::path::PathBuf;
+/// use variable_data_pool::VariableDataPoolConfig;
+///
+/// let config = VariableDataPoolConfig {
+///     directory: PathBuf::from("/tmp/my_pool"),
+///     max_element_size: 1024 * 1024, // 1MB
+/// };
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VariableDataPoolConfig {
+    /// The directory where container files will be stored.
+    /// Each container size gets its own file in this directory.
     pub directory: PathBuf,
+
+    /// The maximum size of any single element that can be stored.
+    /// This determines the upper bound of the logarithmic container size scale.
     pub max_element_size: usize,
 }
 
+/// A variable-sized data pool that efficiently stores elements of different sizes.
+///
+/// This data pool uses multiple fixed-size containers organized logarithmically by size.
+/// Each element is stored in the smallest container that can accommodate it, minimizing
+/// internal fragmentation while maintaining efficient access.
+///
+/// # Storage Model
+///
+/// The pool maintains 256 ([`CONTAINERS_SIZES_COUNT`]) fixed-size data pools, each with a
+/// different container size. Container sizes grow logarithmically from a minimum size
+/// to `max_element_size`. When storing data:
+///
+/// 1. The data is encoded using bincode
+/// 2. The smallest container that fits the encoded data is selected
+/// 3. A compact 64-bit ID is returned for later retrieval
+///
+/// # Thread Safety
+///
+/// This struct implements [`DataPool`] with `Send + Sync` bounds, making it safe to use
+/// across multiple threads.
+///
+/// # Note
+///
+/// The pool is typically created through the [`DataPoolConfig`] trait implementation,
+/// which ensures proper configuration and initialization.
 #[derive(Debug)]
 pub struct VariableDataPool {
+    /// The configuration used to create this pool.
     pub config: VariableDataPoolConfig,
+
+    /// Array mapping container size indices to their corresponding fixed data pools.
+    /// Index 0 contains the smallest containers, increasing to the largest at index 255.
     container_size_index_to_fixed_data_pool: [FixedDataPool; CONTAINERS_SIZES_COUNT],
+
+    /// Threshold for determining when to wrap data in a container structure.
+    /// Data larger than this threshold is serialized as a [`Container`] to ensure
+    /// proper binary encoding across all container sizes.
     jump_point: usize,
 }
 
+/// A compact identifier for an element stored in a [`VariableDataPool`].
+///
+/// This struct encodes both the container size index and the pointer position
+/// within that container. It can be converted to and from a 64-bit integer for
+/// compact storage and transmission.
+///
+/// # ID Structure
+///
+/// The 64-bit ID is composed of:
+/// - **Lower 8 bits (0-255)**: The `container_size_index` identifying which
+///   fixed-size pool contains the element
+/// - **Upper 56 bits**: The `pointer` offset within that container
+///
+/// # Conversion
+///
+/// The ID can be converted to/from `u64` using `From` traits:
+///
+/// ```rust
+/// use variable_data_pool::Id;
+///
+/// let id = Id {
+///     container_size_index: 42,
+///     pointer: 12345,
+/// };
+/// let as_u64: u64 = id.into();
+/// let recovered: Id = as_u64.into();
+/// assert_eq!(id, recovered);
+/// ```
+///
+/// # Serialization
+///
+/// This struct implements [`bincode::Encode`] and [`bincode::Decode`] for
+/// efficient binary serialization.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, bincode::Encode, bincode::Decode)]
 pub struct Id {
+    /// Index into the container size array, indicating which fixed-size pool
+    /// contains the element. Valid range: 0-255.
     pub container_size_index: u8,
+
+    /// Offset within the fixed-size container where the element is stored.
     pub pointer: u64,
 }
 
 impl From<u64> for Id {
+    /// Decodes a 64-bit ID into its component parts.
+    ///
+    /// The lower 8 bits are extracted as the container size index,
+    /// and the remaining upper bits form the pointer.
     fn from(item: u64) -> Self {
         Id {
             container_size_index: (item % 256) as u8,
@@ -96,13 +260,29 @@ impl From<u64> for Id {
 }
 
 impl From<Id> for u64 {
+    /// Encodes an ID into a compact 64-bit integer.
+    ///
+    /// The container size index occupies the lower 8 bits,
+    /// and the pointer forms the upper bits.
     fn from(item: Id) -> Self {
         item.pointer * 256 + item.container_size_index as u64
     }
 }
 
+/// Wrapper structure for encoding variable-sized data.
+///
+/// This struct wraps data that exceeds the `jump_point` threshold
+/// to ensure proper bincode serialization. When data is larger than
+/// the jump point, it is wrapped in this container for encoding.
+///
+/// # Note
+///
+/// The container is bincode-serializable, allowing variable-length
+/// data to be stored in fixed-size containers by adding proper length
+/// metadata.
 #[derive(bincode::Encode, bincode::Decode, Debug)]
 pub struct Container {
+    /// The wrapped data bytes.
     pub data: Vec<u8>,
 }
 
@@ -115,6 +295,27 @@ impl<D: Value> DataPoolConfig<D> for VariableDataPoolConfig {
 }
 
 impl VariableDataPool {
+    /// Creates a new `VariableDataPool` from the given configuration.
+    ///
+    /// This method initializes the pool by:
+    /// 1. Computing a logarithmic scale of container sizes up to `max_element_size`
+    /// 2. Creating a [`FixedDataPool`] for each size in the scale
+    /// 3. Calculating the `jump_point` threshold for overflow handling
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - The configuration specifying the storage directory and maximum element size
+    ///
+    /// # Returns
+    ///
+    /// A new `VariableDataPool` instance, or an error if initialization fails
+    ///
+    /// # Errors
+    ///
+    /// This method can fail if:
+    /// - Container size scale computation fails
+    /// - Any of the fixed data pools cannot be created
+    /// - The conversion from Vec to array fails
     pub fn new(config: &VariableDataPoolConfig) -> Result<Self> {
         let mut fixed_data_pools: Vec<FixedDataPool> = Vec::with_capacity(CONTAINERS_SIZES_COUNT);
         let mut jump_point: Option<usize> = None;
@@ -155,6 +356,21 @@ impl VariableDataPool {
         })
     }
 
+    /// Inserts raw bytes into the pool and returns a compact ID.
+    ///
+    /// This internal method handles the core insertion logic:
+    /// 1. If data exceeds `jump_point`, wraps it in a [`Container`] for serialization
+    /// 2. Finds the smallest container that can fit the encoded data
+    /// 3. Inserts into the corresponding fixed data pool
+    /// 4. Returns a 64-bit ID encoding the container index and pointer
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - The raw bytes to store
+    ///
+    /// # Returns
+    ///
+    /// A 64-bit ID that can be used to retrieve the data later
     fn insert_raw(&mut self, data: Vec<u8>) -> Result<u64> {
         let encoded_data = if data.len() > self.jump_point {
             bincode::encode_to_vec(
@@ -178,6 +394,20 @@ impl VariableDataPool {
         }))
     }
 
+    /// Retrieves raw bytes from the pool using a compact ID.
+    ///
+    /// This internal method decodes the ID to locate the element:
+    /// 1. Extracts the container size index from the lower 8 bits
+    /// 2. Retrieves the pointer from the upper bits
+    /// 3. Fetches the data from the appropriate fixed data pool
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The 64-bit ID returned by [`insert_raw`]
+    ///
+    /// # Returns
+    ///
+    /// The raw bytes stored at the given ID
     fn get_raw(&self, id: u64) -> Result<Vec<u8>> {
         let parsed_id = Id::from(id);
         self.container_size_index_to_fixed_data_pool

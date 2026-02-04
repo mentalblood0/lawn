@@ -18,34 +18,94 @@ use crate::merging_iterator::MergingIterator;
 use crate::partition_point::PartitionPoint;
 use crate::variable_data_pool::VariableDataPoolConfig;
 
+/// Configuration enum for selecting between fixed-size and variable-size data pool implementations.
+///
+/// This enum allows runtime selection of the data pool type based on configuration,
+/// supporting both fixed and variable-size data storage strategies.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum DataPoolConfigEnum {
+    /// Configuration for a fixed-size data pool where all elements have the same size.
     #[serde(alias = "fixed")]
     Fixed(FixedDataPoolConfig),
+    /// Configuration for a variable-size data pool where elements can have different sizes.
     #[serde(alias = "variable")]
     Variable(VariableDataPoolConfig),
 }
 
+/// Configuration for a Table, specifying index and data pool settings.
+///
+/// # Type Parameters
+///
+/// * `K` - The key type that implements the [`Key`] trait
+/// * `V` - The value type that implements the [`Value`] trait
+///
+/// # Fields
+///
+/// * `index` - Configuration for the index structure
+/// * `data_pool` - Configuration for the data pool (fixed or variable size)
+/// * `_key` - PhantomData marker for the key type (skipped during serialization)
+/// * `_value` - PhantomData marker for the value type (skipped during serialization)
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TableConfig<K: Key, V: Value> {
+    /// Configuration for the index structure.
     pub index: IndexConfig,
+    /// Configuration for the data pool (fixed or variable size).
     pub data_pool: DataPoolConfigEnum,
 
+    /// PhantomData marker for the key type (skipped during serialization).
     #[serde(skip)]
     pub _key: PhantomData<K>,
+    /// PhantomData marker for the value type (skipped during serialization).
     #[serde(skip)]
     pub _value: PhantomData<V>,
 }
 
+/// A Table is the main data structure that combines an index, data pool, and memtable.
+///
+/// Tables store key-value pairs and provide efficient lookup, iteration, and checkpoint
+/// operations. The Table uses a three-tier storage architecture:
+/// 1. **Memtable** - In-memory BTreeMap for recent writes
+/// 2. **Index** - On-disk index structure for efficient lookups
+/// 3. **Data Pool** - On-disk storage for actual values
+///
+/// # Type Parameters
+///
+/// * `K` - The key type that implements the [`Key`] trait
+/// * `V` - The value type that implements the [`Value`] trait
+///
+/// # Performance Characteristics
+///
+/// - **Get operations**: O(log n) for memtable hits, O(log n) for index lookups
+/// - **Checkpoint operations**: Three strategies (dump, linear merge, sparse merge)
+///   based on the ratio of memtable size to index size
 pub struct Table<K: Key, V: Value> {
+    /// The on-disk index structure for efficient key lookups.
     pub index: Index,
+    /// The on-disk data pool for storing values.
     pub data_pool: Box<dyn DataPool<DataRecord<K, V>> + Send + Sync>,
+    /// The in-memory memtable for recent writes.
     pub memtable: BTreeMap<K, Option<V>>,
 }
 
+/// Internal record type used in the memtable for tracking keys and values.
+///
+/// This struct wraps a key-value pair for use in the memtable, implementing
+/// [`Ord`] to enable efficient ordering and lookup in the BTreeMap.
+///
+/// # Type Parameters
+///
+/// * `K` - The key type that implements the [`Key`] trait
+/// * `V` - The value type that implements the [`Value`] trait
+///
+/// # Note
+///
+/// When a key has `None` as its value, it represents a deletion marker
+/// (tombstone) rather than an actual value.
 #[derive(Debug, Clone)]
 struct MemtableRecord<K: Key, V: Value> {
+    /// The key component of the record.
     key: K,
+    /// The value component, or `None` if this is a deletion marker.
     value: Option<V>,
 }
 
@@ -69,12 +129,38 @@ impl<K: Key, V: Value> Ord for MemtableRecord<K, V> {
     }
 }
 
+/// A data record stored in the data pool, containing a key-value pair.
+///
+/// This struct is encoded/decoded using bincode for efficient serialization
+/// to the data pool. It represents the persistent storage format for
+/// key-value pairs in the table.
+///
+/// # Type Parameters
+///
+/// * `K` - The key type that implements the [`Key`] trait
+/// * `V` - The value type that implements the [`Value`] trait
+///
+/// # Note
+///
+/// Unlike [`MemtableRecord`], `DataRecord` always contains a valid value
+/// since it's only created for actual data (not deletion markers).
 #[derive(bincode::Encode, bincode::Decode, Debug, Clone, PartialEq)]
 pub struct DataRecord<K: Key, V: Value> {
+    /// The key component of the record.
     key: K,
+    /// The value component of the record.
     value: V,
 }
 
+/// Writes a data ID to a file with a specified record size.
+///
+/// The data ID is encoded as little-endian bytes with the specified record size.
+///
+/// # Arguments
+///
+/// * `writer` - The buffered writer to write to
+/// * `data_id` - The data pool ID to write
+/// * `record_size` - The number of bytes to use for encoding the ID
 fn write_data_id(writer: &mut BufWriter<File>, data_id: u64, record_size: u8) -> Result<()> {
     let data_id_encoded = data_id.to_le_bytes()[..record_size as usize].to_vec();
     writer
@@ -83,13 +169,35 @@ fn write_data_id(writer: &mut BufWriter<File>, data_id: u64, record_size: u8) ->
     Ok(())
 }
 
+/// Element used during linear merge checkpoint operations.
+///
+/// This struct tracks the key and optional data pool ID for elements being
+/// merged during checkpoint operations.
+///
+/// # Type Parameters
+///
+/// * `K` - The key type that implements the [`Key`] trait
 #[derive(Debug, Clone)]
 struct LinearMergeElement<K: Key> {
+    /// The key of the element.
     key: K,
+    /// The data pool ID if the element has a value, `None` if it's a deletion marker.
     id: Option<u64>,
 }
 
 impl<K: Key, V: Value> Table<K, V> {
+    /// Creates a new Table with the given configuration.
+    ///
+    /// This initializes a table with an empty memtable and creates or opens
+    /// the index and data pool based on the provided configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - The table configuration including index and data pool settings
+    ///
+    /// # Returns
+    ///
+    /// A new `Table` instance, or an error if initialization fails
     pub fn new(config: TableConfig<K, V>) -> Result<Self> {
         Ok(Self {
             index: Index::new(config.index.clone()).with_context(|| {
@@ -115,14 +223,45 @@ impl<K: Key, V: Value> Table<K, V> {
         })
     }
 
+    /// Merges a collection of key-value changes into the memtable.
+    ///
+    /// This appends all entries from the changes map into the memtable,
+    /// replacing any existing values for the same keys. Entries with `None`
+    /// values act as deletion markers (tombstones).
+    ///
+    /// # Arguments
+    ///
+    /// * `changes` - A mutable reference to a BTreeMap of key-value changes
+    ///               (values are `Some(V)` for inserts/updates, `None` for deletions)
     pub fn merge(&mut self, changes: &mut BTreeMap<K, Option<V>>) {
         self.memtable.append(changes);
     }
 
+    /// Retrieves a data record from the data pool by its ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The data pool ID to look up
+    ///
+    /// # Returns
+    ///
+    /// The data record associated with the ID, or an error if not found
     fn get_from_index_by_id(&self, id: u64) -> Result<DataRecord<K, V>> {
         self.data_pool.get(id)
     }
 
+    /// Searches for a key in the on-disk index and returns its value.
+    ///
+    /// Uses binary search via PartitionPoint to efficiently locate
+    /// the key in the sorted index.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to search for
+    ///
+    /// # Returns
+    ///
+    /// `Some(value)` if found, `None` if not found, or an error
     fn get_from_index(&self, key: &K) -> Result<Option<V>> {
         Ok(
             PartitionPoint::new(0, self.index.records_count, |record_index| {
@@ -145,6 +284,19 @@ impl<K: Key, V: Value> Table<K, V> {
         )
     }
 
+    /// Retrieves the value associated with a key.
+    ///
+    /// This method first checks the memtable for recent writes,
+    /// then falls back to the on-disk index if not found in memory.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to look up
+    ///
+    /// # Returns
+    ///
+    /// `Some(value)` if the key exists, `None` if deleted or not found,
+    /// or an error if the lookup fails
     pub fn get(&self, key: &K) -> Result<Option<V>> {
         match self.memtable.get(key) {
             Some(value) => Ok(value.clone()),
@@ -157,6 +309,13 @@ impl<K: Key, V: Value> Table<K, V> {
         }
     }
 
+    /// Clears all data from the table, including the memtable, index, and data pool.
+    ///
+    /// This is useful for resetting the table to an empty state.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if successful, or an error if any clearing operation fails
     pub fn clear(&mut self) -> Result<()> {
         self.index.clear().with_context(|| {
             format!("Can not clear index {:?} while clearing table", self.index)
@@ -168,6 +327,19 @@ impl<K: Key, V: Value> Table<K, V> {
         Ok(())
     }
 
+    /// Creates a checkpoint by persisting memtable data to disk.
+    ///
+    /// This method selects the most appropriate checkpoint strategy based on
+    /// the ratio of memtable size to index size:
+    /// - **Dump**: Used when the index is empty (records_count == 0)
+    /// - **Linear Merge**: Used when memtable is large relative to index (records_count <= 2 * memtable.len())
+    /// - **Sparse Merge**: Used when index is much larger than memtable
+    ///
+    /// The memtable is cleared after a successful checkpoint.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if successful, or an error if checkpoint fails
     pub fn checkpoint(&mut self) -> Result<()> {
         if self.memtable.is_empty() {
             Ok(())
@@ -182,6 +354,15 @@ impl<K: Key, V: Value> Table<K, V> {
         }
     }
 
+    /// Checkpoint strategy: writes all memtable entries to a new index file.
+    ///
+    /// This is the simplest checkpoint method, used when the index is empty.
+    /// It writes all memtable values to the data pool and creates a new
+    /// index file containing the data pool IDs in sorted key order.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if successful, or an error if the dump operation fails
     fn checkpoint_using_dump(&mut self) -> Result<()> {
         let mut ids: Vec<u64> = Vec::new();
         let mut max_id: u64 = 0;
@@ -249,6 +430,15 @@ impl<K: Key, V: Value> Table<K, V> {
         Ok(())
     }
 
+    /// Checkpoint strategy: merges memtable with existing index using linear merge.
+    ///
+    /// This is used when the memtable is relatively large compared to the index.
+    /// It performs a full merge of the old index and new memtable entries,
+    /// writing data pool IDs in sorted key order while handling updates and deletions.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if successful, or an error if the linear merge fails
     fn checkpoint_using_linear_merge(&mut self) -> Result<()> {
         let mut new_elements: Vec<LinearMergeElement<K>> = Vec::new();
         let mut max_new_id: u64 = 0;
@@ -469,6 +659,15 @@ impl<K: Key, V: Value> Table<K, V> {
         Ok(())
     }
 
+    /// Checkpoint strategy: merges memtable with existing index using sparse merge.
+    ///
+    /// This is used when the index is much larger than the memtable.
+    /// It uses a divide-and-conquer approach to efficiently locate positions
+    /// for memtable entries in the sorted index, avoiding a full linear scan.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if successful, or an error if the sparse merge fails
     fn checkpoint_using_sparse_merge(&mut self) -> Result<()> {
         if self.memtable.is_empty() {
             return Ok(());
@@ -719,6 +918,16 @@ impl<K: Key, V: Value> Table<K, V> {
         Ok(())
     }
 
+    /// Creates an iterator over the on-disk index starting from a given key bound.
+    ///
+    /// # Arguments
+    ///
+    /// * `start_bound` - The starting bound for iteration (included, excluded, or unbounded)
+    /// * `backwards` - Whether to iterate in reverse order
+    ///
+    /// # Returns
+    ///
+    /// A `TableIndexIterator` for traversing the index
     fn iter_index(
         &'_ self,
         start_bound: Bound<&K>,
@@ -809,6 +1018,20 @@ impl<K: Key, V: Value> Table<K, V> {
         }
     }
 
+    /// Returns an iterator over all key-value pairs in the table.
+    ///
+    /// This iterator merges results from both the memtable and the on-disk index,
+    /// providing a unified view of all data. The iterator starts from the given
+    /// bound and can iterate forwards or backwards.
+    ///
+    /// # Arguments
+    ///
+    /// * `start_bound` - The starting bound for iteration (included, excluded, or unbounded)
+    /// * `backwards` - Whether to iterate in reverse order
+    ///
+    /// # Returns
+    ///
+    /// A fallible iterator yielding `(key, value)` pairs
     pub fn iter(
         &'_ self,
         start_bound: Bound<&K>,
@@ -837,15 +1060,32 @@ impl<K: Key, V: Value> Table<K, V> {
     }
 }
 
+/// Iterator for traversing the on-disk index component of a Table.
+///
+/// This iterator wraps the underlying index iterator and translates
+/// data pool IDs into key-value pairs by fetching from the data pool.
+///
+/// # Type Parameters
+///
+/// * `K` - The key type that implements the [`Key`] trait
+/// * `V` - The value type that implements the [`Value`] trait
 struct TableIndexIterator<'a, K: Key, V: Value> {
+    /// Reference to the data pool for fetching values by ID.
     data_pool: &'a Box<dyn DataPool<DataRecord<K, V>> + Send + Sync>,
+    /// The underlying index iterator yielding data pool IDs.
     index_iter: Box<dyn FallibleIterator<Item = u64, Error = Error> + Send + Sync>,
 }
 
 impl<'a, K: Key, V: Value> FallibleIterator for TableIndexIterator<'a, K, V> {
+    /// The item type yielded by the iterator: a key-value pair.
     type Item = (K, V);
+    /// The error type for the iterator.
     type Error = Error;
 
+    /// Advances the iterator and returns the next key-value pair.
+    ///
+    /// Fetches the next data pool ID from the index iterator,
+    /// then retrieves the corresponding record from the data pool.
     fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
         Ok(
             match self.index_iter.next().with_context(|| {
@@ -865,12 +1105,26 @@ impl<'a, K: Key, V: Value> FallibleIterator for TableIndexIterator<'a, K, V> {
     }
 }
 
+/// Helper structure for generating middle indices in a divide-and-conquer merge.
+///
+/// This implements a breadth-first traversal of index ranges, generating
+/// middle points for sparse merge operations.
+///
+/// # Fields
+///
+/// * `queue` - A queue of (left, right) index ranges to process
 #[derive(Debug, Clone)]
 struct Middles {
+    /// A queue of (left_index, right_index) pairs representing ranges.
     queue: VecDeque<(usize, usize)>,
 }
 
 impl Middles {
+    /// Creates a new Middles iterator starting with the full range [0, source_size-1].
+    ///
+    /// # Arguments
+    ///
+    /// * `source_size` - The size of the source collection
     fn new(source_size: usize) -> Self {
         let mut queue: VecDeque<(usize, usize)> = VecDeque::new();
         queue.push_back((0, source_size - 1));
@@ -878,10 +1132,16 @@ impl Middles {
     }
 }
 
+/// Represents a middle point in a divide-and-conquer range.
+///
+/// Used by the sparse merge algorithm to track indices for binary search.
 #[derive(Debug, Clone)]
 struct Middle {
+    /// The left boundary of the range.
     left_index: usize,
+    /// The middle index (the pivot point).
     middle_index: usize,
+    /// The right boundary of the range.
     right_index: usize,
 }
 
@@ -913,13 +1173,58 @@ impl Iterator for Middles {
     }
 }
 
+/// Represents a location in a merged result where a new element should be placed.
+///
+/// This struct tracks where each element from a "small" sorted collection
+/// should be inserted or replaced in a "big" sorted collection.
+///
+/// # Type Parameters
+///
+/// * `A` - The type of additional data (e.g., data pool IDs) associated with the location
+///
+/// # Fields
+///
+/// * `index` - The position in the merged result
+/// * `replace` - Whether this is a replacement (key exists) or an insertion
+/// * `additional_data` - Extra data associated with the location
 #[derive(Clone, Debug)]
 struct MergeLocation<A: Clone + Ord> {
+    /// The position in the merged result where the element should go.
     index: u64,
+    /// Whether this element replaces an existing one (true) or is inserted (false).
     replace: bool,
+    /// Additional data associated with this location (e.g., data pool ID).
     additional_data: A,
 }
 
+/// Performs a sparse merge of a small sorted collection into a large sorted collection.
+///
+/// This function uses a divide-and-conquer approach to efficiently find
+/// insertion/replacement positions for each element from `small` in `big`.
+/// Instead of linear scanning, it uses binary search guided by middle points,
+/// achieving better cache locality and reducing comparisons.
+///
+/// The algorithm works by:
+/// 1. Processing `small` elements in a breadth-first order using middle indices
+/// 2. Using previously computed positions as bounds for subsequent searches
+/// 3. Each element's position is found using binary search within narrowing bounds
+///
+/// # Arguments
+///
+/// * `big_len` - The length of the large sorted collection
+/// * `big_get_element` - A function to get elements from the large collection by index
+/// * `small` - The small sorted collection to merge into the large one
+///
+/// # Type Parameters
+///
+/// * `F` - The function type for accessing the large collection
+/// * `T` - The element type (must implement [`Ord`])
+/// * `A` - The additional data type (must be `Clone + Ord + Default`)
+///
+/// # Returns
+///
+/// A vector of merge locations indicating where each `small` element should
+/// be placed in the merged result, or an error if the merge fails
 fn sparse_merge<F, T, A>(
     big_len: u64,
     mut big_get_element: F,

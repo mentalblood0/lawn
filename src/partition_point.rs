@@ -2,20 +2,61 @@ use std::cmp::Ordering;
 
 use anyhow::{Context, Result};
 
+/// Represents the first index where a condition is satisfied.
+///
+/// Contains the index, the value at that index, and any additional data
+/// associated with the element.
 #[derive(Debug)]
 pub struct Satisfying<V, A> {
+    /// The index where the condition is first satisfied.
     pub index: u64,
+    /// The value at the satisfying index.
     pub value: V,
+    /// Additional data associated with the element (e.g., metadata).
     pub additional_data: A,
 }
 
+/// Result of a partition point search operation.
+///
+/// Contains information about the first element that satisfies the search condition,
+/// along with metadata about whether an exact match was found.
 #[derive(Debug)]
 pub struct PartitionPoint<V, A> {
+    /// The first element that satisfies the search condition.
     pub first_satisfying: Satisfying<V, A>,
+    /// Whether an exact match ([`Ordering::Equal`]) was found during the search.
+    /// When `true`, there exists at least one element exactly matching the target.
     pub is_exact: bool,
 }
 
 impl<V, A> PartitionPoint<V, A> {
+    /// Performs a binary search to find the partition point in a sorted range.
+    ///
+    /// The partition point is the first index where `target_compare(index)` returns
+    /// [`Ordering::Greater`] or [`Ordering::Equal`]. This is equivalent to finding the lower bound
+    /// of a target value in a sorted collection.
+    ///
+    /// # Arguments
+    ///
+    /// * `from_index` - The inclusive starting index of the search range.
+    /// * `to_index` - The exclusive ending index of the search range.
+    /// * `target_compare` - A function that takes an index and returns:
+    ///   - `(Ordering::Less, value, additional_data)` if the element is less than the target
+    ///   - `(Ordering::Equal, value, additional_data)` if the element equals the target
+    ///   - `(Ordering::Greater, value, additional_data)` if the element is greater than the target
+    ///
+    /// # Returns
+    ///
+    /// `Ok(Some(PartitionPoint))` if at least one element satisfies the condition.
+    /// `Ok(None)` if no element satisfies the condition (all elements return [`Ordering::Less`]).
+    /// `Err` if the comparison function fails.
+    ///
+    /// # Algorithm
+    ///
+    /// This uses a binary search variant that:
+    /// - Finds the first element where `compare` returns `Greater` or `Equal`
+    /// - Tracks whether any exact match (`Equal`) was found via `is_exact`
+    /// - Continues searching leftward to find the true first satisfying element
     pub fn new<F>(
         mut from_index: u64,
         mut to_index: u64,
