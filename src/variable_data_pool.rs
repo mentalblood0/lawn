@@ -15,22 +15,6 @@
 //! and stores it there. When retrieving, it reads from the appropriate container using a compact
 //! ID that encodes both the container size index and the pointer within that container.
 //!
-//! # Example
-//!
-//! ```rust
-//! use variable_data_pool::{VariableDataPool, VariableDataPoolConfig};
-//! use std::path::Path;
-//!
-//! // Create a configuration for a pool that can store elements up to 64KB
-//! let config = VariableDataPoolConfig {
-//!     directory: Path::new("/tmp/my_data_pool").to_path_buf(),
-//!     max_element_size: 65536,
-//! };
-//!
-//! // Create the data pool (requires implementing DataPool trait for your type)
-//! // let mut pool = VariableDataPool::new(&config).unwrap();
-//! ```
-//!
 //! # Key Features
 //!
 //! - **Logarithmic size distribution**: Container sizes grow logarithmically to efficiently cover
@@ -140,18 +124,6 @@ fn split_scale_logarithmically(max_value: usize) -> Result<[usize; CONTAINERS_SI
 /// This struct holds the settings required to initialize a variable-sized data pool.
 /// It specifies where the pool stores its data files and the maximum size of elements
 /// it can accommodate.
-///
-/// # Examples
-///
-/// ```rust
-/// use std::path::PathBuf;
-/// use variable_data_pool::VariableDataPoolConfig;
-///
-/// let config = VariableDataPoolConfig {
-///     directory: PathBuf::from("/tmp/my_pool"),
-///     max_element_size: 1024 * 1024, // 1MB
-/// };
-/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VariableDataPoolConfig {
     /// The directory where container files will be stored.

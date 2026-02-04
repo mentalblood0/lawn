@@ -39,19 +39,6 @@ pub struct FixedDataPoolConfig {
 ///    - Value `255` (all bits set) means the container is allocated
 ///    - Other values point to the next free container in the free-list chain
 /// 2. **Containers**: Fixed-size slots for storing data records
-///
-/// # Example
-/// ```
-/// use fixed_data_pool::{FixedDataPool, FixedDataPoolConfig};
-/// use std::path::Path;
-///
-/// let config = FixedDataPoolConfig {
-///     path: Path::new("/tmp/mydata.dat").to_path_buf(),
-///     container_size: 64,
-/// };
-///
-/// let pool = FixedDataPool::new(&config).unwrap();
-/// ```
 #[derive(Debug)]
 pub struct FixedDataPool {
     /// Configuration for this data pool.

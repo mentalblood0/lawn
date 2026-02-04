@@ -5,25 +5,6 @@
 //! - Multi-reader single-writer transaction semantics
 //! - Concurrent read operations with exclusive write access
 //! - Table-level isolation and atomic commits
-//!
-//! # Example
-//!
-//! ```rust,ignore
-//! use your_crate::define_database;
-//!
-//! define_database!(MyDatabase {
-//!     users<String, UserData>,
-//!     sessions<String, SessionData>
-//! });
-//!
-//! // Create and use the database
-//! let db = MyDatabase::new(config)?;
-//! db.lock_all_and_write(|tx| {
-//!     tx.users.insert("alice".to_string(), UserData { name: "Alice".to_string() })?;
-//!     Ok(())
-//! })?;
-//! ```
-
 pub extern crate anyhow;
 pub extern crate fallible_iterator;
 pub extern crate parking_lot;
@@ -48,15 +29,6 @@ pub extern crate serde;
 /// - `ReadTransaction`: Shared read access transaction
 /// - `WriteTransaction`: Exclusive write access transaction
 /// - `TableTransaction`: Per-table operations within a transaction
-///
-/// # Example
-///
-/// ```rust,ignore
-/// define_database!(MyDB {
-///     users<String, User>,
-///     orders<u64, Order>
-/// } use { use super::User; });
-/// ```
 #[macro_export]
 macro_rules! define_database {
     ($database_name:ident {

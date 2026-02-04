@@ -10,26 +10,6 @@
 //! The index file consists of:
 //! 1. A header containing metadata (record size, etc.)
 //! 2. A sequence of records, each containing a u64 value
-//!
-//! # Example
-//!
-//! ```ignore
-//! use index_rs::Index;
-//! use std::path::PathBuf;
-//!
-//! let config = IndexConfig {
-//!     path: PathBuf::from("/tmp/my_index.idx"),
-//! };
-//! let mut index = Index::new(config).unwrap();
-//!
-//! // Write a value at record index 0
-//! // (Implementation would provide a write method)
-//!
-//! // Read the value back
-//! let value = index.get(0).unwrap();
-//! assert_eq!(value, Some(12345));
-//! ```
-
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
 use std::path::PathBuf;
 use std::{fs, os::unix::fs::FileExt};
@@ -42,7 +22,7 @@ use serde::{Deserialize, Serialize};
 /// Configuration for creating or opening an index.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct IndexConfig {
-/// The path where the index file is stored.
+    /// The path where the index file is stored.
     pub path: PathBuf,
 }
 
@@ -52,13 +32,13 @@ pub struct IndexConfig {
 /// at the beginning of every index file.
 #[derive(bincode::Encode, bincode::Decode, Debug, Clone)]
 pub struct IndexHeader {
-/// The size of each record in bytes.
+    /// The size of each record in bytes.
     pub record_size: u8,
 }
 
 #[derive(Debug)]
 pub struct Index {
-/// The index configuration.
+    /// The index configuration.
     pub config: IndexConfig,
     /// The underlying file handle for the index.
     file: fs::File,
