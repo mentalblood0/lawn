@@ -461,9 +461,9 @@ macro_rules! define_database {
                 ///
                 /// # Errors
                 ///
-                /// Returns an error if any table or log cannot be initialized.
+                /// Returns an error if any table or log cannot be initialized, or if can not recover database from log.
                 pub fn new(config: DatabaseConfig) -> Result<Self> {
-                    Ok(Self {
+                    let result = Self {
                         lockable_internals: Arc::new(RwLock::new(DatabaseLockableInternals {
                             tables: TablesTransactions {
                                 $(
@@ -475,7 +475,9 @@ macro_rules! define_database {
                             },
                             log: Log::new(config.log.clone()).with_context(|| format!("Can not create new log from config {:?}", config.log))?,
                         })),
-                    })
+                    };
+                    result.lock_all_and_recover()?;
+                    Ok(result)
                 }
 
                 /// Executes a read-only transaction.
