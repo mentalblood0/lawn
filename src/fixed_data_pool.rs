@@ -10,7 +10,7 @@ use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
 use std::{fs, io::BufWriter};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 
 use serde::{Deserialize, Serialize};
 
@@ -228,7 +228,10 @@ impl FixedDataPool {
         if let Some(pointer_to_data_to_remove) = self.buffer_of_pointers_to_data_to_remove.pop() {
             self.set(pointer_to_data_to_remove, &data)
                 .with_context(|| {
-                    format!("Can not set replace current data at pointer {pointer_to_data_to_remove:?} with data {data:?}")
+                    format!(
+                        "Can not set replace current data at pointer \
+                         {pointer_to_data_to_remove:?} with data {data:?}"
+                    )
                 })?;
             Ok(pointer_to_data_to_remove)
         } else {
@@ -248,7 +251,8 @@ impl FixedDataPool {
                 match data.len().cmp(&self.config.container_size) {
                     Ordering::Greater => {
                         return Err(anyhow!(
-                            "Can not insert data of size {} into fixed data pool for containers of size {} at {self:?}",
+                            "Can not insert data of size {} into fixed data pool for containers \
+                             of size {} at {self:?}",
                             data.len(),
                             self.config.container_size
                         ));
@@ -322,7 +326,13 @@ impl<D: Value> DataPool<D> for FixedDataPool {
             for pointer_to_data_to_remove in
                 std::mem::take(&mut self.buffer_of_pointers_to_data_to_remove).into_iter()
             {
-                self.set(pointer_to_data_to_remove, &cached_head).with_context(|| format!("Can not set cached head {cached_head:?} at pointer to data to remove {pointer_to_data_to_remove:?} at {self:?} while flushing"))?;
+                self.set(pointer_to_data_to_remove, &cached_head)
+                    .with_context(|| {
+                        format!(
+                            "Can not set cached head {cached_head:?} at pointer to data to remove \
+                             {pointer_to_data_to_remove:?} at {self:?} while flushing"
+                        )
+                    })?;
                 cached_head = self.pointer_to_container(pointer_to_data_to_remove);
             }
             self.set_head(cached_head.clone()).with_context(|| {

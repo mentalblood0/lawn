@@ -26,7 +26,7 @@
 //! - **Thread-safe**: Implements [`DataPool`] trait with Send + Sync bounds
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 
 use serde::{Deserialize, Serialize};
 
@@ -67,7 +67,8 @@ const CONTAINER_SIZE_MIN: usize = 2;
 fn split_scale_logarithmically(max_value: usize) -> Result<[usize; CONTAINERS_SIZES_COUNT]> {
     if max_value < CONTAINERS_SIZES_COUNT {
         return Err(anyhow!(
-            "Can not split scale: maximum value {max_value} must be greater or equal to values count {CONTAINERS_SIZES_COUNT}"
+            "Can not split scale: maximum value {max_value} must be greater or equal to values \
+             count {CONTAINERS_SIZES_COUNT}"
         ));
     }
 
@@ -305,8 +306,13 @@ impl VariableDataPool {
         }
         Ok(Self {
             config: config.clone(),
-            container_size_index_to_fixed_data_pool: fixed_data_pools.try_into().map_err(|source_type|
-                anyhow!("Can not convert fixed data pools vec to static array with required size: {source_type:?}"),
+            container_size_index_to_fixed_data_pool: fixed_data_pools.try_into().map_err(
+                |source_type| {
+                    anyhow!(
+                        "Can not convert fixed data pools vec to static array with required size: \
+                         {source_type:?}"
+                    )
+                },
             )?,
             jump_point: jump_point.unwrap_or(0 as usize),
         })
@@ -343,7 +349,14 @@ impl VariableDataPool {
                 fixed_data_pool.config.container_size < encoded_data.len()
             });
         let pointer = self.container_size_index_to_fixed_data_pool[container_size_index]
-            .insert_raw(encoded_data.clone()).with_context(|| format!("Can not insert encoded data {encoded_data:?} into {:?}-nth fixed data pool of variable data pool", container_size_index + 1))?;
+            .insert_raw(encoded_data.clone())
+            .with_context(|| {
+                format!(
+                    "Can not insert encoded data {encoded_data:?} into {:?}-nth fixed data pool \
+                     of variable data pool",
+                    container_size_index + 1
+                )
+            })?;
         Ok(u64::from(Id {
             container_size_index: container_size_index as u8,
             pointer: pointer,
