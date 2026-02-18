@@ -5,7 +5,7 @@ use std::io::{BufWriter, Write};
 use std::marker::PhantomData;
 use std::ops::Bound;
 
-use anyhow::{Context, Error, Result, anyhow};
+use anyhow::{anyhow, Context, Error, Result};
 use fallible_iterator::FallibleIterator;
 
 use serde::{Deserialize, Serialize};
@@ -270,15 +270,30 @@ impl<K: Key, V: Value> Table<K, V> {
                     .get(record_index)
                     .with_context(|| {
                         format!(
-                            "Can not get data record id as record with index {record_index:?} from {:?}", self.index
+                            "Can not get data record id as record with index {record_index:?} \
+                             from {:?}",
+                            self.index
                         )
                     })?
                     .ok_or(anyhow!(
-                        "Can not get data record id at index {record_index:?} from {:?} (got nothing)", self.index
+                        "Can not get data record id at index {record_index:?} from {:?} (got \
+                         nothing)",
+                        self.index
                     ))?;
-                let data_record = self.get_from_index_by_id(data_record_id).with_context(|| format!("Can not get data record from index {:?} using id {data_record_id:?}", self.index))?;
+                let data_record = self.get_from_index_by_id(data_record_id).with_context(|| {
+                    format!(
+                        "Can not get data record from index {:?} using id {data_record_id:?}",
+                        self.index
+                    )
+                })?;
                 Ok((data_record.key.cmp(key), data_record.value, ()))
-            }).with_context(|| format!("Can not create partition point for {:?} to search key {key:?}", self.index))?
+            })
+            .with_context(|| {
+                format!(
+                    "Can not create partition point for {:?} to search key {key:?}",
+                    self.index
+                )
+            })?
             .filter(|partition_point| partition_point.is_exact)
             .map(|partition_point| partition_point.first_satisfying.value),
         )
@@ -375,7 +390,12 @@ impl<K: Key, V: Value> Table<K, V> {
                 let id = self
                     .data_pool
                     .insert(data_record_to_insert.clone())
-                    .with_context(|| format!("Can not insert {data_record_to_insert:?} while checkpointing table using dump method"))?;
+                    .with_context(|| {
+                        format!(
+                            "Can not insert {data_record_to_insert:?} while checkpointing table \
+                             using dump method"
+                        )
+                    })?;
                 if id > max_id {
                     max_id = id;
                 }
@@ -402,12 +422,21 @@ impl<K: Key, V: Value> Table<K, V> {
         let header_to_write = IndexHeader {
             record_size: index_record_size,
         };
-        Index::write_header(&mut index_file, &header_to_write)
-            .with_context(|| format!("Can not write header {header_to_write:?} for index while checkpointing table using dump method"))?;
+        Index::write_header(&mut index_file, &header_to_write).with_context(|| {
+            format!(
+                "Can not write header {header_to_write:?} for index while checkpointing table \
+                 using dump method"
+            )
+        })?;
         let mut index_writer = BufWriter::new(index_file);
 
         for id in ids.into_iter() {
-            write_data_id(&mut index_writer, id, index_record_size).with_context(|| format!("Can not write data id {id:?} using {index_writer:?} aligning it with index record size {index_record_size:?}"))?;
+            write_data_id(&mut index_writer, id, index_record_size).with_context(|| {
+                format!(
+                    "Can not write data id {id:?} using {index_writer:?} aligning it with index \
+                     record size {index_record_size:?}"
+                )
+            })?;
         }
         index_writer
             .flush()
@@ -491,10 +520,12 @@ impl<K: Key, V: Value> Table<K, V> {
         let header_to_write = IndexHeader {
             record_size: new_index_record_size,
         };
-        Index::write_header(
-            &mut new_index_file,
-            &header_to_write,
-        ).with_context(|| format!("Can not write header {header_to_write:?} for index while checkpointing table using dump method"))?;
+        Index::write_header(&mut new_index_file, &header_to_write).with_context(|| {
+            format!(
+                "Can not write header {header_to_write:?} for index while checkpointing table \
+                 using dump method"
+            )
+        })?;
         let mut new_index_writer = BufWriter::new(new_index_file);
 
         let mut old_ids_iter = self
@@ -531,7 +562,14 @@ impl<K: Key, V: Value> Table<K, V> {
                                     current_new_element_id,
                                     new_index_record_size,
                                 )
-                                .with_context(|| format!("Can not write data id (current new element id) {current_new_element_id:?} using {new_index_writer:?} aligning it with index record size {new_index_record_size:?}"))?;
+                                .with_context(|| {
+                                    format!(
+                                        "Can not write data id (current new element id) \
+                                         {current_new_element_id:?} using {new_index_writer:?} \
+                                         aligning it with index record size \
+                                         {new_index_record_size:?}"
+                                    )
+                                })?;
                             }
                             current_new_element_option = new_elements_iter.next();
                         }
@@ -540,23 +578,36 @@ impl<K: Key, V: Value> Table<K, V> {
                                 &mut new_index_writer,
                                 current_old_id_and_key.0,
                                 new_index_record_size,
-                            ).with_context(|| {
+                            )
+                            .with_context(|| {
                                 format!(
-                                    "Can not write data id (current old id) {:?} using {new_index_writer:?} aligning it with index record size {new_index_record_size:?}",
+                                    "Can not write data id (current old id) {:?} using \
+                                     {new_index_writer:?} aligning it with index record size \
+                                     {new_index_record_size:?}",
                                     current_old_id_and_key.0
                                 )
                             })?;
-                            current_old_id_and_key_option =
-                                if let Some(current_old_id) = old_ids_iter.next().with_context(|| format!("Can not propagate old identifiers iterator further (even getting nothing)"))? {
-                                    Some((
-                                        current_old_id,
-                                        self.get_from_index_by_id(current_old_id).with_context(|| {
-                                            format!("Can not get value from index by id (current old id) {current_old_id:?}")
-                                        })?.key,
-                                    ))
-                                } else {
-                                    None
-                                };
+                            current_old_id_and_key_option = if let Some(current_old_id) =
+                                old_ids_iter.next().with_context(|| {
+                                    format!(
+                                        "Can not propagate old identifiers iterator further (even \
+                                         getting nothing)"
+                                    )
+                                })? {
+                                Some((
+                                    current_old_id,
+                                    self.get_from_index_by_id(current_old_id)
+                                        .with_context(|| {
+                                            format!(
+                                                "Can not get value from index by id (current old \
+                                                 id) {current_old_id:?}"
+                                            )
+                                        })?
+                                        .key,
+                                ))
+                            } else {
+                                None
+                            };
                         }
                         Ordering::Equal => {
                             self.data_pool
@@ -572,25 +623,38 @@ impl<K: Key, V: Value> Table<K, V> {
                                     &mut new_index_writer,
                                     current_new_element_id,
                                     new_index_record_size,
-                                ).with_context(|| {
+                                )
+                                .with_context(|| {
                                     format!(
-                                        "Can not write data id (current new element id) {:?} using {new_index_writer:?} aligning it with index record size {new_index_record_size:?}",
+                                        "Can not write data id (current new element id) {:?} \
+                                         using {new_index_writer:?} aligning it with index record \
+                                         size {new_index_record_size:?}",
                                         current_new_element_id
                                     )
                                 })?;
                             }
                             current_new_element_option = new_elements_iter.next();
-                            current_old_id_and_key_option =
-                                if let Some(current_old_id) = old_ids_iter.next().with_context(|| format!("Can not propagate old identifiers iterator further (even getting nothing)"))? {
-                                    Some((
-                                        current_old_id,
-                                        self.get_from_index_by_id(current_old_id).with_context(|| {
-                                            format!("Can not get value from index by id (current old id) {current_old_id:?}")
-                                        })?.key,
-                                    ))
-                                } else {
-                                    None
-                                };
+                            current_old_id_and_key_option = if let Some(current_old_id) =
+                                old_ids_iter.next().with_context(|| {
+                                    format!(
+                                        "Can not propagate old identifiers iterator further (even \
+                                         getting nothing)"
+                                    )
+                                })? {
+                                Some((
+                                    current_old_id,
+                                    self.get_from_index_by_id(current_old_id)
+                                        .with_context(|| {
+                                            format!(
+                                                "Can not get value from index by id (current old \
+                                                 id) {current_old_id:?}"
+                                            )
+                                        })?
+                                        .key,
+                                ))
+                            } else {
+                                None
+                            };
                         }
                     }
                 }
@@ -600,9 +664,12 @@ impl<K: Key, V: Value> Table<K, V> {
                             &mut new_index_writer,
                             current_new_element_id,
                             new_index_record_size,
-                        ).with_context(|| {
+                        )
+                        .with_context(|| {
                             format!(
-                                "Can not write data id (current new element id) {:?} using {new_index_writer:?} aligning it with index record size {new_index_record_size:?}",
+                                "Can not write data id (current new element id) {:?} using \
+                                 {new_index_writer:?} aligning it with index record size \
+                                 {new_index_record_size:?}",
                                 current_new_element_id
                             )
                         })?;
@@ -614,23 +681,36 @@ impl<K: Key, V: Value> Table<K, V> {
                         &mut new_index_writer,
                         current_old_id_and_key.0,
                         new_index_record_size,
-                    ).with_context(|| {
+                    )
+                    .with_context(|| {
                         format!(
-                            "Can not write data id (current old id) {:?} using {new_index_writer:?} aligning it with index record size {new_index_record_size:?}",
+                            "Can not write data id (current old id) {:?} using \
+                             {new_index_writer:?} aligning it with index record size \
+                             {new_index_record_size:?}",
                             current_old_id_and_key.0
                         )
                     })?;
-                    current_old_id_and_key_option =
-                        if let Some(current_old_id) = old_ids_iter.next().with_context(|| format!("Can not propagate old identifiers iterator further (even getting nothing)"))? {
-                            Some((
-                                current_old_id,
-                                self.get_from_index_by_id(current_old_id).with_context(|| {
-                                    format!("Can not get value from index by id (current old id) {current_old_id:?}")
-                                })?.key,
-                            ))
-                        } else {
-                            None
-                        };
+                    current_old_id_and_key_option = if let Some(current_old_id) =
+                        old_ids_iter.next().with_context(|| {
+                            format!(
+                                "Can not propagate old identifiers iterator further (even getting \
+                                 nothing)"
+                            )
+                        })? {
+                        Some((
+                            current_old_id,
+                            self.get_from_index_by_id(current_old_id)
+                                .with_context(|| {
+                                    format!(
+                                        "Can not get value from index by id (current old id) \
+                                         {current_old_id:?}"
+                                    )
+                                })?
+                                .key,
+                        ))
+                    } else {
+                        None
+                    };
                 }
                 (None, None) => break,
             }
@@ -712,7 +792,15 @@ impl<K: Key, V: Value> Table<K, V> {
             .zip(memtable_records.into_iter())
         {
             if merge_location.replace {
-                self.data_pool.remove(merge_location.additional_data).with_context(|| format!("Can not remove value from data pool by id {:?} so to replace it with another", merge_location.additional_data))?;
+                self.data_pool
+                    .remove(merge_location.additional_data)
+                    .with_context(|| {
+                        format!(
+                            "Can not remove value from data pool by id {:?} so to replace it with \
+                             another",
+                            merge_location.additional_data
+                        )
+                    })?;
             }
             if let Some(value) = &current_record.value {
                 let data_record_to_insert = DataRecord {
@@ -763,10 +851,12 @@ impl<K: Key, V: Value> Table<K, V> {
         let header_to_write = IndexHeader {
             record_size: new_index_record_size,
         };
-        Index::write_header(
-            &mut new_index_file,
-            &header_to_write,
-        ).with_context(|| format!("Can not write header {header_to_write:?} for index while checkpointing table using dump method"))?;
+        Index::write_header(&mut new_index_file, &header_to_write).with_context(|| {
+            format!(
+                "Can not write header {header_to_write:?} for index while checkpointing table \
+                 using dump method"
+            )
+        })?;
         let mut new_index_writer = BufWriter::new(new_index_file);
 
         let mut old_ids_iter = self
@@ -797,7 +887,13 @@ impl<K: Key, V: Value> Table<K, V> {
                     },
                 )
             }) {
-                current_old_id_option = old_ids_iter.next().with_context(|| format!("Can not propagate old index {:?} iterator further (even if there is no identifiers to receive)", self.index))?;
+                current_old_id_option = old_ids_iter.next().with_context(|| {
+                    format!(
+                        "Can not propagate old index {:?} iterator further (even if there is no \
+                         identifiers to receive)",
+                        self.index
+                    )
+                })?;
                 current_old_id_to_remove_with_no_replacement_option =
                     old_ids_to_remove_with_no_replacement_iter.next();
                 continue;
@@ -818,9 +914,12 @@ impl<K: Key, V: Value> Table<K, V> {
                                 &mut new_index_writer,
                                 current_old_id,
                                 new_index_record_size,
-                            ).with_context(|| {
+                            )
+                            .with_context(|| {
                                 format!(
-                                    "Can not write data id (current old id) {:?} using {new_index_writer:?} aligning it with index record size {new_index_record_size:?}",
+                                    "Can not write data id (current old id) {:?} using \
+                                     {new_index_writer:?} aligning it with index record size \
+                                     {new_index_record_size:?}",
                                     new_index_record_size
                                 )
                             })?;
@@ -831,9 +930,12 @@ impl<K: Key, V: Value> Table<K, V> {
                                 &mut new_index_writer,
                                 current_effective_merge_location.additional_data,
                                 new_index_record_size,
-                            ).with_context(|| {
+                            )
+                            .with_context(|| {
                                 format!(
-                                    "Can not write data id (current effective merge location additional data) {:?} using {new_index_writer:?} aligning it with index record size {new_index_record_size:?}",
+                                    "Can not write data id (current effective merge location \
+                                     additional data) {:?} using {new_index_writer:?} aligning it \
+                                     with index record size {new_index_record_size:?}",
                                     new_index_record_size
                                 )
                             })?;
@@ -846,9 +948,13 @@ impl<K: Key, V: Value> Table<K, V> {
                                     &mut new_index_writer,
                                     current_effective_merge_location.additional_data,
                                     new_index_record_size,
-                                ).with_context(|| {
+                                )
+                                .with_context(|| {
                                     format!(
-                                        "Can not write data id (current effective merge location additional data) {:?} using {new_index_writer:?} aligning it with index record size {new_index_record_size:?}",
+                                        "Can not write data id (current effective merge location \
+                                         additional data) {:?} using {new_index_writer:?} \
+                                         aligning it with index record size \
+                                         {new_index_record_size:?}",
                                         new_index_record_size
                                     )
                                 })?;
@@ -859,10 +965,14 @@ impl<K: Key, V: Value> Table<K, V> {
                                 write_data_id(
                                     &mut new_index_writer,
                                     current_effective_merge_location.additional_data,
-                                    new_index_record_size
-                                ).with_context(|| {
+                                    new_index_record_size,
+                                )
+                                .with_context(|| {
                                     format!(
-                                        "Can not write data id (current effective merge location additional data) {:?} using {new_index_writer:?} aligning it with index record size {new_index_record_size:?}",
+                                        "Can not write data id (current effective merge location \
+                                         additional data) {:?} using {new_index_writer:?} \
+                                         aligning it with index record size \
+                                         {new_index_record_size:?}",
                                         new_index_record_size
                                     )
                                 })?;
@@ -877,22 +987,34 @@ impl<K: Key, V: Value> Table<K, V> {
                         &mut new_index_writer,
                         current_effective_merge_location.additional_data,
                         new_index_record_size,
-                    ).with_context(|| {
+                    )
+                    .with_context(|| {
                         format!(
-                            "Can not write data id (current effective merge location additional data) {:?} using {new_index_writer:?} aligning it with index record size {new_index_record_size:?}",
+                            "Can not write data id (current effective merge location additional \
+                             data) {:?} using {new_index_writer:?} aligning it with index record \
+                             size {new_index_record_size:?}",
                             new_index_record_size
                         )
                     })?;
                     current_effective_merge_location_option = effective_merge_locations_iter.next();
                 }
                 (None, Some((_, current_old_id))) => {
-                    write_data_id(&mut new_index_writer, current_old_id, new_index_record_size).with_context(|| {
+                    write_data_id(&mut new_index_writer, current_old_id, new_index_record_size)
+                        .with_context(|| {
+                            format!(
+                                "Can not write data id (current old id) {:?} using \
+                                 {new_index_writer:?} aligning it with index record size \
+                                 {new_index_record_size:?}",
+                                new_index_record_size
+                            )
+                        })?;
+                    current_old_id_option = old_ids_iter.next().with_context(|| {
                         format!(
-                            "Can not write data id (current old id) {:?} using {new_index_writer:?} aligning it with index record size {new_index_record_size:?}",
-                            new_index_record_size
+                            "Can not propagate old index {:?} iterator further (even if there is \
+                             no identifiers to receive)",
+                            self.index
                         )
                     })?;
-                    current_old_id_option = old_ids_iter.next().with_context(|| format!("Can not propagate old index {:?} iterator further (even if there is no identifiers to receive)", self.index))?;
                 }
                 (None, None) => break,
             }
@@ -935,53 +1057,75 @@ impl<K: Key, V: Value> Table<K, V> {
     ) -> Result<TableIndexIterator<'_, K, V>> {
         match start_bound {
             Bound::Included(from_key) | Bound::Excluded(from_key) => {
-                let from_record_index = PartitionPoint::new(
-                    0,
-                    self.index.records_count, |record_index| {
-                        let data_record_id = self.index.get(if backwards {self.index.records_count - 1 - record_index} else {record_index})?.with_context(|| {
-                            format!("Can not get data record id at index {record_index}")
-                        })?;
+                let from_record_index =
+                    PartitionPoint::new(0, self.index.records_count, |record_index| {
+                        let data_record_id = self
+                            .index
+                            .get(if backwards {
+                                self.index.records_count - 1 - record_index
+                            } else {
+                                record_index
+                            })?
+                            .with_context(|| {
+                                format!("Can not get data record id at index {record_index}")
+                            })?;
                         let data_record =
                             self.get_from_index_by_id(data_record_id).with_context(|| {
                                 format!("Can not get record from index by id {data_record_id:?}")
                             })?;
-                        Ok((if backwards {from_key.cmp(&data_record.key)} else {data_record.key.cmp(from_key)}, data_record.value, ()))
-                    }
-                ).with_context(|| {
+                        Ok((
+                            if backwards {
+                                from_key.cmp(&data_record.key)
+                            } else {
+                                data_record.key.cmp(from_key)
+                            },
+                            data_record.value,
+                            (),
+                        ))
+                    })
+                    .with_context(|| {
                         format!(
-                            "Can not create partition point for {:?} to iterate table from key {from_key:?}",
+                            "Can not create partition point for {:?} to iterate table from key \
+                             {from_key:?}",
                             self.index
                         )
-                    }
-                )?.and_then(|mut partition_point| {
-                    if backwards {
-                        partition_point.first_satisfying.index = self.index.records_count - 1 - partition_point.first_satisfying.index;
-                    }
-                    if let Bound::Included(_) = start_bound {
-                        Some(partition_point.first_satisfying.index)
-                    } else {
+                    })?
+                    .and_then(|mut partition_point| {
                         if backwards {
-                            if partition_point.is_exact {
-                                partition_point.first_satisfying.index.checked_sub(1)
-                            } else {
-                                Some(partition_point.first_satisfying.index)
-                            }
+                            partition_point.first_satisfying.index = self.index.records_count
+                                - 1
+                                - partition_point.first_satisfying.index;
+                        }
+                        if let Bound::Included(_) = start_bound {
+                            Some(partition_point.first_satisfying.index)
                         } else {
-                            if partition_point.is_exact {
-                                Some(partition_point.first_satisfying.index + 1)
+                            if backwards {
+                                if partition_point.is_exact {
+                                    partition_point.first_satisfying.index.checked_sub(1)
+                                } else {
+                                    Some(partition_point.first_satisfying.index)
+                                }
                             } else {
-                                Some(partition_point.first_satisfying.index)
+                                if partition_point.is_exact {
+                                    Some(partition_point.first_satisfying.index + 1)
+                                } else {
+                                    Some(partition_point.first_satisfying.index)
+                                }
                             }
                         }
-                    }
-                });
+                    });
                 Ok(TableIndexIterator {
                     data_pool: &self.data_pool,
                     index_iter: if let Some(from_record_index) = from_record_index {
-                        Box::new(self.index.iter(
-                            from_record_index,
-                            backwards
-                        ).with_context(|| format!("Can not initiate iteration over index {:?} from key {from_key:?}", self.index))?)
+                        Box::new(self.index.iter(from_record_index, backwards).with_context(
+                            || {
+                                format!(
+                                    "Can not initiate iteration over index {:?} from key \
+                                     {from_key:?}",
+                                    self.index
+                                )
+                            },
+                        )?)
                     } else {
                         Box::new(fallible_iterator::convert(
                             [0u64; 0].into_iter().map(|u| Ok(u)),
@@ -1090,7 +1234,8 @@ impl<'a, K: Key, V: Value> FallibleIterator for TableIndexIterator<'a, K, V> {
         Ok(
             match self.index_iter.next().with_context(|| {
                 format!(
-                    "Can not propagate index iterator further (even if there is nothing to receive)"
+                    "Can not propagate index iterator further (even if there is nothing to \
+                     receive)"
                 )
             })? {
                 Some(id) => {
@@ -1255,10 +1400,22 @@ where
 
         result_insert_indices[middle.middle_index] = Some({
             PartitionPoint::new(left_bound, right_bound, |element_index| {
-                let current = big_get_element(element_index).with_context(|| format!("Can not get element at index {element_index:?} from big merging part"))?
+                let current = big_get_element(element_index)
+                    .with_context(|| {
+                        format!(
+                            "Can not get element at index {element_index:?} from big merging part"
+                        )
+                    })?
                     .with_context(|| format!("Can not get element at index {element_index:?}"))?;
                 Ok((current.0.cmp(element_to_insert), current.0, current.1))
-            }).with_context(|| format!("Can not create partition point from left bound {left_bound:?} to {right_bound:?} to maybe get {:?}-nth insert indice", middle.middle_index + 1))?
+            })
+            .with_context(|| {
+                format!(
+                    "Can not create partition point from left bound {left_bound:?} to \
+                     {right_bound:?} to maybe get {:?}-nth insert indice",
+                    middle.middle_index + 1
+                )
+            })?
             .map_or(
                 MergeLocation {
                     index: right_bound,
@@ -1791,8 +1948,8 @@ mod tests {
         );
     }
 
-    fn generative(use_checkpoints: bool) {
-        let mut table = new_default_table::<Vec<u8>, Vec<u8>>("test_checkpoint_generative");
+    fn generative(use_checkpoints: bool, test_name_for_isolation: &str) {
+        let mut table = new_default_table::<Vec<u8>, Vec<u8>>(test_name_for_isolation);
 
         let mut previously_added_keyvalues: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
         let mut rng = WyRand::new_seed(0);
@@ -1922,11 +2079,11 @@ mod tests {
 
     #[test]
     fn test_memtable_generative() {
-        generative(false);
+        generative(false, "test_memtable_generative");
     }
 
     #[test]
     fn test_checkpoint_generative() {
-        generative(true);
+        generative(true, "test_checkpoint_generative");
     }
 }
