@@ -492,12 +492,11 @@ macro_rules! define_database {
                 /// # Errors
                 ///
                 /// Returns an error if lock acquisition or the function fails.
-                pub fn lock_all_writes_and_read<F>(&self, mut f: F) -> Result<&Self>
+                pub fn lock_all_writes_and_read<F, R>(&self, mut f: F) -> Result<R>
                 where
-                    F: FnMut(ReadTransaction) -> Result<()>,
+                    F: FnMut(ReadTransaction) -> Result<R>,
                 {
-                    f(ReadTransaction::new(&Arc::clone(&self.lockable_internals)).with_context(|| "Can not create new read transaction from lockable internals of database")?).with_context(|| "Can not execute user-provided function for read transaction")?;
-                    Ok(self)
+                    f(ReadTransaction::new(&Arc::clone(&self.lockable_internals)).with_context(|| "Can not create new read transaction from lockable internals of database")?).with_context(|| "Can not execute user-provided function for read transaction")
                 }
 
                 /// Executes a read-write transaction.
@@ -512,15 +511,15 @@ macro_rules! define_database {
                 /// # Errors
                 ///
                 /// Returns an error if lock acquisition, the function, or commit fails.
-                pub fn lock_all_and_write<F>(&self, mut f: F) -> Result<&Self>
+                pub fn lock_all_and_write<F, R>(&self, mut f: F) -> Result<R>
                 where
-                    F: FnMut(&mut WriteTransaction) -> Result<()>,
+                    F: FnMut(&mut WriteTransaction) -> Result<R>,
                 {
                     let cloned_internals = &Arc::clone(&self.lockable_internals);
                     let mut transaction = WriteTransaction::new(cloned_internals).with_context(|| "Can not create new write transaction from arc-cloned internals of database")?;
-                    f(&mut transaction).with_context(|| "Can not execute user-provided function for read transaction")?;
+                    let result = f(&mut transaction).with_context(|| "Can not execute user-provided function for read transaction")?;
                     transaction.commit().with_context(|| "Can not commit write transaction to database")?;
-                    Ok(self)
+                    Ok(result)
                 }
 
                 /// Recovers the database from the WAL.
