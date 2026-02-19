@@ -491,7 +491,7 @@ macro_rules! define_database {
                 ///
                 /// # Errors
                 ///
-                /// Returns an error if lock acquisition or the function fails.
+                /// Returns an error if lock acquisition or the function fails, otherwise returns what user-provided closure returns.
                 pub fn lock_all_writes_and_read<F, R>(&self, mut f: F) -> Result<R>
                 where
                     F: FnMut(ReadTransaction) -> Result<R>,
@@ -510,14 +510,14 @@ macro_rules! define_database {
                 ///
                 /// # Errors
                 ///
-                /// Returns an error if lock acquisition, the function, or commit fails.
+                /// Returns an error if lock acquisition, the function, or commit fails, otherwise returns what user-provided closure returns.
                 pub fn lock_all_and_write<F, R>(&self, mut f: F) -> Result<R>
                 where
                     F: FnMut(&mut WriteTransaction) -> Result<R>,
                 {
                     let cloned_internals = &Arc::clone(&self.lockable_internals);
                     let mut transaction = WriteTransaction::new(cloned_internals).with_context(|| "Can not create new write transaction from arc-cloned internals of database")?;
-                    let result = f(&mut transaction).with_context(|| "Can not execute user-provided function for read transaction")?;
+                    let result = f(&mut transaction).with_context(|| "Can not execute user-provided function for write transaction")?;
                     transaction.commit().with_context(|| "Can not commit write transaction to database")?;
                     Ok(result)
                 }
