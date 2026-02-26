@@ -6,7 +6,11 @@ pub extern crate serde;
 #[macro_export]
 macro_rules! define_database {
     ($database_name:ident {
-        $($table_name:ident<$key_type:ty, $value_type:ty>),+ $(,)?
+        $(
+            $schema_name:ident {
+                $($table_name:ident<$key_type:ty, $value_type:ty>),+ $(,)?
+            }
+        ),+ $(,)?
     }
     use { $($use_item:item)* }) => {
         #[allow(dead_code)]
@@ -44,10 +48,22 @@ macro_rules! define_database {
                 file: fs::File,
             }
 
+            pub mod schemas_log_records_parts {
+                use super::*;
+                $(
+                    #[derive(bincode::Encode, bincode::Decode, Debug, Clone)]
+                    pub struct $schema_name {
+                        $(
+                            pub $table_name: Vec<($key_type, Option<$value_type>)>,
+                        )+
+                    }
+                )+
+            }
+
             #[derive(bincode::Encode, bincode::Decode, Debug, Clone)]
             struct LogRecord {
                 $(
-                    $table_name: Vec<($key_type, Option<$value_type>)>,
+                    $schema_name: schemas_log_records_parts::$schema_name
                 )+
             }
 
@@ -130,10 +146,22 @@ macro_rules! define_database {
                 }
             }
 
+            pub mod schemas_tables_config_parts {
+                use super::*;
+                $(
+                    #[derive(super::Serialize, super::Deserialize, Debug, Clone)]
+                    pub struct $schema_name {
+                        $(
+                            pub $table_name: super::table::TableConfig<$key_type, $value_type>,
+                        )+
+                    }
+                )+
+            }
+
             #[derive(Serialize, Deserialize, Debug, Clone)]
             pub struct TablesConfig {
                 $(
-                    pub $table_name: table::TableConfig<$key_type, $value_type>,
+                    pub $schema_name: schemas_tables_config_parts::$schema_name,
                 )+
             }
 
@@ -197,9 +225,20 @@ macro_rules! define_database {
                 }
             }
 
+            pub mod schemas_tables_transactions_parts {
+                use super::*;
+                $(
+                    pub struct $schema_name {
+                        $(
+                            pub $table_name: super::TableTransaction<$key_type, $value_type>,
+                        )+
+                    }
+                )+
+            }
+
             pub struct TablesTransactions {
                 $(
-                    pub $table_name: TableTransaction<$key_type, $value_type>,
+                    pub $schema_name: schemas_tables_transactions_parts::$schema_name,
                 )+
             }
 
@@ -236,28 +275,37 @@ macro_rules! define_database {
                 pub fn commit(&mut self) -> Result<()> {
                     let log_record = LogRecord {
                         $(
-                            $table_name: self.database_locked_internals
-                                                .tables
-                                                .$table_name
-                                                .changes
-                                                .iter()
-                                                .map(|(key, value)| (key.clone(), value.clone()))
-                                                .collect(),
+                            $schema_name: schemas_log_records_parts::$schema_name {
+                                $(
+                                    $table_name: self.database_locked_internals
+                                                        .tables
+                                                        .$schema_name
+                                                        .$table_name
+                                                        .changes
+                                                        .iter()
+                                                        .map(|(key, value)| (key.clone(), value.clone()))
+                                                        .collect(),
+                                )+
+                            }
                         )+
                     };
                     self.database_locked_internals
                         .log
                         .write(log_record.clone()).with_context(|| format!("Can not write log record {log_record:?} to database while committing write transaction"))?;
-                    $({
-                        let mut table_changes = std::mem::take(&mut self.database_locked_internals
-                                                                        .tables
-                                                                        .$table_name.changes);
-                        self.database_locked_internals
-                            .tables
-                            .$table_name
-                            .table
-                            .merge(&mut table_changes);
-                    })+
+                    $(
+                        $({
+                            let mut table_changes = std::mem::take(&mut self.database_locked_internals
+                                                                    .tables
+                                                                    .$schema_name
+                                                                    .$table_name.changes);
+                            self.database_locked_internals
+                                .tables
+                                .$schema_name
+                                .$table_name
+                                .table
+                                .merge(&mut table_changes);
+                        })+
+                    )+
                     Ok(())
                 }
             }
@@ -294,10 +342,14 @@ macro_rules! define_database {
                         lockable_internals: Arc::new(RwLock::new(DatabaseLockableInternals {
                             tables: TablesTransactions {
                                 $(
-                                    $table_name: TableTransaction {
-                                        table: table::Table::<$key_type, $value_type>::new(config.tables.$table_name.clone()).with_context(|| format!("Can not create new table {:?} from config {:?}", stringify!($table_name), config.tables.$table_name))?,
-                                        changes: BTreeMap::new(),
-                                    },
+                                    $schema_name: schemas_tables_transactions_parts::$schema_name {
+                                        $(
+                                            $table_name: TableTransaction {
+                                                table: table::Table::<$key_type, $value_type>::new(config.tables.$schema_name.$table_name.clone()).with_context(|| format!("Can not create new table {:?} from config {:?}", stringify!($table_name), config.tables.$schema_name.$table_name))?,
+                                                changes: BTreeMap::new(),
+                                            },
+                                        )+
+                                    }
                                 )+
                             },
                             log: Log::new(config.log.clone()).with_context(|| format!("Can not create new log from config {:?}", config.log))?,
@@ -332,9 +384,11 @@ macro_rules! define_database {
 
                     locked_internals.log.iter().with_context(|| format!("Can not initiate iteration over log {:?} to recover database", locked_internals.log))?.for_each(|log_record| {
                         $(
-                            for (key, value) in log_record.$table_name {
-                                locked_internals.tables.$table_name.table.memtable.insert(key, value);
-                            }
+                            $(
+                                for (key, value) in log_record.$schema_name.$table_name {
+                                    locked_internals.tables.$schema_name.$table_name.table.memtable.insert(key, value);
+                                }
+                            )+
                         )+
                         Ok(())
                     }).with_context(|| format!("Can not recover database from log {:?}", locked_internals.log))?;
@@ -347,7 +401,9 @@ macro_rules! define_database {
                         .write();
 
                     $(
-                        locked_internals.tables.$table_name.table.clear().with_context(|| format!("Can not clear table {:?} while clearing database", stringify!($table_name)))?;
+                        $(
+                            locked_internals.tables.$schema_name.$table_name.table.clear().with_context(|| format!("Can not clear table {:?} while clearing database", stringify!($table_name)))?;
+                        )+
                     )+
                     locked_internals.log.clear().with_context(|| format!("Can not clear log {:?} while clearing database", locked_internals.log))?;
                     Ok(self)
@@ -359,7 +415,9 @@ macro_rules! define_database {
                         .write();
 
                     $(
-                        locked_internals.tables.$table_name.table.checkpoint().with_context(|| format!("Can not checkpoint table {:?}", stringify!($table_name)))?;
+                        $(
+                            locked_internals.tables.$schema_name.$table_name.table.checkpoint().with_context(|| format!("Can not checkpoint table {:?}", stringify!($table_name)))?;
+                        )+
                     )+
                     locked_internals.log.clear().with_context(|| format!("Can not clear log {:?} while checkpointing database", locked_internals.log))?;
                     Ok(self)
@@ -383,12 +441,6 @@ macro_rules! define_database {
             }
         }
     };
-
-    ($database_name:ident { $($table_name:ident<$key_type:ty, $value_type:ty>),+ $(,)? }) => {
-        define_database!($database_name {
-            $($table_name<$key_type, $value_type>),+
-        } use {});
-    };
 }
 
 pub use crate::define_database;
@@ -407,8 +459,10 @@ mod tests {
     }
 
     define_database!(test_database {
-        vecs<Vec<u8>, Data>,
-        count<(), usize>
+        public {
+            vecs<Vec<u8>, Data>,
+            count<(), usize>
+        }
     } use {
         use super::Data;
     });
@@ -457,7 +511,7 @@ mod tests {
                         previously_added_keyvalues.insert(key.clone(), value.clone());
                         database
                             .lock_all_and_write(|transaction| {
-                                transaction.vecs.insert(key.clone(), value.clone());
+                                transaction.public.vecs.insert(key.clone(), value.clone());
                                 Ok(())
                             })
                             .unwrap();
@@ -471,7 +525,7 @@ mod tests {
                         previously_added_keyvalues.remove(&key_to_remove);
                         database
                             .lock_all_and_write(|transaction| {
-                                transaction.vecs.remove(&key_to_remove);
+                                transaction.public.vecs.remove(&key_to_remove);
                                 Ok(())
                             })
                             .unwrap();
@@ -484,7 +538,7 @@ mod tests {
                 .lock_all_writes_and_read(|transaction| {
                     for (key, value) in previously_added_keyvalues_arc.iter() {
                         assert_eq!(
-                            transaction.vecs.get(&key).unwrap().clone(),
+                            transaction.public.vecs.get(&key).unwrap().clone(),
                             Some(value.clone())
                         );
                     }
@@ -506,7 +560,7 @@ mod tests {
             .lock_all_and_clear()
             .unwrap()
             .lock_all_and_write(|transaction| {
-                transaction.count.insert((), 0);
+                transaction.public.count.insert((), 0);
                 Ok(())
             })
             .unwrap();
@@ -515,8 +569,8 @@ mod tests {
             .map(|_| {
                 database.lock_all_and_spawn_write(|mut transaction| {
                     for _ in 0..INCREMENTS_PER_THREAD_COUNT {
-                        let current_value = transaction.count.get(&())?.unwrap();
-                        transaction.count.insert((), current_value + 1);
+                        let current_value = transaction.public.count.get(&())?.unwrap();
+                        transaction.public.count.insert((), current_value + 1);
                     }
                     Ok(())
                 })
@@ -528,7 +582,10 @@ mod tests {
 
         database
             .lock_all_writes_and_read(|transaction| {
-                assert_eq!(transaction.count.get(&()).unwrap().unwrap(), FINAL_VALUE);
+                assert_eq!(
+                    transaction.public.count.get(&()).unwrap().unwrap(),
+                    FINAL_VALUE
+                );
                 Ok(())
             })
             .unwrap();
@@ -540,7 +597,7 @@ mod tests {
             .lock_all_and_clear()
             .unwrap()
             .lock_all_and_write(|transaction| {
-                transaction.vecs.insert(
+                transaction.public.vecs.insert(
                     "key".as_bytes().to_vec(),
                     Data {
                         data: "value".as_bytes().to_vec(),
@@ -555,6 +612,7 @@ mod tests {
             .lock_all_writes_and_read(|transaction| {
                 assert_eq!(
                     transaction
+                        .public
                         .vecs
                         .get(&"key".as_bytes().to_vec())
                         .unwrap()
