@@ -51,6 +51,7 @@ macro_rules! define_database {
             pub mod schemas_log_records_parts {
                 use super::*;
                 $(
+                    #[allow(non_camel_case_types)]
                     #[derive(bincode::Encode, bincode::Decode, Debug, Clone)]
                     pub struct $schema_name {
                         $(
@@ -149,6 +150,7 @@ macro_rules! define_database {
             pub mod schemas_tables_config_parts {
                 use super::*;
                 $(
+                    #[allow(non_camel_case_types)]
                     #[derive(super::Serialize, super::Deserialize, Debug, Clone)]
                     pub struct $schema_name {
                         $(
@@ -228,6 +230,7 @@ macro_rules! define_database {
             pub mod schemas_tables_transactions_parts {
                 use super::*;
                 $(
+                    #[allow(non_camel_case_types)]
                     pub struct $schema_name {
                         $(
                             pub $table_name: super::TableTransaction<$key_type, $value_type>,
