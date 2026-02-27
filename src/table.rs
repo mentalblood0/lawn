@@ -1577,7 +1577,6 @@ mod tests {
                 assert_eq!(table.get_from_index(&key).unwrap(), *value);
             }
         }
-        println!("after first checkpoint");
         {
             let keyvalues = vec![
                 (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),
@@ -1964,10 +1963,8 @@ mod tests {
                     Some(vec![1 as u8, random_byte])
                 };
                 if let Some(value) = &value {
-                    println!("insert {random_byte}");
                     previously_added_keyvalues.insert(key.clone(), value.clone());
                 } else {
-                    println!("remove {random_byte}");
                     previously_added_keyvalues.remove(&key);
                 }
                 table.memtable.insert(key, value);
@@ -2003,7 +2000,6 @@ mod tests {
             );
 
             for (key_index, key) in previously_added_keys.iter().enumerate() {
-                println!("key_index = {}/{}", key_index, previously_added_keys.len());
                 assert_eq!(
                     table
                         .iter(Bound::Included(key), false)
@@ -2068,7 +2064,6 @@ mod tests {
             }
 
             if use_checkpoints {
-                println!("checkpoint {checkpoint_number}\n");
                 table.checkpoint().unwrap();
             }
             for (key, value) in previously_added_keyvalues.iter() {

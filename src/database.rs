@@ -161,7 +161,7 @@ macro_rules! define_database {
             }
 
             #[derive(Serialize, Deserialize, Debug, Clone)]
-            pub struct TablesConfig {
+            pub struct SchemasConfig {
                 $(
                     pub $schema_name: schemas_tables_config_parts::$schema_name,
                 )+
@@ -169,7 +169,7 @@ macro_rules! define_database {
 
             #[derive(Serialize, Deserialize, Debug, Clone)]
             pub struct DatabaseConfig {
-                pub tables: TablesConfig,
+                pub schemas: SchemasConfig,
                 pub log: LogConfig,
             }
 
@@ -348,7 +348,7 @@ macro_rules! define_database {
                                     $schema_name: schemas_tables_transactions_parts::$schema_name {
                                         $(
                                             $table_name: TableTransaction {
-                                                table: table::Table::<$key_type, $value_type>::new(config.tables.$schema_name.$table_name.clone()).with_context(|| format!("Can not create new table {:?} from config {:?}", stringify!($table_name), config.tables.$schema_name.$table_name))?,
+                                                table: table::Table::<$key_type, $value_type>::new(config.schemas.$schema_name.$table_name.clone()).with_context(|| format!("Can not create new table {:?} from config {:?}", stringify!($table_name), config.schemas.$schema_name.$table_name))?,
                                                 changes: BTreeMap::new(),
                                             },
                                         )+
