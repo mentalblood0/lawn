@@ -66,7 +66,7 @@ macro_rules! define_database {
             #[derive(bincode::Encode, bincode::Decode, Debug, Clone)]
             struct LogRecord {
                 $(
-                    $schema_name: schemas_log_records_parts::$schema_name
+                    $schema_name: schemas_log_records_parts::$schema_name,
                 )+
             }
 
@@ -291,7 +291,7 @@ macro_rules! define_database {
                                                         .map(|(key, value)| (key.clone(), value.clone()))
                                                         .collect(),
                                 )+
-                            }
+                            },
                         )+
                     };
                     self.database_locked_internals
@@ -354,7 +354,7 @@ macro_rules! define_database {
                                                 changes: BTreeMap::new(),
                                             },
                                         )+
-                                    }
+                                    },
                                 )+
                             },
                             log: Log::new(config.log.clone()).with_context(|| format!("Can not create new log from config {:?}", config.log))?,
@@ -465,6 +465,10 @@ mod tests {
 
     define_database!(test_database {
         public {
+            vecs<Vec<u8>, Data>
+            count<(), usize>
+        }
+        other {
             vecs<Vec<u8>, Data>
             count<(), usize>
         }
