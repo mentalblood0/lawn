@@ -8,9 +8,9 @@ macro_rules! define_database {
     ($database_name:ident {
         $(
             $schema_name:ident {
-                $($table_name:ident<$key_type:ty, $value_type:ty>),+ $(,)?
+                $($table_name:ident<$key_type:ty, $value_type:ty>),*
             }
-        ),+ $(,)?
+        ),*
     }
     use { $($use_item:item)* }) => {
         #[allow(dead_code)]
