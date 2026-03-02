@@ -8,8 +8,10 @@ macro_rules! define_database {
     ($database_name:ident {
         $(
             $schema_name:ident {
-                $($table_name:ident<$key_type:ty, $value_type:ty>),*
-            },
+                $(
+                    $table_name:ident<$key_type:ty, $value_type:ty>
+                )+
+            }
         )*
     }
     use { $($use_item:item)* }) => {
@@ -463,9 +465,9 @@ mod tests {
 
     define_database!(test_database {
         public {
-            vecs<Vec<u8>, Data>,
+            vecs<Vec<u8>, Data>
             count<(), usize>
-        },
+        }
     } use {
         use super::Data;
     });
