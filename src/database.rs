@@ -9,8 +9,8 @@ macro_rules! define_database {
         $(
             $schema_name:ident {
                 $($table_name:ident<$key_type:ty, $value_type:ty>),*
-            }
-        ),*
+            },
+        )*
     }
     use { $($use_item:item)* }) => {
         #[allow(dead_code)]
@@ -465,7 +465,7 @@ mod tests {
         public {
             vecs<Vec<u8>, Data>,
             count<(), usize>
-        }
+        },
     } use {
         use super::Data;
     });
