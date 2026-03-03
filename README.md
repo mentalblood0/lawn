@@ -1,10 +1,10 @@
-## lawn
+# 🧃 lawn
 
 [![tests](https://github.com/mentalblood0/lawn/actions/workflows/tests.yml/badge.svg)](https://github.com/mentalblood0/lawn/actions/workflows/tests.yml)
 
 Key-value store with mutable data files without trees
 
-### Rationale
+## Rationale
 
 Key-value stores are often used as primary data store in database. Usually they are implemented as follows
 
