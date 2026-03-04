@@ -446,6 +446,8 @@ macro_rules! define_database {
     };
 }
 
+pub use crate::define_database;
+
 #[cfg(test)]
 mod tests {
     use nanorand::{Rng, WyRand};
