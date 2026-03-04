@@ -1,6 +1,6 @@
 #[macro_export]
 macro_rules! define_database {
-    ($database_name:ident {
+    ($bincode:literal, $database_name:ident {
         $(
             $schema_name:ident {
                 $(
@@ -51,6 +51,7 @@ macro_rules! define_database {
                 $(
                     #[allow(non_camel_case_types)]
                     #[derive(bincode::Encode, bincode::Decode, Debug, Clone)]
+                    #[bincode(crate = $bincode)]
                     pub struct $schema_name {
                         $(
                             pub $table_name: Vec<($key_type, Option<$value_type>)>,
@@ -60,6 +61,7 @@ macro_rules! define_database {
             }
 
             #[derive(bincode::Encode, bincode::Decode, Debug, Clone)]
+            #[bincode(crate = $bincode)]
             struct LogRecord {
                 $(
                     $schema_name: schemas_log_records_parts::$schema_name,
@@ -444,8 +446,6 @@ macro_rules! define_database {
     };
 }
 
-pub use crate::define_database;
-
 #[cfg(test)]
 mod tests {
     use nanorand::{Rng, WyRand};
@@ -459,7 +459,7 @@ mod tests {
         data: Vec<u8>,
     }
 
-    define_database!(test_database {
+    define_database!("bincode", test_database {
         public {
             vecs<Vec<u8>, Data>
             count<(), usize>
