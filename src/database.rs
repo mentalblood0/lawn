@@ -1,9 +1,3 @@
-pub use anyhow;
-pub use bincode;
-pub use fallible_iterator;
-pub use parking_lot;
-pub use serde;
-
 #[macro_export]
 macro_rules! define_database {
     ($database_name:ident {
@@ -31,15 +25,15 @@ macro_rules! define_database {
                     thread::{self, JoinHandle}
                 },
                 $crate::{
+                    bincode,
+                    anyhow::{Context, Result, Error},
+                    fallible_iterator::FallibleIterator,
+                    parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard},
+                    serde::{Deserialize, Serialize},
                     keyvalue::{Key, Value},
                     merging_iterator::MergingIterator,
                     table
                 },
-                bincode,
-                anyhow::{Context, Result, Error},
-                fallible_iterator::FallibleIterator,
-                parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard},
-                serde::{Deserialize, Serialize},
             };
 
             #[derive(Serialize, Deserialize, Debug, Clone)]
