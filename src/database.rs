@@ -1,6 +1,6 @@
 #[macro_export]
 macro_rules! define_database {
-    ($bincode:literal, $database_name:ident {
+    ($bincode_crate:literal, $database_name:ident {
         $(
             $schema_name:ident {
                 $(
@@ -51,7 +51,7 @@ macro_rules! define_database {
                 $(
                     #[allow(non_camel_case_types)]
                     #[derive(bincode::Encode, bincode::Decode, Debug, Clone)]
-                    #[bincode(crate = $bincode)]
+                    #[bincode(crate = $bincode_crate)]
                     pub struct $schema_name {
                         $(
                             pub $table_name: Vec<($key_type, Option<$value_type>)>,
@@ -61,7 +61,7 @@ macro_rules! define_database {
             }
 
             #[derive(bincode::Encode, bincode::Decode, Debug, Clone)]
-            #[bincode(crate = $bincode)]
+            #[bincode(crate = $bincode_crate)]
             struct LogRecord {
                 $(
                     $schema_name: schemas_log_records_parts::$schema_name,
