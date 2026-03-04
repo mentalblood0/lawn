@@ -1,9 +1,3 @@
-pub extern crate anyhow;
-pub extern crate bincode;
-pub extern crate fallible_iterator;
-pub extern crate parking_lot;
-pub extern crate serde;
-
 #[macro_export]
 macro_rules! define_database {
     ($database_name:ident {
@@ -30,17 +24,16 @@ macro_rules! define_database {
                     sync::Arc,
                     thread::{self, JoinHandle}
                 },
-
-                $crate::database::{
+                $crate::{
                     bincode,
                     anyhow::{Context, Result, Error},
                     fallible_iterator::FallibleIterator,
                     parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard},
-                    serde::{Deserialize, Serialize}
+                    serde::{Deserialize, Serialize},
+                    keyvalue::{Key, Value},
+                    merging_iterator::MergingIterator,
+                    table
                 },
-                $crate::keyvalue::{Key, Value},
-                $crate::merging_iterator::MergingIterator,
-                $crate::table
             };
 
             #[derive(Serialize, Deserialize, Debug, Clone)]
