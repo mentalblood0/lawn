@@ -8,8 +8,8 @@ pub mod partition_point;
 pub mod table;
 pub mod variable_data_pool;
 
-pub extern crate anyhow;
-pub extern crate bincode;
-pub extern crate fallible_iterator;
-pub extern crate parking_lot;
-pub extern crate serde;
+pub use anyhow;
+pub use bincode;
+pub use fallible_iterator;
+pub use parking_lot;
+pub use serde;
