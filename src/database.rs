@@ -1,4 +1,5 @@
 pub extern crate anyhow;
+pub extern crate bincode;
 pub extern crate fallible_iterator;
 pub extern crate parking_lot;
 pub extern crate serde;
@@ -19,25 +20,28 @@ macro_rules! define_database {
         pub mod $database_name {
             $( $use_item )*
 
-            use std::ops::Bound;
-            use std::path::PathBuf;
-            use std::io::{BufReader, BufRead, Write};
-            use std::fs;
-            use std::{
-                collections::BTreeMap,
-                sync::Arc,
-                thread::{self, JoinHandle},
+            use {
+                std::{
+                    fs,
+                    ops::Bound,
+                    path::PathBuf,
+                    io::{BufReader, BufRead, Write},
+                    collections::BTreeMap,
+                    sync::Arc,
+                    thread::{self, JoinHandle}
+                },
+
+                $crate::database::{
+                    bincode,
+                    anyhow::{Context, Result, Error},
+                    fallible_iterator::FallibleIterator,
+                    parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard},
+                    serde::{Deserialize, Serialize}
+                },
+                $crate::keyvalue::{Key, Value},
+                $crate::merging_iterator::MergingIterator,
+                $crate::table
             };
-
-            use $crate::database::anyhow::{Context, Result, Error};
-            use $crate::database::fallible_iterator::FallibleIterator;
-            use $crate::database::parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-
-            use $crate::database::serde::{Deserialize, Serialize};
-
-            use $crate::keyvalue::{Key, Value};
-            use $crate::merging_iterator::MergingIterator;
-            use $crate::table;
 
             #[derive(Serialize, Deserialize, Debug, Clone)]
             pub struct LogConfig {
