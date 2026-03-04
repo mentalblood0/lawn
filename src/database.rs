@@ -25,6 +25,7 @@ macro_rules! define_database {
                     thread::{self, JoinHandle}
                 },
                 $crate::{
+                    bincode,
                     anyhow::{Context, Result, Error},
                     fallible_iterator::FallibleIterator,
                     parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard},
