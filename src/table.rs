@@ -1953,7 +1953,7 @@ mod tests {
         let mut previously_added_keyvalues: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
         let mut rng = WyRand::new_seed(0);
 
-        for checkpoint_number in 1..=20 {
+        for _ in 1..=20 {
             for _ in 1..=20 {
                 let random_byte = rng.generate_range(0..256) as u8;
                 let key = vec![0 as u8, random_byte];

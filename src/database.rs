@@ -452,8 +452,7 @@ pub use crate::define_database;
 #[cfg(test)]
 mod tests {
     use nanorand::{Rng, WyRand};
-    use std::collections::BTreeMap;
-    use std::sync::Arc;
+    use std::{collections::BTreeMap, ops::Bound, sync::Arc};
 
     use pretty_assertions::assert_eq;
 
@@ -495,65 +494,75 @@ mod tests {
         let mut previously_added_keyvalues: BTreeMap<Vec<u8>, Data> = BTreeMap::new();
         let mut rng = WyRand::new_seed(0);
 
-        for _ in 0..100 {
-            for _ in 0..100 {
-                let action_id = if previously_added_keyvalues.is_empty() {
-                    1
-                } else {
-                    rng.generate_range(1..=2)
-                };
-                match action_id {
-                    1 => {
-                        let key: Vec<u8> = {
-                            let mut result = vec![0u8; rng.generate_range(1..2)];
-                            rng.fill(&mut result);
-                            result
+        for _ in 0..10000 {
+            let action_id = if previously_added_keyvalues.is_empty() {
+                1
+            } else {
+                rng.generate_range(1..=3)
+            };
+            match action_id {
+                1 => {
+                    let key: Vec<u8> = {
+                        let mut result = vec![0u8; rng.generate_range(1..2)];
+                        rng.fill(&mut result);
+                        result
+                    };
+                    let value = {
+                        let mut result = Data {
+                            data: vec![0u8; rng.generate_range(1..2)],
                         };
-                        let value = {
-                            let mut result = Data {
-                                data: vec![0u8; rng.generate_range(1..2)],
-                            };
-                            rng.fill(&mut result.data);
-                            result
-                        };
-                        previously_added_keyvalues.insert(key.clone(), value.clone());
-                        database
-                            .lock_all_and_write(|transaction| {
-                                transaction.public.vecs.insert(key.clone(), value.clone());
-                                Ok(())
-                            })
-                            .unwrap();
-                    }
-                    2 => {
-                        let key_to_remove: Vec<u8> = previously_added_keyvalues
-                            .keys()
-                            .nth(rng.generate_range(0..previously_added_keyvalues.len()))
-                            .unwrap()
-                            .clone();
-                        previously_added_keyvalues.remove(&key_to_remove);
-                        database
-                            .lock_all_and_write(|transaction| {
-                                transaction.public.vecs.remove(&key_to_remove);
-                                Ok(())
-                            })
-                            .unwrap();
-                    }
-                    _ => {}
+                        rng.fill(&mut result.data);
+                        result
+                    };
+                    previously_added_keyvalues.insert(key.clone(), value.clone());
+                    database
+                        .lock_all_and_write(|transaction| {
+                            transaction.public.vecs.insert(key.clone(), value.clone());
+                            Ok(())
+                        })
+                        .unwrap();
                 }
+                2 => {
+                    let key_to_remove: Vec<u8> = previously_added_keyvalues
+                        .keys()
+                        .nth(rng.generate_range(0..previously_added_keyvalues.len()))
+                        .unwrap()
+                        .clone();
+                    previously_added_keyvalues.remove(&key_to_remove);
+                    database
+                        .lock_all_and_write(|transaction| {
+                            transaction.public.vecs.remove(&key_to_remove);
+                            Ok(())
+                        })
+                        .unwrap();
+                }
+                3 => {
+                    let previously_added_keyvalues_arc =
+                        Arc::new(&previously_added_keyvalues).clone();
+                    database
+                        .lock_all_writes_and_read(|transaction| {
+                            for (key, value) in previously_added_keyvalues_arc.iter() {
+                                assert_eq!(
+                                    transaction.public.vecs.get(&key).unwrap().clone(),
+                                    Some(value.clone())
+                                );
+                            }
+                            let mut table_iterator = transaction
+                                .public
+                                .vecs
+                                .iter(Bound::Unbounded, false)
+                                .unwrap();
+                            while let Some((key, value)) = table_iterator.next()? {
+                                assert!(previously_added_keyvalues_arc.contains_key(&key));
+                                assert_eq!(previously_added_keyvalues_arc[&key], value);
+                            }
+                            Ok(())
+                        })
+                        .unwrap();
+                    database.lock_all_and_checkpoint().unwrap();
+                }
+                _ => {}
             }
-            let previously_added_keyvalues_arc = Arc::new(&previously_added_keyvalues).clone();
-            database
-                .lock_all_writes_and_read(|transaction| {
-                    for (key, value) in previously_added_keyvalues_arc.iter() {
-                        assert_eq!(
-                            transaction.public.vecs.get(&key).unwrap().clone(),
-                            Some(value.clone())
-                        );
-                    }
-                    Ok(())
-                })
-                .unwrap();
-            database.lock_all_and_checkpoint().unwrap();
         }
     }
 
