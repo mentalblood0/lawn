@@ -185,8 +185,8 @@ macro_rules! define_database {
                     self
                 }
 
-                pub fn remove(&mut self, key: &K) -> &mut Self {
-                    self.changes.remove(key);
+                pub fn remove(&mut self, key: K) -> &mut Self {
+                    self.changes.insert(key, None);
                     self
                 }
 
@@ -531,7 +531,7 @@ mod tests {
                     previously_added_keyvalues.remove(&key_to_remove);
                     database
                         .lock_all_and_write(|transaction| {
-                            transaction.public.vecs.remove(&key_to_remove);
+                            transaction.public.vecs.remove(key_to_remove.clone());
                             Ok(())
                         })
                         .unwrap();
