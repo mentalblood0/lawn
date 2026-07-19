@@ -287,7 +287,6 @@ macro_rules! define_database {
                 }
 
                 pub fn commit(&mut self) -> Result<()> {
-                    let start = std::time::Instant::now();
                     let log_record = LogRecord {
                         $(
                             $schema_name: schemas_log_records_parts::$schema_name {
@@ -306,22 +305,18 @@ macro_rules! define_database {
                         .write(log_record).with_context(|| format!("Can not write log record to database while committing write transaction"))?;
                     $(
                         $({
-                            for (key, value) in std::mem::take(&mut self.database_locked_internals
+                            let table_changes = std::mem::take(&mut self.database_locked_internals
                                                                     .tables
                                                                     .$schema_name
-                                                                    .$table_name.changes).into_iter() {
-                                self.database_locked_internals
-                                    .tables
-                                    .$schema_name
-                                    .$table_name
-                                    .table
-                                    .memtable
-                                    .insert(key, value);
-                            }
+                                                                    .$table_name.changes);
+                            self.database_locked_internals
+                                .tables
+                                .$schema_name
+                                .$table_name
+                                .table
+                                .merge(table_changes);
                         })+
                     )+
-                    let elapsed = start.elapsed();
-                    println!("transaction commit took {elapsed:?}");
                     Ok(())
                 }
             }
