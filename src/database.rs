@@ -291,11 +291,11 @@ macro_rules! define_database {
                         $(
                             $schema_name: schemas_log_records_parts::$schema_name {
                                 $(
-                                    $table_name: std::mem::take(&mut self.database_locked_internals
+                                    $table_name: self.database_locked_internals
                                                         .tables
                                                         .$schema_name
                                                         .$table_name
-                                                        .changes).into_iter().collect(),
+                                                        .changes.iter().map(|(key, value)| (key.clone(), value.clone())).collect(),
                                 )+
                             },
                         )+
