@@ -32,18 +32,21 @@ macro_rules! define_database {
                     serde::{Deserialize, Serialize},
                     keyvalue::{Key, Value},
                     merging_iterator::MergingIterator,
-                    table
+                    table,
+                    bytesize::ByteSize
                 },
             };
 
             #[derive(Serialize, Deserialize, Debug, Clone)]
             pub struct LogConfig {
                 pub path: PathBuf,
+                pub checkpoint_on_size: ByteSize
             }
 
             #[derive(Debug)]
             pub struct Log {
                 pub config: LogConfig,
+                pub size: u64,
                 file: fs::File,
             }
 
@@ -90,7 +93,8 @@ macro_rules! define_database {
                                 config.path.display()
                             )
                         })?;
-                    Ok(Self { config, file })
+                    let size = file.metadata()?.len();
+                    Ok(Self { config, file, size })
                 }
 
                 fn write(&mut self, record: LogRecord) -> Result<()> {
@@ -99,6 +103,7 @@ macro_rules! define_database {
                     self.file
                         .write_all(&buffer.as_slice())
                         .with_context(|| format!("Can not write transaction log record to file"))?;
+                    self.size += buffer.len() as u64;
                     Ok(())
                 }
 
@@ -106,6 +111,7 @@ macro_rules! define_database {
                     self.file
                         .set_len(0)
                         .with_context(|| format!("Can not truncate log file {:?}", self.file))?;
+                    self.size = 0;
                     Ok(())
                 }
 
@@ -374,15 +380,12 @@ macro_rules! define_database {
                     f(ReadTransaction::new(&Arc::clone(&self.lockable_internals)).with_context(|| "Can not create new read transaction from lockable internals of database")?).with_context(|| "Can not execute user-provided function for read transaction")
                 }
 
-                pub fn lock_all_and_write<F, R>(&self, mut f: F) -> Result<R>
-                where
-                    F: FnMut(&mut WriteTransaction) -> Result<R>,
-                {
-                    let cloned_internals = &Arc::clone(&self.lockable_internals);
-                    let mut transaction = WriteTransaction::new(cloned_internals).with_context(|| "Can not create new write transaction from arc-cloned internals of database")?;
-                    let result = f(&mut transaction).with_context(|| "Can not execute user-provided function for write transaction")?;
-                    transaction.commit().with_context(|| "Can not commit write transaction to database")?;
-                    Ok(result)
+                pub fn lock_all_writes_and_spawn_read(
+                    &self,
+                    f: fn(ReadTransaction) -> Result<()>,
+                ) -> JoinHandle<Result<()>> {
+                    let locked_internals = Arc::clone(&self.lockable_internals);
+                    thread::spawn(move || f(ReadTransaction::new(&locked_internals).with_context(|| "Can not create new read transaction from database locked internals")?))
                 }
 
                 pub fn lock_all_and_recover(&self) -> Result<&Self> {
@@ -431,20 +434,34 @@ macro_rules! define_database {
                     Ok(self)
                 }
 
-                pub fn lock_all_writes_and_spawn_read(
-                    &self,
-                    f: fn(ReadTransaction) -> Result<()>,
-                ) -> JoinHandle<Result<()>> {
-                    let locked_internals = Arc::clone(&self.lockable_internals);
-                    thread::spawn(move || f(ReadTransaction::new(&locked_internals).with_context(|| "Can not create new read transaction from database locked internals")?))
+                pub fn lock_all_and_checkpoint_if_enough_log_size(&self) -> Result<()> {
+                    let locked_internals_write_guard = self.lockable_internals.write();
+                    if locked_internals_write_guard.log.size >= locked_internals_write_guard.log.config.checkpoint_on_size.as_u64() {
+                        self.lock_all_and_checkpoint()?;
+                    }
+                    Ok(())
+                }
+
+
+                pub fn lock_all_and_write<F, R>(&self, mut f: F) -> Result<R>
+                where
+                    F: FnMut(&mut WriteTransaction) -> Result<R>,
+                {
+                    self.lock_all_and_checkpoint_if_enough_log_size()?;
+                    let cloned_internals = &Arc::clone(&self.lockable_internals);
+                    let mut transaction = WriteTransaction::new(cloned_internals).with_context(|| "Can not create new write transaction from arc-cloned internals of database")?;
+                    let result = f(&mut transaction).with_context(|| "Can not execute user-provided function for write transaction")?;
+                    transaction.commit().with_context(|| "Can not commit write transaction to database")?;
+                    Ok(result)
                 }
 
                 pub fn lock_all_and_spawn_write(
                     &self,
                     f: fn(WriteTransaction) -> Result<()>,
-                ) -> JoinHandle<Result<()>> {
+                ) -> Result<JoinHandle<Result<()>>> {
+                    self.lock_all_and_checkpoint_if_enough_log_size()?;
                     let locked_internals = Arc::clone(&self.lockable_internals);
-                    thread::spawn(move || f(WriteTransaction::new(&locked_internals).with_context(|| "Can not create new write transaction from database locked internals")?))
+                    Ok(thread::spawn(move || f(WriteTransaction::new(&locked_internals).with_context(|| "Can not create new write transaction from database locked internals")?)))
                 }
             }
         }
@@ -588,13 +605,15 @@ mod tests {
 
         let threads_handles = (0..THREADS_COUNT)
             .map(|_| {
-                database.lock_all_and_spawn_write(|mut transaction| {
-                    for _ in 0..INCREMENTS_PER_THREAD_COUNT {
-                        let current_value = transaction.public.count.get(&())?.unwrap();
-                        transaction.public.count.insert((), current_value + 1);
-                    }
-                    Ok(())
-                })
+                database
+                    .lock_all_and_spawn_write(|mut transaction| {
+                        for _ in 0..INCREMENTS_PER_THREAD_COUNT {
+                            let current_value = transaction.public.count.get(&())?.unwrap();
+                            transaction.public.count.insert((), current_value + 1);
+                        }
+                        Ok(())
+                    })
+                    .unwrap()
             })
             .collect::<Vec<_>>();
         for thread_handle in threads_handles {

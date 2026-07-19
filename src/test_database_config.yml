@@ -31,3 +31,4 @@ schemas:
           max_element_size: 65536
 log:
   path: /tmp/lawn/test/TEST_NAME/log.dat
+  checkpoint_on_size: 8 GB
