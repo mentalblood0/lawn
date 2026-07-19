@@ -287,6 +287,7 @@ macro_rules! define_database {
                 }
 
                 pub fn commit(&mut self) -> Result<()> {
+                    let start = std::time::Instant::now();
                     let log_record = LogRecord {
                         $(
                             $schema_name: schemas_log_records_parts::$schema_name {
@@ -317,6 +318,8 @@ macro_rules! define_database {
                                 .merge(&mut table_changes);
                         })+
                     )+
+                    let elapsed = start.elapsed();
+                    println!("transaction commit took {elapsed:?}");
                     Ok(())
                 }
             }
