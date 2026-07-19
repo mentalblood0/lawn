@@ -306,16 +306,18 @@ macro_rules! define_database {
                         .write(log_record).with_context(|| format!("Can not write log record to database while committing write transaction"))?;
                     $(
                         $({
-                            let mut table_changes = std::mem::take(&mut self.database_locked_internals
+                            for (key, value) in std::mem::take(&mut self.database_locked_internals
                                                                     .tables
                                                                     .$schema_name
-                                                                    .$table_name.changes);
-                            self.database_locked_internals
-                                .tables
-                                .$schema_name
-                                .$table_name
-                                .table
-                                .merge(&mut table_changes);
+                                                                    .$table_name.changes).into_iter() {
+                                self.database_locked_internals
+                                    .tables
+                                    .$schema_name
+                                    .$table_name
+                                    .table
+                                    .memtable
+                                    .insert(key, value);
+                            }
                         })+
                     )+
                     let elapsed = start.elapsed();
