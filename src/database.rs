@@ -303,7 +303,7 @@ macro_rules! define_database {
                     };
                     self.database_locked_internals
                         .log
-                        .write(log_record.clone()).with_context(|| format!("Can not write log record {log_record:?} to database while committing write transaction"))?;
+                        .write(log_record).with_context(|| format!("Can not write log record to database while committing write transaction"))?;
                     $(
                         $({
                             let mut table_changes = std::mem::take(&mut self.database_locked_internals
