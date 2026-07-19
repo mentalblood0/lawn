@@ -185,8 +185,12 @@ macro_rules! define_database {
                     self
                 }
 
-                pub fn remove(&mut self, key: K) -> &mut Self {
-                    self.changes.insert(key, None);
+                pub fn remove(&mut self, key: &K) -> &mut Self {
+                    if let Some(value) = self.changes.get_mut(key) {
+                        *value = None;
+                    } else {
+                        self.changes.insert(key.clone(), None);
+                    }
                     self
                 }
 
@@ -523,7 +527,7 @@ mod tests {
                         .unwrap();
                 }
                 2 => {
-                    let key_to_remove: Vec<u8> = previously_added_keyvalues
+                    let key_to_remove = previously_added_keyvalues
                         .keys()
                         .nth(rng.generate_range(0..previously_added_keyvalues.len()))
                         .unwrap()
@@ -531,7 +535,7 @@ mod tests {
                     previously_added_keyvalues.remove(&key_to_remove);
                     database
                         .lock_all_and_write(|transaction| {
-                            transaction.public.vecs.remove(key_to_remove.clone());
+                            transaction.public.vecs.remove(&key_to_remove);
                             Ok(())
                         })
                         .unwrap();
@@ -543,7 +547,7 @@ mod tests {
                         .lock_all_writes_and_read(|transaction| {
                             for (key, value) in previously_added_keyvalues_arc.iter() {
                                 assert_eq!(
-                                    transaction.public.vecs.get(&key).unwrap().clone(),
+                                    transaction.public.vecs.get(key).unwrap().clone(),
                                     Some(value.clone())
                                 );
                             }
