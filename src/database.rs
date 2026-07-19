@@ -418,6 +418,7 @@ macro_rules! define_database {
                 }
 
                 pub fn lock_all_and_checkpoint(&self) -> Result<&Self> {
+                    println!("checkpointing...");
                     let mut locked_internals = self
                         .lockable_internals
                         .write();
