@@ -188,14 +188,12 @@ impl<K: Key, V: Value> Table<K, V> {
     pub fn checkpoint(&mut self) -> Result<()> {
         if self.memtable.is_empty() {
             Ok(())
+        } else if self.index.records_count == 0 {
+            self.checkpoint_using_dump()
+        } else if self.index.records_count <= 2 * self.memtable.len() as u64 {
+            self.checkpoint_using_linear_merge()
         } else {
-            if self.index.records_count == 0 {
-                self.checkpoint_using_dump()
-            } else if self.index.records_count <= 2 * self.memtable.len() as u64 {
-                self.checkpoint_using_linear_merge()
-            } else {
-                self.checkpoint_using_sparse_merge()
-            }
+            self.checkpoint_using_sparse_merge()
         }
     }
 
@@ -206,7 +204,7 @@ impl<K: Key, V: Value> Table<K, V> {
             if let Some(value) = current_record.1 {
                 let data_record_to_insert = DataRecord {
                     key: current_record.0,
-                    value: value,
+                    value,
                 };
                 let id = self
                     .data_pool
@@ -229,10 +227,9 @@ impl<K: Key, V: Value> Table<K, V> {
         let index_record_size = (max_id as f64).log(256.0).ceil() as u8;
 
         let index_file_path = self.index.config.path.with_extension("part");
-        let mut index_file = std::fs::OpenOptions::new()
+        let index_file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .write(true)
             .open(&index_file_path)
             .with_context(|| {
                 format!(
@@ -243,7 +240,7 @@ impl<K: Key, V: Value> Table<K, V> {
         let header_to_write = IndexHeader {
             record_size: index_record_size,
         };
-        Index::write_header(&mut index_file, &header_to_write).with_context(|| {
+        Index::write_header(&index_file, &header_to_write).with_context(|| {
             format!(
                 "Can not write header {header_to_write:?} for index while checkpointing table \
                  using dump method"
@@ -261,7 +258,7 @@ impl<K: Key, V: Value> Table<K, V> {
         }
         index_writer
             .flush()
-            .with_context(|| format!("Can not flush new index file"))?;
+            .with_context(|| "Can not flush new index file")?;
 
         fs::rename(&index_file_path, &self.index.config.path).with_context(|| {
             format!(
@@ -287,7 +284,7 @@ impl<K: Key, V: Value> Table<K, V> {
             if let Some(value) = current_new_record.1 {
                 let data_record_to_insert = DataRecord {
                     key: current_new_record.0.clone(),
-                    value: value,
+                    value,
                 };
                 let id = self
                     .data_pool
@@ -318,10 +315,9 @@ impl<K: Key, V: Value> Table<K, V> {
             .max((max_new_id as f64).log(256.0).ceil() as u8);
 
         let new_index_file_path = self.index.config.path.with_extension("part");
-        let mut new_index_file = std::fs::OpenOptions::new()
+        let new_index_file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .write(true)
             .open(&new_index_file_path)
             .with_context(|| {
                 format!(
@@ -332,7 +328,7 @@ impl<K: Key, V: Value> Table<K, V> {
         let header_to_write = IndexHeader {
             record_size: new_index_record_size,
         };
-        Index::write_header(&mut new_index_file, &header_to_write).with_context(|| {
+        Index::write_header(&new_index_file, &header_to_write).with_context(|| {
             format!(
                 "Can not write header {header_to_write:?} for index while checkpointing table \
                  using dump method"
@@ -344,10 +340,10 @@ impl<K: Key, V: Value> Table<K, V> {
             .index
             .iter(0, false)
             .with_context(|| "Can not initiate iteration over index from the beginning")?;
-        let mut current_old_id_and_key_option = if let Some(current_old_id) =
-            old_ids_iter.next().with_context(|| {
-                format!("Can not get first old identifier (even if there is no such)")
-            })? {
+        let mut current_old_id_and_key_option = if let Some(current_old_id) = old_ids_iter
+            .next()
+            .with_context(|| "Can not get first old identifier (even if there is no such)")?
+        {
             Some((
                 current_old_id,
                 self.get_from_index_by_id(current_old_id)
@@ -401,10 +397,8 @@ impl<K: Key, V: Value> Table<K, V> {
                             })?;
                             current_old_id_and_key_option = if let Some(current_old_id) =
                                 old_ids_iter.next().with_context(|| {
-                                    format!(
-                                        "Can not propagate old identifiers iterator further (even \
-                                         getting nothing)"
-                                    )
+                                    "Can not propagate old identifiers iterator further (even \
+                                     getting nothing)"
                                 })? {
                                 Some((
                                     current_old_id,
@@ -448,10 +442,8 @@ impl<K: Key, V: Value> Table<K, V> {
                             current_new_element_option = new_elements_iter.next();
                             current_old_id_and_key_option = if let Some(current_old_id) =
                                 old_ids_iter.next().with_context(|| {
-                                    format!(
-                                        "Can not propagate old identifiers iterator further (even \
-                                         getting nothing)"
-                                    )
+                                    "Can not propagate old identifiers iterator further (even \
+                                     getting nothing)"
                                 })? {
                                 Some((
                                     current_old_id,
@@ -504,10 +496,8 @@ impl<K: Key, V: Value> Table<K, V> {
                     })?;
                     current_old_id_and_key_option = if let Some(current_old_id) =
                         old_ids_iter.next().with_context(|| {
-                            format!(
-                                "Can not propagate old identifiers iterator further (even getting \
-                                 nothing)"
-                            )
+                            "Can not propagate old identifiers iterator further (even getting \
+                             nothing)"
                         })? {
                         Some((
                             current_old_id,
@@ -532,7 +522,7 @@ impl<K: Key, V: Value> Table<K, V> {
             .with_context(|| "Can not flush data pool")?;
         new_index_writer
             .flush()
-            .with_context(|| format!("Can not flush new index file"))?;
+            .with_context(|| "Can not flush new index file")?;
 
         fs::rename(&new_index_file_path, &self.index.config.path).with_context(|| {
             format!(
@@ -631,7 +621,7 @@ impl<K: Key, V: Value> Table<K, V> {
         }
         self.data_pool
             .flush()
-            .with_context(|| format!("Can not flush new index file"))?;
+            .with_context(|| "Can not flush new index file")?;
 
         let new_index_record_size = self
             .index
@@ -640,10 +630,9 @@ impl<K: Key, V: Value> Table<K, V> {
             .max((max_new_id as f64).log(256.0).ceil() as u8);
 
         let new_index_file_path = self.index.config.path.with_extension("part");
-        let mut new_index_file = std::fs::OpenOptions::new()
+        let new_index_file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .write(true)
             .open(&new_index_file_path)
             .with_context(|| {
                 format!(
@@ -654,7 +643,7 @@ impl<K: Key, V: Value> Table<K, V> {
         let header_to_write = IndexHeader {
             record_size: new_index_record_size,
         };
-        Index::write_header(&mut new_index_file, &header_to_write).with_context(|| {
+        Index::write_header(&new_index_file, &header_to_write).with_context(|| {
             format!(
                 "Can not write header {header_to_write:?} for index while checkpointing table \
                  using dump method"
@@ -824,7 +813,7 @@ impl<K: Key, V: Value> Table<K, V> {
         }
         new_index_writer
             .flush()
-            .with_context(|| format!("Can not flush new index file"))?;
+            .with_context(|| "Can not flush new index file")?;
 
         fs::rename(&new_index_file_path, &self.index.config.path).with_context(|| {
             format!(
@@ -891,24 +880,20 @@ impl<K: Key, V: Value> Table<K, V> {
                         }
                         if let Bound::Included(_) = start_bound {
                             Some(partition_point.first_satisfying.index)
-                        } else {
-                            if backwards {
-                                if partition_point.is_exact {
-                                    partition_point.first_satisfying.index.checked_sub(1)
-                                } else {
-                                    Some(partition_point.first_satisfying.index)
-                                }
+                        } else if backwards {
+                            if partition_point.is_exact {
+                                partition_point.first_satisfying.index.checked_sub(1)
                             } else {
-                                if partition_point.is_exact {
-                                    Some(partition_point.first_satisfying.index + 1)
-                                } else {
-                                    Some(partition_point.first_satisfying.index)
-                                }
+                                Some(partition_point.first_satisfying.index)
                             }
+                        } else if partition_point.is_exact {
+                            Some(partition_point.first_satisfying.index + 1)
+                        } else {
+                            Some(partition_point.first_satisfying.index)
                         }
                     });
                 Ok(TableIndexIterator {
-                    data_pool: &self.data_pool,
+                    data_pool: &*self.data_pool,
                     index_iter: if let Some(from_record_index) = from_record_index {
                         Box::new(self.index.iter(from_record_index, backwards).with_context(
                             || {
@@ -920,18 +905,14 @@ impl<K: Key, V: Value> Table<K, V> {
                             },
                         )?)
                     } else {
-                        Box::new(fallible_iterator::convert(
-                            [0u64; 0].into_iter().map(|u| Ok(u)),
-                        ))
+                        Box::new(fallible_iterator::convert([0u64; 0].into_iter().map(Ok)))
                     },
                 })
             }
             Bound::Unbounded => Ok(TableIndexIterator {
-                data_pool: &self.data_pool,
+                data_pool: &*self.data_pool,
                 index_iter: if backwards && self.index.records_count == 0 {
-                    Box::new(fallible_iterator::convert(
-                        [0u64; 0].into_iter().map(|u| Ok(u)),
-                    ))
+                    Box::new(fallible_iterator::convert([0u64; 0].into_iter().map(Ok)))
                 } else {
                     Box::new(
                         self.index
@@ -984,7 +965,7 @@ impl<K: Key, V: Value> Table<K, V> {
 }
 
 struct TableIndexIterator<'a, K: Key, V: Value> {
-    data_pool: &'a Box<dyn DataPool<DataRecord<K, V>> + Send + Sync>,
+    data_pool: &'a (dyn DataPool<DataRecord<K, V>> + Send + Sync),
     index_iter: Box<dyn FallibleIterator<Item = u64, Error = Error> + Send + Sync>,
 }
 
@@ -995,10 +976,7 @@ impl<'a, K: Key, V: Value> FallibleIterator for TableIndexIterator<'a, K, V> {
     fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
         Ok(
             match self.index_iter.next().with_context(|| {
-                format!(
-                    "Can not propagate index iterator further (even if there is nothing to \
-                     receive)"
-                )
+                "Can not propagate index iterator further (even if there is nothing to receive)"
             })? {
                 Some(id) => {
                     let data_record = self.data_pool.get(id).with_context(|| {
@@ -1045,11 +1023,11 @@ impl Iterator for Middles {
                     right_index,
                 };
 
-                if left_index + 1 <= middle_index {
+                if left_index < middle_index {
                     self.queue.push_back((left_index, middle_index - 1));
                 }
 
-                if middle_index + 1 <= right_index {
+                if middle_index < right_index {
                     self.queue.push_back((middle_index + 1, right_index));
                 }
 
@@ -1070,7 +1048,7 @@ struct MergeLocation<A: Clone + Ord> {
 fn sparse_merge<F, T, A>(
     big_len: u64,
     mut big_get_element: F,
-    small: &Vec<T>,
+    small: &[T],
 ) -> Result<Vec<MergeLocation<A>>>
 where
     F: FnMut(u64) -> Result<Option<(T, A)>>,
@@ -1081,14 +1059,10 @@ where
     for middle in Middles::new(small.len()) {
         let element_to_insert = &small[middle.middle_index];
 
-        let left_bound = result_insert_indices[if middle.left_index > 1 {
-            middle.left_index - 1
-        } else {
-            0
-        }]
-        .clone()
-        .map(|merge_location| merge_location.index)
-        .unwrap_or(0);
+        let left_bound = result_insert_indices[middle.left_index.saturating_sub(1)]
+            .clone()
+            .map(|merge_location| merge_location.index)
+            .unwrap_or(0);
         let right_bound = result_insert_indices
             [std::cmp::min(middle.right_index + 1, result_insert_indices.len() - 1)]
         .clone()
@@ -1176,8 +1150,8 @@ mod tests {
 
     #[test]
     fn test_sparse_merge_simple() {
-        let big = vec![vec![0 as u8], vec![2 as u8], vec![4 as u8]];
-        let small = vec![vec![1 as u8], vec![3 as u8]];
+        let big = [vec![0], vec![2], vec![4]];
+        let small = [vec![1], vec![3]];
 
         let insert_indices: Vec<MergeLocation<()>> = sparse_merge(
             big.len() as u64,
@@ -1185,7 +1159,7 @@ mod tests {
                 Ok(big
                     .get(element_index as usize)
                     .cloned()
-                    .and_then(|element| Some((element, ()))))
+                    .map(|element| (element, ())))
             },
             &small,
         )
@@ -1212,7 +1186,7 @@ mod tests {
                 Ok(big
                     .get(element_index as usize)
                     .cloned()
-                    .and_then(|element| Some((element, ()))))
+                    .map(|element| (element, ())))
             },
             &small,
         )
@@ -1222,9 +1196,9 @@ mod tests {
         for (element_index, merge_location) in insert_indices.iter().enumerate().rev() {
             let element = small[element_index];
             if merge_location.replace {
-                result[merge_location.index as usize] = element.clone();
+                result[merge_location.index as usize] = element;
             } else {
-                result.insert(merge_location.index as usize, element.clone());
+                result.insert(merge_location.index as usize, element);
             }
         }
 
@@ -1245,7 +1219,7 @@ mod tests {
             },
             data_pool: DataPoolConfigEnum::Variable(VariableDataPoolConfig {
                 directory: table_dir.join("data_pool").to_path_buf(),
-                max_element_size: 65536 as usize,
+                max_element_size: 65536,
             }),
             _key: PhantomData,
             _value: PhantomData,
@@ -1259,10 +1233,10 @@ mod tests {
     fn test_checkpoint_2_in_3() {
         let mut table = new_default_table::<Vec<u8>, Vec<u8>>("test_checkpoint_2_in_3");
 
-        let first_keyvalues = vec![
-            (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
-            (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 2 as u8])),
-            (vec![0 as u8, 4 as u8], Some(vec![1 as u8, 4 as u8])),
+        let first_keyvalues = [
+            (vec![0, 0], Some(vec![1, 0])),
+            (vec![0, 2], Some(vec![1, 2])),
+            (vec![0, 4], Some(vec![1, 4])),
         ];
         {
             let keyvalues = &first_keyvalues;
@@ -1271,23 +1245,23 @@ mod tests {
             }
             table.checkpoint().unwrap();
             for (key, value) in keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
         }
         {
-            let keyvalues = vec![
-                (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),
-                (vec![0 as u8, 3 as u8], Some(vec![1 as u8, 3 as u8])),
+            let keyvalues = [
+                (vec![0, 1], Some(vec![1, 1])),
+                (vec![0, 3], Some(vec![1, 3])),
             ];
             for (key, value) in keyvalues.iter() {
                 table.memtable.insert(key.clone(), value.clone());
             }
             table.checkpoint().unwrap();
             for (key, value) in keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
             for (key, value) in first_keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
         }
     }
@@ -1297,8 +1271,8 @@ mod tests {
         let mut table = new_default_table::<Vec<u8>, Vec<u8>>("test_checkpoint_3_in_2");
 
         let first_keyvalues = vec![
-            (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),
-            (vec![0 as u8, 3 as u8], Some(vec![1 as u8, 3 as u8])),
+            (vec![0, 1], Some(vec![1, 1])),
+            (vec![0, 3], Some(vec![1, 3])),
         ];
         {
             let keyvalues = &first_keyvalues;
@@ -1307,24 +1281,24 @@ mod tests {
             }
             table.checkpoint().unwrap();
             for (key, value) in keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
             for (key, value) in first_keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
         }
         {
-            let keyvalues = vec![
-                (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
-                (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 2 as u8])),
-                (vec![0 as u8, 4 as u8], Some(vec![1 as u8, 4 as u8])),
+            let keyvalues = [
+                (vec![0, 0], Some(vec![1, 0])),
+                (vec![0, 2], Some(vec![1, 2])),
+                (vec![0, 4], Some(vec![1, 4])),
             ];
             for (key, value) in keyvalues.iter() {
                 table.memtable.insert(key.clone(), value.clone());
             }
             table.checkpoint().unwrap();
             for (key, value) in keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
         }
     }
@@ -1334,9 +1308,9 @@ mod tests {
         let mut table = new_default_table::<Vec<u8>, Vec<u8>>("test_checkpoint_2_after_3");
 
         let first_keyvalues = vec![
-            (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
-            (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 2 as u8])),
-            (vec![0 as u8, 4 as u8], Some(vec![1 as u8, 4 as u8])),
+            (vec![0, 0], Some(vec![1, 0])),
+            (vec![0, 2], Some(vec![1, 2])),
+            (vec![0, 4], Some(vec![1, 4])),
         ];
         {
             let keyvalues = &first_keyvalues;
@@ -1345,23 +1319,23 @@ mod tests {
             }
             table.checkpoint().unwrap();
             for (key, value) in keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
         }
         {
-            let keyvalues = vec![
-                (vec![0 as u8, 5 as u8], Some(vec![1 as u8, 5 as u8])),
-                (vec![0 as u8, 6 as u8], Some(vec![1 as u8, 6 as u8])),
+            let keyvalues = [
+                (vec![0, 5], Some(vec![1, 5])),
+                (vec![0, 6], Some(vec![1, 6])),
             ];
             for (key, value) in keyvalues.iter() {
                 table.memtable.insert(key.clone(), value.clone());
             }
             table.checkpoint().unwrap();
             for (key, value) in keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
             for (key, value) in first_keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
         }
     }
@@ -1372,16 +1346,16 @@ mod tests {
             new_default_table::<Vec<u8>, Vec<u8>>("test_checkpoint_2_remove_1_add_after_10");
 
         let first_keyvalues = vec![
-            (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
-            (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),
-            (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 2 as u8])),
-            (vec![0 as u8, 3 as u8], Some(vec![1 as u8, 3 as u8])),
-            (vec![0 as u8, 4 as u8], Some(vec![1 as u8, 4 as u8])),
-            (vec![0 as u8, 5 as u8], Some(vec![1 as u8, 5 as u8])),
-            (vec![0 as u8, 6 as u8], Some(vec![1 as u8, 6 as u8])),
-            (vec![0 as u8, 7 as u8], Some(vec![1 as u8, 7 as u8])),
-            (vec![0 as u8, 8 as u8], Some(vec![1 as u8, 8 as u8])),
-            (vec![0 as u8, 9 as u8], Some(vec![1 as u8, 9 as u8])),
+            (vec![0, 0], Some(vec![1, 0])),
+            (vec![0, 1], Some(vec![1, 1])),
+            (vec![0, 2], Some(vec![1, 2])),
+            (vec![0, 3], Some(vec![1, 3])),
+            (vec![0, 4], Some(vec![1, 4])),
+            (vec![0, 5], Some(vec![1, 5])),
+            (vec![0, 6], Some(vec![1, 6])),
+            (vec![0, 7], Some(vec![1, 7])),
+            (vec![0, 8], Some(vec![1, 8])),
+            (vec![0, 9], Some(vec![1, 9])),
         ];
         {
             let keyvalues = &first_keyvalues;
@@ -1390,24 +1364,24 @@ mod tests {
             }
             table.checkpoint().unwrap();
             for (key, value) in keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
         }
         {
-            let keyvalues = vec![
-                (vec![0 as u8, 10 as u8], None),
-                (vec![0 as u8, 11 as u8], None),
-                (vec![0 as u8, 12 as u8], Some(vec![1 as u8, 12 as u8])),
+            let keyvalues = [
+                (vec![0, 10], None),
+                (vec![0, 11], None),
+                (vec![0, 12], Some(vec![1, 12])),
             ];
             for (key, value) in keyvalues.iter() {
                 table.memtable.insert(key.clone(), value.clone());
             }
             table.checkpoint().unwrap();
             for (key, value) in keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
             for (key, value) in first_keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
         }
     }
@@ -1417,9 +1391,9 @@ mod tests {
         let mut table = new_default_table::<Vec<u8>, Vec<u8>>("test_checkpoint_2_before_3");
 
         let first_keyvalues = vec![
-            (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 2 as u8])),
-            (vec![0 as u8, 3 as u8], Some(vec![1 as u8, 3 as u8])),
-            (vec![0 as u8, 4 as u8], Some(vec![1 as u8, 4 as u8])),
+            (vec![0, 2], Some(vec![1, 2])),
+            (vec![0, 3], Some(vec![1, 3])),
+            (vec![0, 4], Some(vec![1, 4])),
         ];
         {
             let keyvalues = &first_keyvalues;
@@ -1428,23 +1402,23 @@ mod tests {
             }
             table.checkpoint().unwrap();
             for (key, value) in keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
         }
         {
-            let keyvalues = vec![
-                (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
-                (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),
+            let keyvalues = [
+                (vec![0, 0], Some(vec![1, 0])),
+                (vec![0, 1], Some(vec![1, 1])),
             ];
             for (key, value) in keyvalues.iter() {
                 table.memtable.insert(key.clone(), value.clone());
             }
             table.checkpoint().unwrap();
             for (key, value) in keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
             for (key, value) in first_keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
         }
     }
@@ -1454,31 +1428,31 @@ mod tests {
         let mut table = new_default_table::<Vec<u8>, Vec<u8>>("test_checkpoint_replace");
 
         {
-            let keyvalues = vec![
-                (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
-                (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),
-                (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 2 as u8])),
+            let keyvalues = [
+                (vec![0, 0], Some(vec![1, 0])),
+                (vec![0, 1], Some(vec![1, 1])),
+                (vec![0, 2], Some(vec![1, 2])),
             ];
             for (key, value) in keyvalues.iter() {
                 table.memtable.insert(key.clone(), value.clone());
             }
             table.checkpoint().unwrap();
             for (key, value) in keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
         }
         {
-            let keyvalues = vec![
-                (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 3 as u8])),
-                (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 4 as u8])),
-                (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 5 as u8])),
+            let keyvalues = [
+                (vec![0, 0], Some(vec![1, 3])),
+                (vec![0, 1], Some(vec![1, 4])),
+                (vec![0, 2], Some(vec![1, 5])),
             ];
             for (key, value) in keyvalues.iter() {
                 table.memtable.insert(key.clone(), value.clone());
             }
             table.checkpoint().unwrap();
             for (key, value) in keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
         }
     }
@@ -1488,9 +1462,9 @@ mod tests {
         let mut table = new_default_table::<Vec<u8>, Vec<u8>>("test_checkpoint_delete_middle");
 
         let mut keyvalues = vec![
-            (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
-            (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),
-            (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 2 as u8])),
+            (vec![0, 0], Some(vec![1, 0])),
+            (vec![0, 1], Some(vec![1, 1])),
+            (vec![0, 2], Some(vec![1, 2])),
         ];
         {
             for (key, value) in keyvalues.iter() {
@@ -1498,7 +1472,7 @@ mod tests {
             }
             table.checkpoint().unwrap();
             for (key, value) in keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
         }
         {
@@ -1508,7 +1482,7 @@ mod tests {
             keyvalues.remove(1);
             table.checkpoint().unwrap();
             for (key, value) in keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
         }
     }
@@ -1518,9 +1492,9 @@ mod tests {
         let mut table = new_default_table::<Vec<u8>, Vec<u8>>("test_checkpoint_delete_first");
 
         let mut keyvalues = vec![
-            (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
-            (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),
-            (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 2 as u8])),
+            (vec![0, 0], Some(vec![1, 0])),
+            (vec![0, 1], Some(vec![1, 1])),
+            (vec![0, 2], Some(vec![1, 2])),
         ];
         {
             for (key, value) in keyvalues.iter() {
@@ -1528,7 +1502,7 @@ mod tests {
             }
             table.checkpoint().unwrap();
             for (key, value) in keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
         }
         {
@@ -1539,7 +1513,7 @@ mod tests {
             keyvalues.remove(0);
             table.checkpoint().unwrap();
             for (key, value) in keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
         }
     }
@@ -1549,9 +1523,9 @@ mod tests {
         let mut table = new_default_table::<Vec<u8>, Vec<u8>>("test_checkpoint_delete_last");
 
         let mut keyvalues = vec![
-            (vec![0 as u8, 0 as u8], Some(vec![1 as u8, 0 as u8])),
-            (vec![0 as u8, 1 as u8], Some(vec![1 as u8, 1 as u8])),
-            (vec![0 as u8, 2 as u8], Some(vec![1 as u8, 2 as u8])),
+            (vec![0, 0], Some(vec![1, 0])),
+            (vec![0, 1], Some(vec![1, 1])),
+            (vec![0, 2], Some(vec![1, 2])),
         ];
         {
             for (key, value) in keyvalues.iter() {
@@ -1559,7 +1533,7 @@ mod tests {
             }
             table.checkpoint().unwrap();
             for (key, value) in keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
         }
         {
@@ -1570,7 +1544,7 @@ mod tests {
             keyvalues.remove(keyvalues.len() - 1);
             table.checkpoint().unwrap();
             for (key, value) in keyvalues.iter() {
-                assert_eq!(table.get_from_index(&key).unwrap(), *value);
+                assert_eq!(table.get_from_index(key).unwrap(), *value);
             }
         }
     }
@@ -1579,7 +1553,7 @@ mod tests {
     fn test_sort_complex() {
         let mut table = new_default_table::<([u8; 16], String), u8>("test_sort_complex");
 
-        let keyvalues = vec![
+        let keyvalues = [
             (
                 (
                     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -1610,7 +1584,7 @@ mod tests {
             ),
         ];
         for (key, value) in keyvalues.iter() {
-            table.memtable.insert(key.clone(), Some(value.clone()));
+            table.memtable.insert(key.clone(), Some(*value));
         }
         // table.checkpoint().unwrap();
         assert_eq!(
@@ -1652,12 +1626,12 @@ mod tests {
 
         for _ in 1..=20 {
             for _ in 1..=20 {
-                let random_byte = rng.generate_range(0..256) as u8;
-                let key = vec![0 as u8, random_byte];
+                let random_byte = rng.generate_range(0..=255);
+                let key = vec![0, random_byte];
                 let value = if rng.generate_range(0..=1) == 0 {
                     None
                 } else {
-                    Some(vec![1 as u8, random_byte])
+                    Some(vec![1, random_byte])
                 };
                 if let Some(value) = &value {
                     previously_added_keyvalues.insert(key.clone(), value.clone());
@@ -1718,33 +1692,29 @@ mod tests {
                 );
 
                 let current = previously_added_keys[key_index][1];
-                if let Some(next) = previously_added_keys
-                    .get(key_index + 1)
-                    .and_then(|next| Some(next[1]))
+                if let Some(next) = previously_added_keys.get(key_index + 1).map(|next| next[1])
+                    && let Some(direct_next) = current.checked_add(1)
+                    && direct_next < next
                 {
-                    if let Some(direct_next) = current.checked_add(1) {
-                        if direct_next < next {
-                            assert_eq!(
-                                table
-                                    .iter(Bound::Included(&vec![0u8, direct_next]), false)
-                                    .unwrap()
-                                    .map(|(key, _)| Ok(key))
-                                    .collect::<Vec<_>>()
-                                    .unwrap(),
-                                previously_added_keys[key_index + 1..]
-                            );
-                            assert_eq!(
-                                table
-                                    .iter(Bound::Included(&vec![0u8, direct_next]), true)
-                                    .unwrap()
-                                    .map(|(key, _)| Ok(key))
-                                    .collect::<Vec<_>>()
-                                    .unwrap(),
-                                previously_added_keys_reversed
-                                    [previously_added_keys_reversed.len() - 1 - key_index..]
-                            );
-                        }
-                    }
+                    assert_eq!(
+                        table
+                            .iter(Bound::Included(&vec![0u8, direct_next]), false)
+                            .unwrap()
+                            .map(|(key, _)| Ok(key))
+                            .collect::<Vec<_>>()
+                            .unwrap(),
+                        previously_added_keys[key_index + 1..]
+                    );
+                    assert_eq!(
+                        table
+                            .iter(Bound::Included(&vec![0u8, direct_next]), true)
+                            .unwrap()
+                            .map(|(key, _)| Ok(key))
+                            .collect::<Vec<_>>()
+                            .unwrap(),
+                        previously_added_keys_reversed
+                            [previously_added_keys_reversed.len() - 1 - key_index..]
+                    );
                 }
             }
 
@@ -1764,7 +1734,7 @@ mod tests {
                 table.checkpoint().unwrap();
             }
             for (key, value) in previously_added_keyvalues.iter() {
-                assert_eq!(table.get(&key).unwrap(), Some(value.clone()));
+                assert_eq!(table.get(key).unwrap(), Some(value.clone()));
             }
         }
     }
