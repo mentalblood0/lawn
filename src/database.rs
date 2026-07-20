@@ -415,22 +415,24 @@ macro_rules! define_database {
 
                 pub fn lock_all_and_checkpoint(&self, if_enough_log_size: bool) -> Result<&Self> {
                     let mut locked_internals_write_guard = self.lockable_internals.write();
-                    if if_enough_log_size &&
-                        locked_internals_write_guard.log.size >= locked_internals_write_guard.log.config.checkpoint_on_size.as_u64() {
-                    $(
+                    if if_enough_log_size && locked_internals_write_guard.log.size >= locked_internals_write_guard.log.config.checkpoint_on_size.as_u64() {
+                        let start = std::time::Instant::now();
                         $(
-                            locked_internals_write_guard
-                                .tables
-                                .$schema_name
-                                .$table_name
-                                .table
-                                .checkpoint()
-                                .with_context(|| format!("Can not checkpoint table {:?}", stringify!($table_name)))?;
+                            $(
+                                locked_internals_write_guard
+                                    .tables
+                                    .$schema_name
+                                    .$table_name
+                                    .table
+                                    .checkpoint()
+                                    .with_context(|| format!("Can not checkpoint table {:?}", stringify!($table_name)))?;
+                            )+
                         )+
-                    )+
-                    locked_internals_write_guard
-                        .log
-                        .clear().with_context(|| format!("Can not clear log {:?} while checkpointing database", locked_internals_write_guard.log))?;
+                        locked_internals_write_guard
+                            .log
+                            .clear().with_context(|| format!("Can not clear log {:?} while checkpointing database", locked_internals_write_guard.log))?;
+                        let elapsed = start.elapsed();
+                        println!("checkpointing took {elapsed:?}");
                     }
                     Ok(self)
                 }
