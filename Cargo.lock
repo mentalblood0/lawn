@@ -260,7 +260,7 @@ dependencies = [
 [[package]]
 name = "serde-saphyr"
 version = "1.0.0-rc.1"
-source = "git+https://github.com/bourumir-wyngs/serde-saphyr#f0296379cbb64b036a33d7c0badef9ccb09e5568"
+source = "git+https://github.com/bourumir-wyngs/serde-saphyr#af9302538242a268a5dca6ba222b95c9e1ae7ae4"
 dependencies = [
  "annotate-snippets",
  "base64",
@@ -301,9 +301,9 @@ checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
 
 [[package]]
 name = "syn"
-version = "3.0.0"
+version = "3.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2fac314a64dc9a36e61a9eb4261a5e9bbfbc922b27e518af97bc32b926cf967"
+checksum = "a207d6d6a2b7fc470b80443726053f18a2481b7e1eee970597051596567987a3"
 dependencies = [
  "proc-macro2",
  "quote",

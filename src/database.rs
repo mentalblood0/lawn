@@ -192,11 +192,7 @@ macro_rules! define_database {
                 }
 
                 pub fn remove(&mut self, key: &K) -> &mut Self {
-                    if let Some(value) = self.changes.get_mut(key) {
-                        *value = None;
-                    } else {
-                        self.changes.insert(key.clone(), None);
-                    }
+                    self.changes.insert(key.clone(), None);
                     self
                 }
 
@@ -418,7 +414,6 @@ macro_rules! define_database {
                 }
 
                 pub fn lock_all_and_checkpoint(&self) -> Result<&Self> {
-                    println!("checkpointing...");
                     let mut locked_internals = self
                         .lockable_internals
                         .write();
