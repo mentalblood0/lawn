@@ -415,7 +415,7 @@ macro_rules! define_database {
 
                 pub fn lock_all_and_checkpoint(&self, if_enough_log_size: bool) -> Result<&Self> {
                     let mut locked_internals_write_guard = self.lockable_internals.write();
-                    if if_enough_log_size && locked_internals_write_guard.log.size >= locked_internals_write_guard.log.config.checkpoint_on_size.as_u64() {
+                    if !if_enough_log_size || locked_internals_write_guard.log.size >= locked_internals_write_guard.log.config.checkpoint_on_size.as_u64() {
                         let start = std::time::Instant::now();
                         $(
                             $(
