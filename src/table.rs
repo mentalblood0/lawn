@@ -189,13 +189,10 @@ impl<K: Key, V: Value> Table<K, V> {
         if self.memtable.is_empty() {
             Ok(())
         } else if self.index.records_count == 0 {
-            println!("checkpointing using dump...");
             self.checkpoint_using_dump()
         } else if self.index.records_count <= 2 * self.memtable.len() as u64 {
-            println!("checkpointing linear merge...");
             self.checkpoint_using_linear_merge()
         } else {
-            println!("checkpointing sparse merge...");
             self.checkpoint_using_sparse_merge()
         }
     }

@@ -413,33 +413,33 @@ macro_rules! define_database {
                     Ok(self)
                 }
 
-                pub fn lock_all_and_checkpoint(&self) -> Result<&Self> {
-                    let mut locked_internals = self
-                        .lockable_internals
-                        .write();
-
+                pub fn lock_all_and_checkpoint(&self, if_enough_log_size: bool) -> Result<&Self> {
+                    let mut locked_internals_write_guard = self.lockable_internals.write();
+                    if if_enough_log_size &&
+                        locked_internals_write_guard.log.size >= locked_internals_write_guard.log.config.checkpoint_on_size.as_u64() {
                     $(
                         $(
-                            locked_internals.tables.$schema_name.$table_name.table.checkpoint().with_context(|| format!("Can not checkpoint table {:?}", stringify!($table_name)))?;
+                            locked_internals_write_guard
+                                .tables
+                                .$schema_name
+                                .$table_name
+                                .table
+                                .checkpoint()
+                                .with_context(|| format!("Can not checkpoint table {:?}", stringify!($table_name)))?;
                         )+
                     )+
-                    locked_internals.log.clear().with_context(|| format!("Can not clear log {:?} while checkpointing database", locked_internals.log))?;
-                    Ok(self)
-                }
-
-                pub fn lock_all_and_checkpoint_if_enough_log_size(&self) -> Result<()> {
-                    let locked_internals_write_guard = self.lockable_internals.write();
-                    if locked_internals_write_guard.log.size >= locked_internals_write_guard.log.config.checkpoint_on_size.as_u64() {
-                        self.lock_all_and_checkpoint()?;
+                    locked_internals_write_guard
+                        .log
+                        .clear().with_context(|| format!("Can not clear log {:?} while checkpointing database", locked_internals_write_guard.log))?;
                     }
-                    Ok(())
+                    Ok(self)
                 }
 
                 pub fn lock_all_and_write<F, R>(&self, mut f: F) -> Result<R>
                 where
                     F: FnMut(&mut WriteTransaction) -> Result<R>,
                 {
-                    self.lock_all_and_checkpoint_if_enough_log_size()?;
+                    self.lock_all_and_checkpoint(true)?;
                     let cloned_internals = &Arc::clone(&self.lockable_internals);
                     let mut transaction = WriteTransaction::new(cloned_internals).with_context(|| "Can not create new write transaction from arc-cloned internals of database")?;
                     let result = f(&mut transaction).with_context(|| "Can not execute user-provided function for write transaction")?;
@@ -451,7 +451,7 @@ macro_rules! define_database {
                     &self,
                     f: fn(WriteTransaction) -> Result<()>,
                 ) -> Result<JoinHandle<Result<()>>> {
-                    self.lock_all_and_checkpoint_if_enough_log_size()?;
+                    self.lock_all_and_checkpoint(true)?;
                     let locked_internals = Arc::clone(&self.lockable_internals);
                     Ok(thread::spawn(move || f(WriteTransaction::new(&locked_internals).with_context(|| "Can not create new write transaction from database locked internals")?)))
                 }
@@ -572,7 +572,7 @@ mod tests {
                             Ok(())
                         })
                         .unwrap();
-                    database.lock_all_and_checkpoint().unwrap();
+                    database.lock_all_and_checkpoint(false).unwrap();
                 }
                 _ => {}
             }
