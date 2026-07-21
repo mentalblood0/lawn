@@ -343,6 +343,10 @@ macro_rules! define_database {
                 lockable_internals: Arc<RwLock<DatabaseLockableInternals>>,
             }
 
+            struct UnsafeSendWrapper<'a, T>(&'a mut T);
+
+            unsafe impl<'a, T> Send for UnsafeSendWrapper<'a, T> {}
+
             impl Database {
                 pub fn new(config: DatabaseConfig) -> Result<Self> {
                     let result = Self {
@@ -417,17 +421,27 @@ macro_rules! define_database {
                     let mut locked_internals_write_guard = self.lockable_internals.write();
                     if !if_enough_log_size || locked_internals_write_guard.log.size >= locked_internals_write_guard.log.config.checkpoint_on_size.as_u64() {
                         let start = std::time::Instant::now();
-                        $(
-                            $(
-                                locked_internals_write_guard
-                                    .tables
-                                    .$schema_name
-                                    .$table_name
-                                    .table
-                                    .checkpoint()
-                                    .with_context(|| format!("Can not checkpoint table {:?}", stringify!($table_name)))?;
-                            )+
-                        )+
+                        let tables_unsafe_send_wrapper = UnsafeSendWrapper(&mut locked_internals_write_guard.tables);
+                        for thread_result in std::thread::scope(|scope| {[
+                                $(
+                                    $(
+                                        scope.spawn(|| {
+                                            tables_unsafe_send_wrapper
+                                                .0
+                                                .$schema_name
+                                                .$table_name
+                                                .table
+                                                .checkpoint()
+                                                .with_context(|| format!("Can not checkpoint table {:?}", stringify!($table_name)))
+                                        }),
+                                    )+
+                                )+
+                            ].into_iter()
+                             .map(|join_handle| join_handle.join().unwrap())
+                             .collect::<Vec<_>>()
+                        }) {
+                            thread_result?;
+                        }
                         locked_internals_write_guard
                             .log
                             .clear().with_context(|| format!("Can not clear log {:?} while checkpointing database", locked_internals_write_guard.log))?;
