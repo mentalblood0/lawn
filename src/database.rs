@@ -26,6 +26,7 @@ macro_rules! define_database {
                 },
                 $crate::{
                     bincode,
+                    log,
                     anyhow::{Context, Result, Error},
                     fallible_iterator::FallibleIterator,
                     parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard},

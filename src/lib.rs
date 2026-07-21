@@ -12,5 +12,6 @@ pub extern crate anyhow;
 pub extern crate bincode;
 pub extern crate bytesize;
 pub extern crate fallible_iterator;
+pub extern crate log;
 pub extern crate parking_lot;
 pub extern crate serde;
