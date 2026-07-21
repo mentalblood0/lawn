@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, VecDeque};
 use std::fs::{self, File};
@@ -161,15 +162,15 @@ impl<K: Key, V: Value> Table<K, V> {
         )
     }
 
-    pub fn get(&self, key: &K) -> Result<Option<V>> {
+    pub fn get(&self, key: &K) -> Result<Cow<'_, Option<V>>> {
         match self.memtable.get(key) {
-            Some(value) => Ok(value.clone()),
-            None => Ok(self.get_from_index(key).with_context(|| {
+            Some(value) => Ok(Cow::Borrowed(value)),
+            None => Ok(Cow::Owned(self.get_from_index(key).with_context(|| {
                 format!(
                     "Can not get value by key {key:?} from index {:?}",
                     self.index
                 )
-            })?),
+            })?)),
         }
     }
 
@@ -211,7 +212,7 @@ impl<K: Key, V: Value> Table<K, V> {
                 };
                 let id = self
                     .data_pool
-                    .insert(data_record_to_insert)
+                    .insert(&data_record_to_insert)
                     .with_context(|| {
                         "Can not insert data record while checkpointing table using dump method"
                     })?;
@@ -268,11 +269,10 @@ impl<K: Key, V: Value> Table<K, V> {
             )
         })?;
         let new_index_config = IndexConfig {
-            path: std::mem::take(&mut self.index.config.path.clone()),
+            path: std::mem::take(&mut self.index.config.path),
         };
-        self.index = Index::new(new_index_config.clone()).with_context(|| {
-            format!("Can not create new index with config {new_index_config:?}")
-        })?;
+        self.index = Index::new(new_index_config)
+            .with_context(|| format!("Can not create new index at {:?}", self.index.config.path))?;
 
         Ok(())
     }
@@ -287,22 +287,18 @@ impl<K: Key, V: Value> Table<K, V> {
         for current_new_record in std::mem::take(&mut self.memtable).into_iter() {
             if let Some(value) = current_new_record.1 {
                 let data_record_to_insert = DataRecord {
-                    key: current_new_record.0.clone(),
+                    key: current_new_record.0,
                     value,
                 };
                 let id = self
                     .data_pool
-                    .insert(data_record_to_insert.clone())
-                    .with_context(|| {
-                        format!(
-                            "Can not insert data record {data_record_to_insert:?} into data pool"
-                        )
-                    })?;
+                    .insert(&data_record_to_insert)
+                    .with_context(|| "Can not insert data record into data pool")?;
                 if id > max_new_id {
                     max_new_id = id;
                 }
                 new_elements.push(LinearMergeElement {
-                    key: current_new_record.0,
+                    key: data_record_to_insert.key,
                     id: Some(id),
                 });
             } else {
@@ -536,11 +532,10 @@ impl<K: Key, V: Value> Table<K, V> {
             )
         })?;
         let new_index_config = IndexConfig {
-            path: self.index.config.path.clone(),
+            path: std::mem::take(&mut self.index.config.path),
         };
-        self.index = Index::new(new_index_config.clone()).with_context(|| {
-            format!("Can not create new index with config {new_index_config:?}")
-        })?;
+        self.index = Index::new(new_index_config)
+            .with_context(|| format!("Can not create new index at {:?}", self.index.config.path))?;
 
         Ok(())
     }
@@ -607,14 +602,14 @@ impl<K: Key, V: Value> Table<K, V> {
                         )
                     })?;
             }
-            if let Some(value) = &current_record.value {
+            if let Some(value) = current_record.value {
                 let data_record_to_insert = DataRecord {
-                    key: current_record.key.clone(),
-                    value: value.clone(),
+                    key: current_record.key,
+                    value,
                 };
                 let new_id = self
                     .data_pool
-                    .insert(data_record_to_insert.clone())
+                    .insert(&data_record_to_insert)
                     .with_context(|| {
                         format!(
                             "Can not insert data record {data_record_to_insert:?} into data pool"
@@ -846,7 +841,7 @@ impl<K: Key, V: Value> Table<K, V> {
             )
         })?;
         let new_index_config = IndexConfig {
-            path: self.index.config.path.clone(),
+            path: std::mem::take(&mut self.index.config.path),
         };
         self.index = Index::new(new_index_config)
             .with_context(|| format!("Can not create new index at {:?}", self.index.config.path))?;
@@ -1765,7 +1760,7 @@ mod tests {
                 table.checkpoint().unwrap();
             }
             for (key, value) in previously_added_keyvalues.iter() {
-                assert_eq!(table.get(key).unwrap(), Some(value.clone()));
+                assert_eq!(table.get(key).unwrap().as_ref().as_ref().unwrap(), value);
             }
         }
     }

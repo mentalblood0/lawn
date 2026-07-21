@@ -16,6 +16,7 @@ macro_rules! define_database {
 
             use {
                 std::{
+                    borrow::Cow,
                     fs,
                     ops::Bound,
                     path::PathBuf,
@@ -197,9 +198,9 @@ macro_rules! define_database {
                     self
                 }
 
-                pub fn get(&self, key: &K) -> Result<Option<V>> {
+                pub fn get(&self, key: &K) -> Result<Cow<'_, Option<V>>> {
                     match self.changes.get(key) {
-                        Some(result_from_changes) => Ok(result_from_changes.clone()),
+                        Some(result_from_changes) => Ok(Cow::Borrowed(result_from_changes)),
                         None => self.table.get(key),
                     }
                 }
@@ -573,8 +574,8 @@ mod tests {
                         .lock_all_writes_and_read(|transaction| {
                             for (key, value) in previously_added_keyvalues_arc.iter() {
                                 assert_eq!(
-                                    transaction.public.vecs.get(key).unwrap().clone(),
-                                    Some(value.clone())
+                                    transaction.public.vecs.get(key).unwrap().as_ref().as_ref(),
+                                    Some(value)
                                 );
                             }
                             let mut table_iterator = transaction
@@ -665,11 +666,10 @@ mod tests {
                         .vecs
                         .get(&"key".as_bytes().to_vec())
                         .unwrap()
-                        .clone()
-                        .unwrap(),
-                    Data {
+                        .as_ref(),
+                    &Some(Data {
                         data: "value".as_bytes().to_vec()
-                    }
+                    })
                 );
                 Ok(())
             })

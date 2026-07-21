@@ -205,7 +205,7 @@ impl VariableDataPool {
 }
 
 impl<D: Value> DataPool<D> for VariableDataPool {
-    fn insert(&mut self, data_record: D) -> Result<u64> {
+    fn insert(&mut self, data_record: &D) -> Result<u64> {
         self.insert_raw(
             bincode::encode_to_vec(data_record, bincode::config::standard())
                 .with_context(|| "Can not encode data record")?,
@@ -314,7 +314,7 @@ mod tests {
                 );
                 rng.fill(&mut data_to_insert.0);
                 rng.fill(&mut data_to_insert.1);
-                let data_id = variable_data_pool.insert(data_to_insert.clone()).unwrap();
+                let data_id = variable_data_pool.insert(&data_to_insert).unwrap();
                 previously_inserted_data.insert(data_id, data_to_insert);
             }
             variable_data_pool.flush().unwrap();

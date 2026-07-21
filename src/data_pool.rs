@@ -7,7 +7,7 @@ pub trait DataPoolConfig<D: Value> {
 }
 
 pub trait DataPool<D: Value> {
-    fn insert(&mut self, data_record: D) -> Result<u64>;
+    fn insert(&mut self, data_record: &D) -> Result<u64>;
 
     fn remove(&mut self, id: u64) -> Result<()>;
 
