@@ -1,22 +1,26 @@
-use std::cmp::Ordering;
+use std::{borrow::Cow, cmp::Ordering};
 
 use anyhow::{Context, Error, Result};
 use fallible_iterator::FallibleIterator;
 
 use crate::keyvalue::{Key, Value};
 
+type KeyValueOptionCows<'a, K, V> = (Cow<'a, K>, Cow<'a, Option<V>>);
+
 pub struct MergingIterator<'a, K: Key, V: Value> {
-    pub new_iter: Box<dyn Iterator<Item = (&'a K, &'a Option<V>)> + 'a>,
-    pub old_iter: Box<dyn FallibleIterator<Item = (K, V), Error = Error> + 'a>,
-    pub current_new_keyvalue_option: Option<(&'a K, &'a Option<V>)>,
-    pub current_old_keyvalue_option: Option<(K, V)>,
+    pub new_iter: Box<dyn Iterator<Item = KeyValueOptionCows<'a, K, V>> + 'a>,
+    pub old_iter: Box<dyn FallibleIterator<Item = (Cow<'a, K>, Cow<'a, V>), Error = Error> + 'a>,
+    pub current_new_keyvalue_option: Option<(Cow<'a, K>, Cow<'a, Option<V>>)>,
+    pub current_old_keyvalue_option: Option<(Cow<'a, K>, Cow<'a, V>)>,
     pub backwards: bool,
 }
 
 impl<'a, K: Key, V: Value> MergingIterator<'a, K, V> {
     pub fn new(
-        mut new_iter: Box<dyn Iterator<Item = (&'a K, &'a Option<V>)> + 'a>,
-        mut old_iter: Box<dyn FallibleIterator<Item = (K, V), Error = Error> + 'a>,
+        mut new_iter: Box<dyn Iterator<Item = KeyValueOptionCows<'a, K, V>> + 'a>,
+        mut old_iter: Box<
+            dyn FallibleIterator<Item = (Cow<'a, K>, Cow<'a, V>), Error = Error> + 'a,
+        >,
         backwards: bool,
     ) -> Result<Self> {
         let current_new_keyvalue_option = new_iter.next();
@@ -34,45 +38,45 @@ impl<'a, K: Key, V: Value> MergingIterator<'a, K, V> {
 }
 
 impl<'a, K: Key, V: Value> FallibleIterator for MergingIterator<'a, K, V> {
-    type Item = (K, V);
+    type Item = (Cow<'a, K>, Cow<'a, V>);
     type Error = Error;
 
     fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
         loop {
             match (
-                &self.current_new_keyvalue_option,
-                &self.current_old_keyvalue_option,
+                &mut self.current_new_keyvalue_option,
+                &mut self.current_old_keyvalue_option,
             ) {
-                (Some(current_memtable_keyvalue), Some(current_table_index_keyvalue)) => {
+                (Some(current_new_keyvalue), Some(current_old_keyvalue)) => {
                     match if self.backwards {
-                        current_table_index_keyvalue
-                            .0
-                            .cmp(current_memtable_keyvalue.0)
+                        current_old_keyvalue.0.cmp(&current_new_keyvalue.0)
                     } else {
-                        current_memtable_keyvalue
-                            .0
-                            .cmp(&current_table_index_keyvalue.0)
+                        current_new_keyvalue.0.cmp(&current_old_keyvalue.0)
                     } {
                         Ordering::Less => {
-                            let result = current_memtable_keyvalue
-                                .1
-                                .as_ref()
-                                .map(|value| (current_memtable_keyvalue.0.clone(), value.clone()));
+                            let result =
+                                std::mem::replace(&mut current_new_keyvalue.1, Cow::Owned(None))
+                                    .into_owned()
+                                    .map(|value| {
+                                        (current_new_keyvalue.0.clone(), Cow::Owned(value))
+                                    });
                             self.current_new_keyvalue_option = self.new_iter.next();
                             if result.is_some() {
                                 return Ok(result);
                             }
                         }
                         Ordering::Greater => {
-                            let result = Some(current_table_index_keyvalue.clone());
+                            let result = Some(current_old_keyvalue.clone());
                             self.current_old_keyvalue_option = self.old_iter.next()?;
                             return Ok(result);
                         }
                         Ordering::Equal => {
-                            let result = current_memtable_keyvalue
-                                .1
-                                .as_ref()
-                                .map(|value| (current_memtable_keyvalue.0.clone(), value.clone()));
+                            let result =
+                                std::mem::replace(&mut current_new_keyvalue.1, Cow::Owned(None))
+                                    .into_owned()
+                                    .map(|value| {
+                                        (current_new_keyvalue.0.clone(), Cow::Owned(value))
+                                    });
                             self.current_new_keyvalue_option = self.new_iter.next();
                             self.current_old_keyvalue_option =
                                 self.old_iter.next().with_context(|| {
@@ -85,11 +89,10 @@ impl<'a, K: Key, V: Value> FallibleIterator for MergingIterator<'a, K, V> {
                         }
                     }
                 }
-                (Some(current_memtable_keyvalue), None) => {
-                    let result = current_memtable_keyvalue
-                        .1
-                        .as_ref()
-                        .map(|value| (current_memtable_keyvalue.0.clone(), value.clone()));
+                (Some(current_new_keyvalue), None) => {
+                    let result = std::mem::replace(&mut current_new_keyvalue.1, Cow::Owned(None))
+                        .into_owned()
+                        .map(|value| (current_new_keyvalue.0.clone(), Cow::Owned(value)));
                     self.current_new_keyvalue_option = self.new_iter.next();
                     if result.is_some() {
                         return Ok(result);

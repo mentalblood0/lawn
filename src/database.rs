@@ -209,7 +209,7 @@ macro_rules! define_database {
                     &'_ self,
                     start_bound: Bound<&K>,
                     backwards: bool
-                ) -> Result<Box<dyn FallibleIterator<Item = (K, V), Error = Error> + '_>>
+                ) -> Result<Box<dyn FallibleIterator<Item = (Cow<'_, K>, Cow<'_, V>), Error = Error> + '_>>
                 {
                     Ok(Box::new(MergingIterator::new(
                         if backwards {
@@ -218,7 +218,7 @@ macro_rules! define_database {
                                     .range::<K, _>((
                                         Bound::Unbounded,
                                         start_bound,
-                                    )).rev(),
+                                    )).rev().map(|(key, value)| (Cow::Borrowed(key), Cow::Borrowed(value))),
                             )
                         } else {
                             Box::new(
@@ -226,7 +226,7 @@ macro_rules! define_database {
                                     .range::<K, _>((
                                         start_bound,
                                         Bound::Unbounded,
-                                    )),
+                                    )).map(|(key, value)| (Cow::Borrowed(key), Cow::Borrowed(value))),
                             )
                         },
                         self.table
@@ -487,7 +487,7 @@ mod tests {
 
     use pretty_assertions::assert_eq;
 
-    #[derive(bincode::Encode, bincode::Decode, Clone, Debug, PartialEq)]
+    #[derive(bincode::Encode, bincode::Decode, Clone, Debug, PartialEq, Default)]
     pub struct Data {
         data: Vec<u8>,
     }
@@ -584,8 +584,11 @@ mod tests {
                                 .iter(Bound::Unbounded, false)
                                 .unwrap();
                             while let Some((key, value)) = table_iterator.next()? {
-                                assert!(previously_added_keyvalues_arc.contains_key(&key));
-                                assert_eq!(previously_added_keyvalues_arc[&key], value);
+                                assert!(previously_added_keyvalues_arc.contains_key(key.as_ref()));
+                                assert_eq!(
+                                    &previously_added_keyvalues_arc[key.as_ref()],
+                                    value.as_ref()
+                                );
                             }
                             Ok(())
                         })
