@@ -8,6 +8,7 @@ anyhow = { version = "1.0.100", features = ["std", "backtrace"] }
 bincode = { version = "2.0", features = ["derive"] }
 bytesize = { version = "2.4.2", features = ["std", "serde"] }
 fallible-iterator = { version = "0.3", features = ["std"] }
+log = "0.4.33"
 parking_lot = { version = "0.12.5", features = ["hardware-lock-elision"] }
 serde = { version = "1.0", features = ["derive"] }
 

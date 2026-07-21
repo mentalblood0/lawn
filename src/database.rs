@@ -432,7 +432,7 @@ macro_rules! define_database {
                             .log
                             .clear().with_context(|| format!("Can not clear log {:?} while checkpointing database", locked_internals_write_guard.log))?;
                         let elapsed = start.elapsed();
-                        println!("checkpointing took {elapsed:?}");
+                        log::info!("checkpointing took {elapsed:?}");
                     }
                     Ok(self)
                 }

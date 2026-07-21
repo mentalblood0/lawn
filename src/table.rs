@@ -76,9 +76,8 @@ pub struct DataRecord<K: Key, V: Value> {
 }
 
 fn write_data_id(writer: &mut BufWriter<File>, data_id: u64, record_size: u8) -> Result<()> {
-    let data_id_encoded = data_id.to_le_bytes()[..record_size as usize].to_vec();
     writer
-        .write_all(&data_id_encoded)
+        .write_all(&data_id.to_le_bytes()[..record_size as usize])
         .with_context(|| "Can not write data id to file")?;
     Ok(())
 }
@@ -190,7 +189,7 @@ impl<K: Key, V: Value> Table<K, V> {
             Ok(())
         } else if self.index.records_count == 0 {
             self.checkpoint_using_dump()
-        } else if self.index.records_count <= 2 * self.memtable.len() as u64 {
+        } else if self.index.records_count <= 9 * self.memtable.len() as u64 {
             self.checkpoint_using_linear_merge()
         } else {
             self.checkpoint_using_sparse_merge()
@@ -551,6 +550,7 @@ impl<K: Key, V: Value> Table<K, V> {
             .map(|(key, value)| MemtableRecord { key, value })
             .collect();
 
+        let start = std::time::Instant::now();
         let merge_locations = sparse_merge(
             self.index.records_count,
             |data_record_id_index| {
@@ -576,7 +576,10 @@ impl<K: Key, V: Value> Table<K, V> {
                 self.index
             )
         })?;
+        let elapsed = start.elapsed();
+        log::info!("finding merge locations took {elapsed:?}");
 
+        let start = std::time::Instant::now();
         let mut effective_merge_locations: Vec<MergeLocation<u64>> = Vec::new();
         let mut old_ids_to_remove_with_no_replacement: Vec<u64> = Vec::new();
         let mut max_new_id: u64 = 0;
@@ -622,7 +625,10 @@ impl<K: Key, V: Value> Table<K, V> {
         self.data_pool
             .flush()
             .with_context(|| "Can not flush new index file")?;
+        let elapsed = start.elapsed();
+        log::info!("writing new data took {elapsed:?}");
 
+        let start = std::time::Instant::now();
         let new_index_record_size = self
             .index
             .header
@@ -814,6 +820,8 @@ impl<K: Key, V: Value> Table<K, V> {
         new_index_writer
             .flush()
             .with_context(|| "Can not flush new index file")?;
+        let elapsed = start.elapsed();
+        log::info!("writing new index file took {elapsed:?}");
 
         fs::rename(&new_index_file_path, &self.index.config.path).with_context(|| {
             format!(
@@ -1055,6 +1063,8 @@ where
     T: Ord,
     A: Clone + Ord + Default,
 {
+    let mut searches_count = 0f64;
+    let mut search_sizes_logarithms_sum = 0f64;
     let mut result_insert_indices: Vec<Option<MergeLocation<A>>> = vec![None; small.len()];
     for middle in Middles::new(small.len()) {
         let element_to_insert = &small[middle.middle_index];
@@ -1068,6 +1078,8 @@ where
         .clone()
         .map(|merge_location| merge_location.index)
         .unwrap_or(big_len);
+        search_sizes_logarithms_sum += ((right_bound - left_bound + 1) as f64).log2();
+        searches_count += 1_f64;
 
         result_insert_indices[middle.middle_index] = Some({
             PartitionPoint::new(left_bound, right_bound, |element_index| {
@@ -1101,6 +1113,11 @@ where
             )
         });
     }
+    log::info!(
+        "mean search size logarithm was {:.2} (it would be {:.2} for direct binary search merge)",
+        search_sizes_logarithms_sum / searches_count,
+        (big_len as f64).log2()
+    );
     let mut result: Vec<MergeLocation<A>> = Vec::with_capacity(result_insert_indices.len());
     for insert_index in result_insert_indices.into_iter() {
         result.push(insert_index.ok_or(anyhow!(
