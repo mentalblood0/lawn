@@ -197,6 +197,10 @@ impl<K: Key, V: Value> Table<K, V> {
     }
 
     fn checkpoint_using_dump(&mut self) -> Result<()> {
+        log::info!(
+            "checkpointing table with index at {:?} using dump",
+            self.index.config.path
+        );
         let mut ids: Vec<u64> = Vec::new();
         let mut max_id: u64 = 0;
         for current_record in std::mem::take(&mut self.memtable).into_iter() {
@@ -207,12 +211,9 @@ impl<K: Key, V: Value> Table<K, V> {
                 };
                 let id = self
                     .data_pool
-                    .insert(data_record_to_insert.clone())
+                    .insert(data_record_to_insert)
                     .with_context(|| {
-                        format!(
-                            "Can not insert {data_record_to_insert:?} while checkpointing table \
-                             using dump method"
-                        )
+                        "Can not insert data record while checkpointing table using dump method"
                     })?;
                 if id > max_id {
                     max_id = id;
@@ -267,7 +268,7 @@ impl<K: Key, V: Value> Table<K, V> {
             )
         })?;
         let new_index_config = IndexConfig {
-            path: self.index.config.path.clone(),
+            path: std::mem::take(&mut self.index.config.path.clone()),
         };
         self.index = Index::new(new_index_config.clone()).with_context(|| {
             format!("Can not create new index with config {new_index_config:?}")
@@ -277,6 +278,10 @@ impl<K: Key, V: Value> Table<K, V> {
     }
 
     fn checkpoint_using_linear_merge(&mut self) -> Result<()> {
+        log::info!(
+            "checkpointing table with index at {:?} using linear merge",
+            self.index.config.path
+        );
         let mut new_elements: Vec<LinearMergeElement<K>> = Vec::new();
         let mut max_new_id: u64 = 0;
         for current_new_record in std::mem::take(&mut self.memtable).into_iter() {
@@ -541,6 +546,10 @@ impl<K: Key, V: Value> Table<K, V> {
     }
 
     fn checkpoint_using_sparse_merge(&mut self) -> Result<()> {
+        log::info!(
+            "checkpointing table with index at {:?} using sparse merge",
+            self.index.config.path
+        );
         if self.memtable.is_empty() {
             return Ok(());
         }
@@ -577,16 +586,16 @@ impl<K: Key, V: Value> Table<K, V> {
             )
         })?;
         let elapsed = start.elapsed();
-        log::info!("finding merge locations took {elapsed:?}");
+        log::info!(
+            "finding merge locations for table with index at {:?} took {elapsed:?}",
+            self.index.config.path
+        );
 
         let start = std::time::Instant::now();
         let mut effective_merge_locations: Vec<MergeLocation<u64>> = Vec::new();
         let mut old_ids_to_remove_with_no_replacement: Vec<u64> = Vec::new();
         let mut max_new_id: u64 = 0;
-        for (merge_location, current_record) in merge_locations
-            .into_iter()
-            .zip(memtable_records.into_iter())
-        {
+        for (merge_location, current_record) in merge_locations.into_iter().zip(memtable_records) {
             if merge_location.replace {
                 self.data_pool
                     .remove(merge_location.additional_data)
@@ -626,7 +635,10 @@ impl<K: Key, V: Value> Table<K, V> {
             .flush()
             .with_context(|| "Can not flush new index file")?;
         let elapsed = start.elapsed();
-        log::info!("writing new data took {elapsed:?}");
+        log::info!(
+            "writing new data for table with index at {:?} took {elapsed:?}",
+            self.index.config.path
+        );
 
         let start = std::time::Instant::now();
         let new_index_record_size = self
@@ -821,7 +833,10 @@ impl<K: Key, V: Value> Table<K, V> {
             .flush()
             .with_context(|| "Can not flush new index file")?;
         let elapsed = start.elapsed();
-        log::info!("writing new index file took {elapsed:?}");
+        log::info!(
+            "writing new index file for table with index at {:?} took {elapsed:?}",
+            self.index.config.path
+        );
 
         fs::rename(&new_index_file_path, &self.index.config.path).with_context(|| {
             format!(
@@ -833,9 +848,8 @@ impl<K: Key, V: Value> Table<K, V> {
         let new_index_config = IndexConfig {
             path: self.index.config.path.clone(),
         };
-        self.index = Index::new(new_index_config.clone()).with_context(|| {
-            format!("Can not create new index with config {new_index_config:?}")
-        })?;
+        self.index = Index::new(new_index_config)
+            .with_context(|| format!("Can not create new index at {:?}", self.index.config.path))?;
 
         Ok(())
     }

@@ -259,26 +259,26 @@ macro_rules! define_database {
             }
 
             pub struct ReadTransaction<'a> {
-                database_locked_internals: RwLockReadGuard<'a, DatabaseLockableInternals>,
+                database_lockable_internals: RwLockReadGuard<'a, DatabaseLockableInternals>,
             }
 
             impl<'a> ReadTransaction<'a> {
                 fn new(database_lock: &'a RwLock<DatabaseLockableInternals>) -> Result<Self> {
                     Ok(Self {
-                        database_locked_internals: database_lock
+                        database_lockable_internals: database_lock
                             .read()
                     })
                 }
             }
 
             pub struct WriteTransaction<'a> {
-                database_locked_internals: RwLockWriteGuard<'a, DatabaseLockableInternals>,
+                database_lockable_internals: RwLockWriteGuard<'a, DatabaseLockableInternals>,
             }
 
             impl<'a> WriteTransaction<'a> {
                 fn new(database_lock: &'a RwLock<DatabaseLockableInternals>) -> Result<Self> {
                     Ok(Self {
-                        database_locked_internals: database_lock
+                        database_lockable_internals: database_lock
                             .write()
                     })
                 }
@@ -288,7 +288,7 @@ macro_rules! define_database {
                         $(
                             $schema_name: schemas_log_records_parts::$schema_name {
                                 $(
-                                    $table_name: self.database_locked_internals
+                                    $table_name: self.database_lockable_internals
                                                         .tables
                                                         .$schema_name
                                                         .$table_name
@@ -297,16 +297,16 @@ macro_rules! define_database {
                             },
                         )+
                     };
-                    self.database_locked_internals
+                    self.database_lockable_internals
                         .log
                         .write(log_record).with_context(|| format!("Can not write log record to database while committing write transaction"))?;
                     $(
                         $({
-                            let table_changes = std::mem::take(&mut self.database_locked_internals
+                            let table_changes = std::mem::take(&mut self.database_lockable_internals
                                                                     .tables
                                                                     .$schema_name
                                                                     .$table_name.changes);
-                            self.database_locked_internals
+                            self.database_lockable_internals
                                 .tables
                                 .$schema_name
                                 .$table_name
@@ -322,13 +322,13 @@ macro_rules! define_database {
                 type Target = TablesTransactions;
 
                 fn deref(&self) -> &Self::Target {
-                    &self.database_locked_internals.tables
+                    &self.database_lockable_internals.tables
                 }
             }
 
             impl<'a> std::ops::DerefMut for WriteTransaction<'a> {
                 fn deref_mut(&mut self) -> &mut Self::Target {
-                    &mut self.database_locked_internals.tables
+                    &mut self.database_lockable_internals.tables
                 }
             }
 
@@ -336,7 +336,7 @@ macro_rules! define_database {
                 type Target = TablesTransactions;
 
                 fn deref(&self) -> &Self::Target {
-                    &self.database_locked_internals.tables
+                    &self.database_lockable_internals.tables
                 }
             }
 
@@ -382,47 +382,47 @@ macro_rules! define_database {
                     &self,
                     f: fn(ReadTransaction) -> Result<()>,
                 ) -> JoinHandle<Result<()>> {
-                    let locked_internals = Arc::clone(&self.lockable_internals);
-                    thread::spawn(move || f(ReadTransaction::new(&locked_internals).with_context(|| "Can not create new read transaction from database locked internals")?))
+                    let lockable_internals = Arc::clone(&self.lockable_internals);
+                    thread::spawn(move || f(ReadTransaction::new(&lockable_internals).with_context(|| "Can not create new read transaction from database lockable internals")?))
                 }
 
                 pub fn lock_all_and_recover(&self) -> Result<&Self> {
-                    let mut locked_internals = self
+                    let mut lockable_internals = self
                         .lockable_internals
                         .write();
 
-                    locked_internals.log.iter().with_context(|| format!("Can not initiate iteration over log {:?} to recover database", locked_internals.log))?.for_each(|log_record| {
+                    lockable_internals.log.iter().with_context(|| format!("Can not initiate iteration over log {:?} to recover database", lockable_internals.log))?.for_each(|log_record| {
                         $(
                             $(
                                 for (key, value) in log_record.$schema_name.$table_name {
-                                    locked_internals.tables.$schema_name.$table_name.table.memtable.insert(key, value);
+                                    lockable_internals.tables.$schema_name.$table_name.table.memtable.insert(key, value);
                                 }
                             )+
                         )+
                         Ok(())
-                    }).with_context(|| format!("Can not recover database from log {:?}", locked_internals.log))?;
+                    }).with_context(|| format!("Can not recover database from log {:?}", lockable_internals.log))?;
                     Ok(self)
                 }
 
                 pub fn lock_all_and_clear(&self) -> Result<&Self> {
-                    let mut locked_internals = self
+                    let mut lockable_internals = self
                         .lockable_internals
                         .write();
 
                     $(
                         $(
-                            locked_internals.tables.$schema_name.$table_name.table.clear().with_context(|| format!("Can not clear table {:?} while clearing database", stringify!($table_name)))?;
+                            lockable_internals.tables.$schema_name.$table_name.table.clear().with_context(|| format!("Can not clear table {:?} while clearing database", stringify!($table_name)))?;
                         )+
                     )+
-                    locked_internals.log.clear().with_context(|| format!("Can not clear log {:?} while clearing database", locked_internals.log))?;
+                    lockable_internals.log.clear().with_context(|| format!("Can not clear log {:?} while clearing database", lockable_internals.log))?;
                     Ok(self)
                 }
 
                 pub fn lock_all_and_checkpoint(&self, if_enough_log_size: bool) -> Result<&Self> {
-                    let mut locked_internals_write_guard = self.lockable_internals.write();
-                    if !if_enough_log_size || locked_internals_write_guard.log.size >= locked_internals_write_guard.log.config.checkpoint_on_size.as_u64() {
+                    let mut lockable_internals_write_guard = self.lockable_internals.write();
+                    if !if_enough_log_size || lockable_internals_write_guard.log.size >= lockable_internals_write_guard.log.config.checkpoint_on_size.as_u64() {
                         let start = std::time::Instant::now();
-                        let tables_unsafe_send_wrapper = UnsafeSendWrapper(&mut locked_internals_write_guard.tables);
+                        let tables_unsafe_send_wrapper = UnsafeSendWrapper(&mut lockable_internals_write_guard.tables);
                         for thread_result in std::thread::scope(|scope| {[
                                 $(
                                     $(
@@ -443,11 +443,11 @@ macro_rules! define_database {
                         }) {
                             thread_result?;
                         }
-                        locked_internals_write_guard
+                        lockable_internals_write_guard
                             .log
-                            .clear().with_context(|| format!("Can not clear log {:?} while checkpointing database", locked_internals_write_guard.log))?;
+                            .clear().with_context(|| format!("Can not clear log {:?} while checkpointing database", lockable_internals_write_guard.log))?;
                         let elapsed = start.elapsed();
-                        log::info!("checkpointing took {elapsed:?}");
+                        log::info!("checkpointing database with log at {:?} took {elapsed:?}", lockable_internals_write_guard.log.config.path);
                     }
                     Ok(self)
                 }
@@ -469,8 +469,8 @@ macro_rules! define_database {
                     f: fn(WriteTransaction) -> Result<()>,
                 ) -> Result<JoinHandle<Result<()>>> {
                     self.lock_all_and_checkpoint(true)?;
-                    let locked_internals = Arc::clone(&self.lockable_internals);
-                    Ok(thread::spawn(move || f(WriteTransaction::new(&locked_internals).with_context(|| "Can not create new write transaction from database locked internals")?)))
+                    let lockable_internals = Arc::clone(&self.lockable_internals);
+                    Ok(thread::spawn(move || f(WriteTransaction::new(&lockable_internals).with_context(|| "Can not create new write transaction from database lockable internals")?)))
                 }
             }
         }
