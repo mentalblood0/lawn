@@ -173,6 +173,21 @@ impl<K: Key, V: Value> Table<K, V> {
         }
     }
 
+    pub fn exists(&self, key: &K) -> Result<bool> {
+        match self.memtable.get(key) {
+            Some(_) => Ok(true),
+            None => Ok(self
+                .get_from_index(key)
+                .with_context(|| {
+                    format!(
+                        "Can not get value by key {key:?} from index {:?}",
+                        self.index
+                    )
+                })?
+                .is_some()),
+        }
+    }
+
     pub fn clear(&mut self) -> Result<()> {
         self.index.clear().with_context(|| {
             format!("Can not clear index {:?} while clearing table", self.index)

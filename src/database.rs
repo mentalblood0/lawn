@@ -222,6 +222,13 @@ macro_rules! define_database {
                     }
                 }
 
+                pub fn exists(&self, key: &K) -> Result<bool> {
+                    match self.changes.get(key) {
+                        Some(_) => Ok(true),
+                        None => self.table.exists(key),
+                    }
+                }
+
                 pub fn iter(
                     &'_ self,
                     start_bound: Bound<&K>,
@@ -595,6 +602,7 @@ mod tests {
                     database
                         .lock_all_writes_and_read(|transaction| {
                             for (key, value) in previously_added_keyvalues_arc.iter() {
+                                assert!(transaction.public.vecs.exists(key).unwrap());
                                 assert_eq!(
                                     transaction.public.vecs.get(key).unwrap().as_ref(),
                                     Some(value)
