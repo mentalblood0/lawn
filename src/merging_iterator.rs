@@ -41,38 +41,41 @@ impl<'a, K: Key, V: Value> FallibleIterator for MergingIterator<'a, K, V> {
         loop {
             match (
                 &self.current_new_keyvalue_option,
-                &self.current_old_keyvalue_option,
+                &mut self.current_old_keyvalue_option,
             ) {
-                (Some(current_memtable_keyvalue), Some(current_table_index_keyvalue)) => {
+                (Some(current_new_keyvalue), Some(_)) => {
                     match if self.backwards {
-                        current_table_index_keyvalue
+                        self.current_old_keyvalue_option
+                            .as_ref()
+                            .unwrap()
                             .0
-                            .cmp(current_memtable_keyvalue.0)
+                            .cmp(current_new_keyvalue.0)
                     } else {
-                        current_memtable_keyvalue
+                        current_new_keyvalue
                             .0
-                            .cmp(&current_table_index_keyvalue.0)
+                            .cmp(&self.current_old_keyvalue_option.as_ref().unwrap().0)
                     } {
                         Ordering::Less => {
-                            let result = current_memtable_keyvalue
+                            let result = current_new_keyvalue
                                 .1
                                 .as_ref()
-                                .map(|value| (current_memtable_keyvalue.0.clone(), value.clone()));
+                                .map(|value| (current_new_keyvalue.0.clone(), value.clone()));
                             self.current_new_keyvalue_option = self.new_iter.next();
                             if result.is_some() {
                                 return Ok(result);
                             }
                         }
                         Ordering::Greater => {
-                            let result = Some(current_table_index_keyvalue.clone());
-                            self.current_old_keyvalue_option = self.old_iter.next()?;
-                            return Ok(result);
+                            return Ok(std::mem::replace(
+                                &mut self.current_old_keyvalue_option,
+                                self.old_iter.next()?,
+                            ));
                         }
                         Ordering::Equal => {
-                            let result = current_memtable_keyvalue
+                            let result = current_new_keyvalue
                                 .1
                                 .as_ref()
-                                .map(|value| (current_memtable_keyvalue.0.clone(), value.clone()));
+                                .map(|value| (current_new_keyvalue.0.clone(), value.clone()));
                             self.current_new_keyvalue_option = self.new_iter.next();
                             self.current_old_keyvalue_option =
                                 self.old_iter.next().with_context(|| {
@@ -85,23 +88,24 @@ impl<'a, K: Key, V: Value> FallibleIterator for MergingIterator<'a, K, V> {
                         }
                     }
                 }
-                (Some(current_memtable_keyvalue), None) => {
-                    let result = current_memtable_keyvalue
+                (Some(current_new_keyvalue), None) => {
+                    let result = current_new_keyvalue
                         .1
                         .as_ref()
-                        .map(|value| (current_memtable_keyvalue.0.clone(), value.clone()));
+                        .map(|value| (current_new_keyvalue.0.clone(), value.clone()));
                     self.current_new_keyvalue_option = self.new_iter.next();
                     if result.is_some() {
                         return Ok(result);
                     }
                 }
-                (None, Some(current_table_index_keyvalue)) => {
-                    let result = Some(current_table_index_keyvalue.clone());
-                    self.current_old_keyvalue_option = self.old_iter.next().with_context(|| {
-                        "Can not propagate old key-value pairs iterator further (even getting \
-                         nothing)"
-                    })?;
-                    return Ok(result);
+                (None, Some(_)) => {
+                    return Ok(std::mem::replace(
+                        &mut self.current_old_keyvalue_option,
+                        self.old_iter.next().with_context(|| {
+                            "Can not propagate old key-value pairs iterator further (even getting \
+                             nothing)"
+                        })?,
+                    ));
                 }
                 (None, None) => return Ok(None),
             }
