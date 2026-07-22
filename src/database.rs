@@ -74,6 +74,28 @@ macro_rules! define_database {
                 )+
             }
 
+            pub mod schemas_log_records_parts_borrowed {
+                use super::*;
+                $(
+                    #[allow(non_camel_case_types)]
+                    #[derive(bincode::Encode, Debug, Clone)]
+                    #[bincode(crate = "bincode")]
+                    pub struct $schema_name<'a> {
+                        $(
+                            pub $table_name: Vec<(&'a $key_type, &'a Option<$value_type>)>,
+                        )+
+                    }
+                )+
+            }
+
+            #[derive(bincode::Encode, Debug, Clone)]
+            #[bincode(crate = "bincode")]
+            struct LogRecordBorrowed<'a> {
+                $(
+                    $schema_name: schemas_log_records_parts_borrowed::$schema_name<'a>,
+                )+
+            }
+
             impl Log {
                 fn new(config: LogConfig) -> Result<Self> {
                     if let Some(path_parent_directory) = config.path.parent() {
@@ -99,7 +121,7 @@ macro_rules! define_database {
                     Ok(Self { config, file, size })
                 }
 
-                fn write(&mut self, record: LogRecord) -> Result<()> {
+                fn write(&mut self, record: LogRecordBorrowed) -> Result<()> {
                     self.size += bincode::encode_into_std_write(record, &mut self.file, bincode::config::standard())
                         .with_context(|| format!("Can not encode transaction to log record"))? as u64;
                     Ok(())
@@ -281,22 +303,27 @@ macro_rules! define_database {
                 }
 
                 pub fn commit(&mut self) -> Result<()> {
-                    let log_record = LogRecord {
-                        $(
-                            $schema_name: schemas_log_records_parts::$schema_name {
+                    {
+                        // SAFETY: log record only borrows changes, not log
+                        let log_record = unsafe {
+                            std::mem::transmute::<LogRecordBorrowed<'_>, LogRecordBorrowed<'static>>(LogRecordBorrowed {
                                 $(
-                                    $table_name: self.database_lockable_internals
-                                                        .tables
-                                                        .$schema_name
-                                                        .$table_name
-                                                        .changes.iter().map(|(key, value)| (key.clone(), value.clone())).collect(),
+                                    $schema_name: schemas_log_records_parts_borrowed::$schema_name {
+                                        $(
+                                            $table_name: self.database_lockable_internals
+                                                                .tables
+                                                                .$schema_name
+                                                                .$table_name
+                                                                .changes.iter().collect(),
+                                        )+
+                                    },
                                 )+
-                            },
-                        )+
-                    };
-                    self.database_lockable_internals
-                        .log
-                        .write(log_record).with_context(|| format!("Can not write log record to database while committing write transaction"))?;
+                            })
+                        };
+                        self.database_lockable_internals
+                            .log
+                            .write(log_record).with_context(|| format!("Can not write log record to database while committing write transaction"))?;
+                    }
                     $(
                         $({
                             let table_changes = std::mem::take(&mut self.database_lockable_internals
