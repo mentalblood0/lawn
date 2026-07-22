@@ -1093,12 +1093,12 @@ where
         let element_to_insert = &small[middle.middle_index];
 
         let left_bound = result_insert_indices[middle.left_index.saturating_sub(1)]
-            .clone()
+            .as_ref()
             .map(|merge_location| merge_location.index)
             .unwrap_or(0);
         let right_bound = result_insert_indices
             [std::cmp::min(middle.right_index + 1, result_insert_indices.len() - 1)]
-        .clone()
+        .as_ref()
         .map(|merge_location| merge_location.index)
         .unwrap_or(big_len);
         search_sizes_logarithms_sum += ((right_bound - left_bound + 1) as f64).log2();

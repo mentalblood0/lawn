@@ -20,7 +20,7 @@ macro_rules! define_database {
                     fs,
                     ops::Bound,
                     path::PathBuf,
-                    io::{BufReader, BufRead, Write},
+                    io::{BufReader, BufRead},
                     collections::BTreeMap,
                     sync::Arc,
                     thread::{self, JoinHandle}
@@ -100,12 +100,8 @@ macro_rules! define_database {
                 }
 
                 fn write(&mut self, record: LogRecord) -> Result<()> {
-                    let buffer = bincode::encode_to_vec(record, bincode::config::standard())
-                        .with_context(|| format!("Can not encode transaction to log record"))?;
-                    self.file
-                        .write_all(&buffer.as_slice())
-                        .with_context(|| format!("Can not write transaction log record to file"))?;
-                    self.size += buffer.len() as u64;
+                    self.size += bincode::encode_into_std_write(record, &mut self.file, bincode::config::standard())
+                        .with_context(|| format!("Can not encode transaction to log record"))? as u64;
                     Ok(())
                 }
 
