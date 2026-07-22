@@ -204,7 +204,7 @@ impl<K: Key, V: Value> Table<K, V> {
             Ok(())
         } else if self.index.records_count == 0 {
             self.checkpoint_using_dump()
-        } else if self.index.records_count <= 5 * self.memtable.len() as u64 {
+        } else if self.index.records_count <= 9 * self.memtable.len() as u64 {
             self.checkpoint_using_linear_merge()
         } else {
             self.checkpoint_using_sparse_merge()
