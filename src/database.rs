@@ -16,7 +16,6 @@ macro_rules! define_database {
 
             use {
                 std::{
-                    borrow::Cow,
                     fs,
                     ops::Bound,
                     path::PathBuf,
@@ -216,9 +215,9 @@ macro_rules! define_database {
                     self
                 }
 
-                pub fn get(&self, key: &K) -> Result<Cow<'_, Option<V>>> {
+                pub fn get(&self, key: &K) -> Result<Option<V>> {
                     match self.changes.get(key) {
-                        Some(result_from_changes) => Ok(Cow::Borrowed(result_from_changes)),
+                        Some(result_from_changes) => Ok(result_from_changes.clone()),
                         None => self.table.get(key),
                     }
                 }
@@ -227,7 +226,7 @@ macro_rules! define_database {
                     &'_ self,
                     start_bound: Bound<&K>,
                     backwards: bool
-                ) -> Result<Box<dyn FallibleIterator<Item = (Cow<'_, K>, Cow<'_, V>), Error = Error> + '_>>
+                ) -> Result<Box<dyn FallibleIterator<Item = (K, V), Error = Error> + '_>>
                 {
                     Ok(Box::new(MergingIterator::new(
                         if backwards {
@@ -236,7 +235,7 @@ macro_rules! define_database {
                                     .range::<K, _>((
                                         Bound::Unbounded,
                                         start_bound,
-                                    )).rev().map(|(key, value)| (Cow::Borrowed(key), Cow::Borrowed(value))),
+                                    )).rev()
                             )
                         } else {
                             Box::new(
@@ -244,7 +243,7 @@ macro_rules! define_database {
                                     .range::<K, _>((
                                         start_bound,
                                         Bound::Unbounded,
-                                    )).map(|(key, value)| (Cow::Borrowed(key), Cow::Borrowed(value))),
+                                    ))
                             )
                         },
                         self.table
@@ -597,7 +596,7 @@ mod tests {
                         .lock_all_writes_and_read(|transaction| {
                             for (key, value) in previously_added_keyvalues_arc.iter() {
                                 assert_eq!(
-                                    transaction.public.vecs.get(key).unwrap().as_ref().as_ref(),
+                                    transaction.public.vecs.get(key).unwrap().as_ref(),
                                     Some(value)
                                 );
                             }
@@ -607,11 +606,8 @@ mod tests {
                                 .iter(Bound::Unbounded, false)
                                 .unwrap();
                             while let Some((key, value)) = table_iterator.next()? {
-                                assert!(previously_added_keyvalues_arc.contains_key(key.as_ref()));
-                                assert_eq!(
-                                    &previously_added_keyvalues_arc[key.as_ref()],
-                                    value.as_ref()
-                                );
+                                assert!(previously_added_keyvalues_arc.contains_key(&key));
+                                assert_eq!(previously_added_keyvalues_arc[&key], value);
                             }
                             Ok(())
                         })
@@ -691,9 +687,8 @@ mod tests {
                         .public
                         .vecs
                         .get(&"key".as_bytes().to_vec())
-                        .unwrap()
-                        .as_ref(),
-                    &Some(Data {
+                        .unwrap(),
+                    Some(Data {
                         data: "value".as_bytes().to_vec()
                     })
                 );

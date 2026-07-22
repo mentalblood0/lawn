@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, VecDeque};
 use std::fs::{self, File};
@@ -89,8 +88,6 @@ struct LinearMergeElement<K: Key> {
     id: Option<u64>,
 }
 
-type KeyValueCows<'a, K, V> = (Cow<'a, K>, Cow<'a, V>);
-
 impl<K: Key, V: Value> Table<K, V> {
     pub fn new(config: TableConfig<K, V>) -> Result<Self> {
         Ok(Self {
@@ -164,15 +161,15 @@ impl<K: Key, V: Value> Table<K, V> {
         )
     }
 
-    pub fn get(&self, key: &K) -> Result<Cow<'_, Option<V>>> {
+    pub fn get(&self, key: &K) -> Result<Option<V>> {
         match self.memtable.get(key) {
-            Some(value) => Ok(Cow::Borrowed(value)),
-            None => Ok(Cow::Owned(self.get_from_index(key).with_context(|| {
+            Some(value) => Ok(value.clone()),
+            None => Ok(self.get_from_index(key).with_context(|| {
                 format!(
                     "Can not get value by key {key:?} from index {:?}",
                     self.index
                 )
-            })?)),
+            })?),
         }
     }
 
@@ -959,33 +956,21 @@ impl<K: Key, V: Value> Table<K, V> {
         &'_ self,
         start_bound: Bound<&K>,
         backwards: bool,
-    ) -> Result<Box<dyn FallibleIterator<Item = KeyValueCows<'_, K, V>, Error = Error> + '_>> {
+    ) -> Result<Box<dyn FallibleIterator<Item = (K, V), Error = Error> + '_>> {
         Ok(Box::new(
             MergingIterator::new(
                 if backwards {
                     Box::new(
                         self.memtable
                             .range::<K, _>((Bound::Unbounded, start_bound))
-                            .rev()
-                            .map(|(key, value)| (Cow::Borrowed(key), Cow::Borrowed(value))),
+                            .rev(),
                     )
                 } else {
-                    Box::new(
-                        self.memtable
-                            .range::<K, _>((start_bound, Bound::Unbounded))
-                            .map(|(key, value)| (Cow::Borrowed(key), Cow::Borrowed(value))),
-                    )
+                    Box::new(self.memtable.range::<K, _>((start_bound, Bound::Unbounded)))
                 },
-                Box::new(
-                    self.iter_index(start_bound, backwards)
-                        .with_context(|| {
-                            format!(
-                                "Can not initiate iteration over table index from key \
-                                 {start_bound:?}"
-                            )
-                        })?
-                        .map(|(key, value)| Ok((Cow::Owned(key), Cow::Owned(value)))),
-                ),
+                Box::new(self.iter_index(start_bound, backwards).with_context(|| {
+                    format!("Can not initiate iteration over table index from key {start_bound:?}")
+                })?),
                 backwards,
             )
             .with_context(|| {
@@ -1641,18 +1626,18 @@ mod tests {
                 .unwrap(),
             [
                 (
-                    Cow::Owned((
+                    (
                         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                         "0000000000.0000000003".to_string(),
-                    )),
-                    Cow::Owned(0u8),
+                    ),
+                    0u8,
                 ),
                 (
-                    Cow::Owned((
+                    (
                         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                         "0000000000.0000000002".to_string(),
-                    )),
-                    Cow::Owned(0u8),
+                    ),
+                    0u8,
                 ),
             ],
         );
@@ -1661,7 +1646,7 @@ mod tests {
     fn generative(use_checkpoints: bool, test_name_for_isolation: &str) {
         let mut table = new_default_table::<Vec<u8>, Vec<u8>>(test_name_for_isolation);
 
-        let mut previously_added_keyvalues: BTreeMap<Cow<Vec<u8>>, Cow<Vec<u8>>> = BTreeMap::new();
+        let mut previously_added_keyvalues: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
         let mut rng = WyRand::new_seed(0);
 
         for _ in 1..=20 {
@@ -1671,16 +1656,14 @@ mod tests {
                 let value = if rng.generate_range(0..=1) == 0 {
                     None
                 } else {
-                    Some(Cow::<'_, Vec<u8>>::Owned(vec![1, random_byte]))
+                    Some(vec![1, random_byte])
                 };
                 if let Some(value) = &value {
-                    previously_added_keyvalues.insert(Cow::Owned(key.clone()), value.clone());
+                    previously_added_keyvalues.insert(key.clone(), value.clone());
                 } else {
                     previously_added_keyvalues.remove(&key);
                 }
-                table
-                    .memtable
-                    .insert(key.clone(), value.map(|cow| cow.into_owned()));
+                table.memtable.insert(key.clone(), value);
             }
 
             let previously_added_keys = previously_added_keyvalues
@@ -1760,10 +1743,10 @@ mod tests {
                 }
             }
 
-            let correct_table_keys: Vec<Cow<Vec<u8>>> =
+            let correct_table_keys: Vec<Vec<u8>> =
                 previously_added_keyvalues.keys().cloned().collect();
             for key_index in 0..correct_table_keys.len() {
-                let table_keys: Vec<Cow<Vec<u8>>> = table
+                let table_keys: Vec<Vec<u8>> = table
                     .iter(Bound::Included(&correct_table_keys[key_index]), false)
                     .unwrap()
                     .map(|(key, _)| Ok(key))
@@ -1776,10 +1759,7 @@ mod tests {
                 table.checkpoint().unwrap();
             }
             for (key, value) in previously_added_keyvalues.iter() {
-                assert_eq!(
-                    table.get(key).unwrap().as_ref().as_ref().unwrap(),
-                    value.as_ref()
-                );
+                assert_eq!(table.get(key).unwrap().as_ref().as_ref().unwrap(), &value);
             }
         }
     }
