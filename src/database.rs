@@ -1,3 +1,73 @@
+use std::{collections::BTreeMap, ops::Bound};
+
+use anyhow::{Context, Error, Result};
+use fallible_iterator::FallibleIterator;
+
+use crate::{
+    keyvalue::{Key, Value},
+    merging_iterator::MergingIterator,
+    table::Table,
+};
+
+pub struct TableTransaction<K: Key, V: Value> {
+    table: Table<K, V>,
+    changes: BTreeMap<K, Option<V>>,
+}
+
+impl<K: Key, V: Value> TableTransaction<K, V> {
+    pub fn insert(&mut self, key: K, value: V) -> &mut Self {
+        self.changes.insert(key, Some(value));
+        self
+    }
+
+    pub fn remove(&mut self, key: &K) -> &mut Self {
+        self.changes.insert(key.clone(), None);
+        self
+    }
+
+    pub fn get(&self, key: &K) -> Result<Option<V>> {
+        match self.changes.get(key) {
+            Some(result_from_changes) => Ok(result_from_changes.clone()),
+            None => self.table.get(key),
+        }
+    }
+
+    pub fn exists(&self, key: &K) -> Result<bool> {
+        match self.changes.get(key) {
+            Some(_) => Ok(true),
+            None => self.table.exists(key),
+        }
+    }
+
+    pub fn iter(
+        &'_ self,
+        start_bound: Bound<&K>,
+        backwards: bool,
+    ) -> Result<Box<dyn FallibleIterator<Item = (K, V), Error = Error> + '_>> {
+        Ok(Box::new(
+            MergingIterator::new(
+                if backwards {
+                    Box::new(
+                        self.changes
+                            .range::<K, _>((Bound::Unbounded, start_bound))
+                            .rev(),
+                    )
+                } else {
+                    Box::new(self.changes.range::<K, _>((start_bound, Bound::Unbounded)))
+                },
+                self.table.iter(start_bound, backwards).with_context(|| {
+                    format!("Can not initiate iteration over table starting from {start_bound:?}")
+                })?,
+                backwards,
+            )
+            .with_context(|| {
+                "Can not initiate merging-with-uncommitted-changes iteration over table starting \
+                 from {start_bound:?}"
+            })?,
+        ))
+    }
+}
+
 #[macro_export]
 macro_rules! define_database {
     ($database_name:ident {
@@ -17,7 +87,6 @@ macro_rules! define_database {
             use {
                 std::{
                     fs,
-                    ops::Bound,
                     path::PathBuf,
                     io::{BufReader, BufRead},
                     collections::BTreeMap,
@@ -25,14 +94,13 @@ macro_rules! define_database {
                     thread::{self, JoinHandle}
                 },
                 $crate::{
+                    database::TableTransaction,
                     bincode,
                     log,
                     anyhow::{Context, Result, Error},
                     fallible_iterator::FallibleIterator,
                     parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard},
                     serde::{Deserialize, Serialize},
-                    keyvalue::{Key, Value},
-                    merging_iterator::MergingIterator,
                     table,
                     bytesize::ByteSize
                 },
@@ -235,66 +303,6 @@ macro_rules! define_database {
                 pub log: LogConfig,
             }
 
-            pub struct TableTransaction<K: Key, V: Value>{
-                table: table::Table<K, V>,
-                changes: BTreeMap<K, Option<V>>,
-            }
-
-            impl<K: Key, V: Value> TableTransaction<K, V> {
-                pub fn insert(&mut self, key: K, value: V) -> &mut Self {
-                    self.changes.insert(key, Some(value));
-                    self
-                }
-
-                pub fn remove(&mut self, key: &K) -> &mut Self {
-                    self.changes.insert(key.clone(), None);
-                    self
-                }
-
-                pub fn get(&self, key: &K) -> Result<Option<V>> {
-                    match self.changes.get(key) {
-                        Some(result_from_changes) => Ok(result_from_changes.clone()),
-                        None => self.table.get(key),
-                    }
-                }
-
-                pub fn exists(&self, key: &K) -> Result<bool> {
-                    match self.changes.get(key) {
-                        Some(_) => Ok(true),
-                        None => self.table.exists(key),
-                    }
-                }
-
-                pub fn iter(
-                    &'_ self,
-                    start_bound: Bound<&K>,
-                    backwards: bool
-                ) -> Result<Box<dyn FallibleIterator<Item = (K, V), Error = Error> + '_>>
-                {
-                    Ok(Box::new(MergingIterator::new(
-                        if backwards {
-                            Box::new(
-                                self.changes
-                                    .range::<K, _>((
-                                        Bound::Unbounded,
-                                        start_bound,
-                                    )).rev()
-                            )
-                        } else {
-                            Box::new(
-                                self.changes
-                                    .range::<K, _>((
-                                        start_bound,
-                                        Bound::Unbounded,
-                                    ))
-                            )
-                        },
-                        self.table
-                            .iter(start_bound, backwards).with_context(|| format!("Can not initiate iteration over table starting from {start_bound:?}"))?,
-                        backwards,
-                    ).with_context(|| "Can not initiate merging-with-uncommitted-changes iteration over table starting from {start_bound:?}")?))
-                }
-            }
 
             pub mod schemas_tables_transactions_parts {
                 use super::*;
@@ -302,7 +310,7 @@ macro_rules! define_database {
                     #[allow(non_camel_case_types)]
                     pub struct $schema_name {
                         $(
-                            pub $table_name: super::TableTransaction<$key_type, $value_type>,
+                            pub $table_name: TableTransaction<$key_type, $value_type>,
                         )+
                     }
                 )+
