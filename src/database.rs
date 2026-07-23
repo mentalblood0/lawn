@@ -137,22 +137,45 @@ macro_rules! define_database {
                 fn iter(&mut self) -> Result<LogIterator> {
                     Ok(
                         LogIterator {
-                            reader: BufReader::new(
-                                fs::File::open(&self.config.path).with_context(|| {
-                                    format!(
-                                        "Can not open file at path {} for read",
-                                        &self.config.path.display()
-                                    )
-                                })?
-                            )
+                            reader: TrackingReader {
+                                inner: BufReader::new(
+                                    fs::File::open(&self.config.path).with_context(|| {
+                                        format!(
+                                            "Can not open file at path {} for read",
+                                            &self.config.path.display()
+                                        )
+                                    })?
+                                ),
+                                bytes_read: 0
+                            },
+                            path: self.config.path.clone(),
+                            bytes_decoded: 0
                         }
                     )
                 }
             }
 
             #[derive(Debug)]
+            struct TrackingReader {
+                inner: BufReader<fs::File>,
+                bytes_read: usize,
+            }
+
+            impl std::io::Read for TrackingReader {
+                fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                    let result = self.inner.read(buf);
+                    if let Ok(bytes_read) = result {
+                        self.bytes_read += bytes_read;
+                    }
+                    result
+                }
+            }
+
+            #[derive(Debug)]
             struct LogIterator {
-                reader: BufReader<fs::File>,
+                reader: TrackingReader,
+                path: PathBuf,
+                bytes_decoded: usize
             }
 
             impl FallibleIterator for LogIterator {
@@ -160,16 +183,29 @@ macro_rules! define_database {
                 type Error = Error;
 
                 fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
-                    Ok(
-                        if self.reader
-                               .fill_buf()
-                                      .with_context(|| format!("Can not read log"))?.is_empty() {
-                            None
-                        } else {
-                            Some(bincode::decode_from_std_read(&mut self.reader, bincode::config::standard())
-                                    .with_context(|| format!("Can not decode log record"))?)
+                    if self.reader
+                           .inner
+                           .fill_buf()
+                           .with_context(|| "Can not read log")?.is_empty()
+                    {
+                        Ok(None)
+                    } else {
+                        match bincode::decode_from_std_read(&mut self.reader, bincode::config::standard()).with_context(|| "Can not decode log record") {
+                            Ok(result) => {
+                                self.bytes_decoded = self.reader.bytes_read;
+                                Ok(Some(result))
+                            }
+                            _ => {
+                                std::fs::OpenOptions::new()
+                                    .write(true)
+                                    .open(&self.path)
+                                    .unwrap()
+                                    .set_len(self.bytes_decoded as u64)
+                                    .unwrap();
+                                Ok(None)
+                            }
                         }
-                    )
+                    }
                 }
             }
 
@@ -372,6 +408,7 @@ macro_rules! define_database {
 
             pub struct Database {
                 lockable_internals: Arc<RwLock<DatabaseLockableInternals>>,
+                pub config: DatabaseConfig
             }
 
             struct UnsafeSendWrapper<'a, T>(&'a mut T);
@@ -396,6 +433,7 @@ macro_rules! define_database {
                             },
                             log: Log::new(config.log.clone()).with_context(|| format!("Can not create new log from config {:?}", config.log))?,
                         })),
+                        config: config.clone()
                     };
                     result.lock_all_and_recover()?;
                     Ok(result)
@@ -417,20 +455,27 @@ macro_rules! define_database {
                 }
 
                 pub fn lock_all_and_recover(&self) -> Result<&Self> {
-                    let mut lockable_internals = self
-                        .lockable_internals
-                        .write();
-
-                    lockable_internals.log.iter().with_context(|| format!("Can not initiate iteration over log {:?} to recover database", lockable_internals.log))?.for_each(|log_record| {
+                    let mut lockable_internals_write_guard = self.lockable_internals.write();
+                    log::info!(
+                        "recovering database with log at {:?}",
+                        lockable_internals_write_guard.log.config.path
+                    );
+                    let start = std::time::Instant::now();
+                    lockable_internals_write_guard.log.iter().with_context(|| format!("Can not initiate iteration over log {:?} to recover database", lockable_internals_write_guard.log))?.for_each(|log_record| {
                         $(
                             $(
                                 for (key, value) in log_record.$schema_name.$table_name {
-                                    lockable_internals.tables.$schema_name.$table_name.table.memtable.insert(key, value);
+                                    lockable_internals_write_guard.tables.$schema_name.$table_name.table.memtable.insert(key, value);
                                 }
                             )+
                         )+
                         Ok(())
-                    }).with_context(|| format!("Can not recover database from log {:?}", lockable_internals.log))?;
+                    }).with_context(|| format!("Can not recover database from log {:?}", lockable_internals_write_guard.log))?;
+                    let elapsed = start.elapsed();
+                    log::info!(
+                        "recovering database with log at {:?} took {elapsed:?}",
+                        lockable_internals_write_guard.log.config.path
+                    );
                     Ok(self)
                 }
 
@@ -451,6 +496,7 @@ macro_rules! define_database {
                 pub fn lock_all_and_checkpoint(&self, if_enough_log_size: bool) -> Result<&Self> {
                     let mut lockable_internals_write_guard = self.lockable_internals.write();
                     if !if_enough_log_size || lockable_internals_write_guard.log.size >= lockable_internals_write_guard.log.config.checkpoint_on_size.as_u64() {
+                        log::info!("checkpointing database with log at {:?}", lockable_internals_write_guard.log.config.path);
                         let start = std::time::Instant::now();
                         let tables_unsafe_send_wrapper = UnsafeSendWrapper(&mut lockable_internals_write_guard.tables);
                         for thread_result in std::thread::scope(|scope| {[
@@ -672,21 +718,43 @@ mod tests {
     }
 
     #[test]
-    fn test_recover_from_log() {
-        new_default_database("test_recover_from_log")
-            .lock_all_and_clear()
-            .unwrap()
-            .lock_all_and_write(|transaction| {
-                transaction.public.vecs.insert(
-                    "key".as_bytes().to_vec(),
-                    Data {
-                        data: "value".as_bytes().to_vec(),
-                    },
-                );
-                Ok(())
-            })
-            .unwrap();
-        new_default_database("test_recover_from_log")
+    fn test_recover_from_log_truncated() {
+        {
+            let database = new_default_database("test_recover_from_log_truncated");
+            database
+                .lock_all_and_clear()
+                .unwrap()
+                .lock_all_and_write(|transaction| {
+                    transaction.public.vecs.insert(
+                        "key1".as_bytes().to_vec(),
+                        Data {
+                            data: "value1".as_bytes().to_vec(),
+                        },
+                    );
+                    Ok(())
+                })
+                .unwrap();
+            database
+                .lock_all_and_write(|transaction| {
+                    transaction.public.vecs.insert(
+                        "key2".as_bytes().to_vec(),
+                        Data {
+                            data: "value2".as_bytes().to_vec(),
+                        },
+                    );
+                    Ok(())
+                })
+                .unwrap();
+            let log_file = std::fs::OpenOptions::new()
+                .write(true)
+                .truncate(false)
+                .open(&database.config.log.path)
+                .unwrap();
+            log_file
+                .set_len(log_file.metadata().unwrap().len().saturating_sub(10))
+                .unwrap();
+        }
+        new_default_database("test_recover_from_log_truncated")
             .lock_all_and_recover()
             .unwrap()
             .lock_all_writes_and_read(|transaction| {
@@ -694,10 +762,76 @@ mod tests {
                     transaction
                         .public
                         .vecs
-                        .get(&"key".as_bytes().to_vec())
+                        .get(&"key1".as_bytes().to_vec())
                         .unwrap(),
                     Some(Data {
-                        data: "value".as_bytes().to_vec()
+                        data: "value1".as_bytes().to_vec()
+                    })
+                );
+                assert_eq!(
+                    transaction
+                        .public
+                        .vecs
+                        .get(&"key2".as_bytes().to_vec())
+                        .unwrap(),
+                    None
+                );
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn test_recover_from_log_normal() {
+        {
+            let database = new_default_database("test_recover_from_log_normal");
+            database
+                .lock_all_and_clear()
+                .unwrap()
+                .lock_all_and_write(|transaction| {
+                    transaction.public.vecs.insert(
+                        "key1".as_bytes().to_vec(),
+                        Data {
+                            data: "value1".as_bytes().to_vec(),
+                        },
+                    );
+                    Ok(())
+                })
+                .unwrap();
+            database
+                .lock_all_and_write(|transaction| {
+                    transaction.public.vecs.insert(
+                        "key2".as_bytes().to_vec(),
+                        Data {
+                            data: "value2".as_bytes().to_vec(),
+                        },
+                    );
+                    Ok(())
+                })
+                .unwrap();
+        }
+        new_default_database("test_recover_from_log_normal")
+            .lock_all_and_recover()
+            .unwrap()
+            .lock_all_writes_and_read(|transaction| {
+                assert_eq!(
+                    transaction
+                        .public
+                        .vecs
+                        .get(&"key1".as_bytes().to_vec())
+                        .unwrap(),
+                    Some(Data {
+                        data: "value1".as_bytes().to_vec()
+                    })
+                );
+                assert_eq!(
+                    transaction
+                        .public
+                        .vecs
+                        .get(&"key2".as_bytes().to_vec())
+                        .unwrap(),
+                    Some(Data {
+                        data: "value2".as_bytes().to_vec()
                     })
                 );
                 Ok(())
