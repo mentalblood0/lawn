@@ -10,8 +10,8 @@ use crate::{
 };
 
 pub struct TableTransaction<K: Key, V: Value> {
-    table: Table<K, V>,
-    changes: BTreeMap<K, Option<V>>,
+    pub table: Table<K, V>,
+    pub changes: BTreeMap<K, Option<V>>,
 }
 
 impl<K: Key, V: Value> TableTransaction<K, V> {
