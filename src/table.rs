@@ -44,8 +44,8 @@ fn default_cache_keys_count() -> u64 {
 }
 
 #[derive(Debug)]
-pub struct CacheEntry<K: Key> {
-    key: K,
+pub struct CacheEntry<K: Key, V: Value> {
+    data_record: DataRecord<K, V>,
     index: u64,
 }
 
@@ -53,7 +53,7 @@ pub struct Table<K: Key, V: Value> {
     pub index: Index,
     pub data_pool: Box<dyn DataPool<DataRecord<K, V>> + Send + Sync>,
     pub memtable: BTreeMap<K, Option<V>>,
-    pub cache: Option<Vec<CacheEntry<K>>>,
+    pub cache: Option<Vec<CacheEntry<K, V>>>,
     pub config: TableConfig<K, V>,
 }
 
@@ -140,16 +140,10 @@ impl<K: Key, V: Value> Table<K, V> {
             for current_record_index_index in 0..effective_cache_keys_count {
                 let current_record_index = self.index.records_count * current_record_index_index
                     / effective_cache_keys_count;
-                dbg!((
-                    current_record_index_index,
-                    self.index.records_count,
-                    self.config.cache_keys_count,
-                    current_record_index
-                ));
                 let record_id = self.index.get(current_record_index)?.unwrap();
                 let record = self.get_from_index_by_id(record_id)?;
                 result.push(CacheEntry {
-                    key: record.key,
+                    data_record: record,
                     index: current_record_index,
                 });
             }
@@ -173,14 +167,18 @@ impl<K: Key, V: Value> Table<K, V> {
             if let Some(partition_point) =
                 PartitionPoint::new(0, cache.len() as u64, |cache_entry_index| {
                     let cache_entry = &cache[cache_entry_index as usize];
-                    Ok((cache_entry.key.cmp(key), (), ()))
+                    Ok((
+                        cache_entry.data_record.key.cmp(key),
+                        &cache_entry.data_record.value,
+                        (),
+                    ))
                 })?
             {
                 (
                     if partition_point.is_exact {
-                        cache[partition_point.first_satisfying.index as usize].index
+                        return Ok(Some(partition_point.first_satisfying.value.clone()));
                     } else if partition_point.first_satisfying.index == 0 {
-                        0
+                        return Ok(None);
                     } else {
                         cache[partition_point.first_satisfying.index as usize - 1].index
                     },
