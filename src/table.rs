@@ -30,6 +30,8 @@ pub enum DataPoolConfigEnum {
 pub struct TableConfig<K: Key, V: Value> {
     pub index: IndexConfig,
     pub data_pool: DataPoolConfigEnum,
+    #[serde(default = "default_cache_keys_count")]
+    pub cache_keys_count: u64,
 
     #[serde(skip)]
     pub _key: PhantomData<K>,
@@ -37,10 +39,22 @@ pub struct TableConfig<K: Key, V: Value> {
     pub _value: PhantomData<V>,
 }
 
+fn default_cache_keys_count() -> u64 {
+    0
+}
+
+#[derive(Debug)]
+pub struct CacheEntry<K: Key> {
+    key: K,
+    index: u64,
+}
+
 pub struct Table<K: Key, V: Value> {
     pub index: Index,
     pub data_pool: Box<dyn DataPool<DataRecord<K, V>> + Send + Sync>,
     pub memtable: BTreeMap<K, Option<V>>,
+    pub cache: Option<Vec<CacheEntry<K>>>,
+    pub config: TableConfig<K, V>,
 }
 
 #[derive(Debug, Clone)]
@@ -90,20 +104,20 @@ struct LinearMergeElement<K: Key> {
 
 impl<K: Key, V: Value> Table<K, V> {
     pub fn new(config: TableConfig<K, V>) -> Result<Self> {
-        Ok(Self {
+        let mut result = Self {
             index: Index::new(config.index.clone()).with_context(|| {
                 format!("Can not create table with index config {:?}", config.index)
             })?,
-            data_pool: match config.data_pool {
-                DataPoolConfigEnum::Fixed(config) => <FixedDataPoolConfig as DataPoolConfig<
-                    DataRecord<K, V>,
-                >>::new_data_pool(&config)
-                .with_context(|| {
-                    format!("Can not create fixed data pool from config {config:?}")
-                })?,
+            data_pool: match &config.data_pool {
+                DataPoolConfigEnum::Fixed(config) => {
+                    <FixedDataPoolConfig as DataPoolConfig<DataRecord<K, V>>>::new_data_pool(config)
+                        .with_context(|| {
+                            format!("Can not create fixed data pool from config {config:?}")
+                        })?
+                }
                 DataPoolConfigEnum::Variable(config) => {
                     <VariableDataPoolConfig as DataPoolConfig<DataRecord<K, V>>>::new_data_pool(
-                        &config,
+                        config,
                     )
                     .with_context(|| {
                         format!("Can not create variable data pool from config {config:?}")
@@ -111,7 +125,37 @@ impl<K: Key, V: Value> Table<K, V> {
                 }
             },
             memtable: BTreeMap::new(),
-        })
+            cache: None,
+            config: config.clone(),
+        };
+        result.initialize_cache()?;
+        Ok(result)
+    }
+
+    fn initialize_cache(&mut self) -> Result<()> {
+        self.cache = None;
+        let effective_cache_keys_count = self.config.cache_keys_count.min(self.index.records_count);
+        if effective_cache_keys_count > 0 {
+            let mut result = Vec::with_capacity(effective_cache_keys_count as usize);
+            for current_record_index_index in 0..effective_cache_keys_count {
+                let current_record_index = self.index.records_count * current_record_index_index
+                    / effective_cache_keys_count;
+                dbg!((
+                    current_record_index_index,
+                    self.index.records_count,
+                    self.config.cache_keys_count,
+                    current_record_index
+                ));
+                let record_id = self.index.get(current_record_index)?.unwrap();
+                let record = self.get_from_index_by_id(record_id)?;
+                result.push(CacheEntry {
+                    key: record.key,
+                    index: current_record_index,
+                });
+            }
+            self.cache = Some(result);
+        }
+        Ok(())
     }
 
     pub fn merge(&mut self, changes: BTreeMap<K, Option<V>>) {
@@ -125,40 +169,66 @@ impl<K: Key, V: Value> Table<K, V> {
     }
 
     fn get_from_index(&self, key: &K) -> Result<Option<V>> {
-        Ok(
-            PartitionPoint::new(0, self.index.records_count, |record_index| {
-                let data_record_id = self
-                    .index
-                    .get(record_index)
-                    .with_context(|| {
-                        format!(
-                            "Can not get data record id as record with index {record_index:?} \
-                             from {:?}",
-                            self.index
-                        )
-                    })?
-                    .ok_or(anyhow!(
-                        "Can not get data record id at index {record_index:?} from {:?} (got \
-                         nothing)",
-                        self.index
-                    ))?;
-                let data_record = self.get_from_index_by_id(data_record_id).with_context(|| {
+        let (from_index, to_index) = if let Some(ref cache) = self.cache {
+            if let Some(partition_point) =
+                PartitionPoint::new(0, cache.len() as u64, |cache_entry_index| {
+                    let cache_entry = &cache[cache_entry_index as usize];
+                    Ok((cache_entry.key.cmp(key), (), ()))
+                })?
+            {
+                (
+                    if partition_point.is_exact {
+                        cache[partition_point.first_satisfying.index as usize].index
+                    } else if partition_point.first_satisfying.index == 0 {
+                        0
+                    } else {
+                        cache[partition_point.first_satisfying.index as usize - 1].index
+                    },
+                    if let Some(to_cache_entry) =
+                        cache.get(partition_point.first_satisfying.index as usize + 1)
+                    {
+                        to_cache_entry.index
+                    } else {
+                        self.index.records_count
+                    },
+                )
+            } else {
+                (cache.last().unwrap().index, self.index.records_count)
+            }
+        } else {
+            (0, self.index.records_count)
+        };
+        Ok(PartitionPoint::new(from_index, to_index, |record_index| {
+            let data_record_id = self
+                .index
+                .get(record_index)
+                .with_context(|| {
                     format!(
-                        "Can not get data record from index {:?} using id {data_record_id:?}",
+                        "Can not get data record id as record with index {record_index:?} from \
+                         {:?}",
                         self.index
                     )
-                })?;
-                Ok((data_record.key.cmp(key), data_record.value, ()))
-            })
-            .with_context(|| {
+                })?
+                .ok_or(anyhow!(
+                    "Can not get data record id at index {record_index:?} from {:?} (got nothing)",
+                    self.index
+                ))?;
+            let data_record = self.get_from_index_by_id(data_record_id).with_context(|| {
                 format!(
-                    "Can not create partition point for {:?} to search key {key:?}",
+                    "Can not get data record from index {:?} using id {data_record_id:?}",
                     self.index
                 )
-            })?
-            .filter(|partition_point| partition_point.is_exact)
-            .map(|partition_point| partition_point.first_satisfying.value),
-        )
+            })?;
+            Ok((data_record.key.cmp(key), data_record.value, ()))
+        })
+        .with_context(|| {
+            format!(
+                "Can not create partition point for {:?} to search key {key:?}",
+                self.index
+            )
+        })?
+        .filter(|partition_point| partition_point.is_exact)
+        .map(|partition_point| partition_point.first_satisfying.value))
     }
 
     pub fn get(&self, key: &K) -> Result<Option<V>> {
@@ -201,14 +271,15 @@ impl<K: Key, V: Value> Table<K, V> {
 
     pub fn checkpoint(&mut self) -> Result<()> {
         if self.memtable.is_empty() {
-            Ok(())
+            return Ok(());
         } else if self.index.records_count == 0 {
-            self.checkpoint_using_dump()
+            self.checkpoint_using_dump()?;
         } else if self.index.records_count <= 9 * self.memtable.len() as u64 {
-            self.checkpoint_using_linear_merge()
+            self.checkpoint_using_linear_merge()?;
         } else {
-            self.checkpoint_using_sparse_merge()
+            self.checkpoint_using_sparse_merge()?;
         }
+        self.initialize_cache()
     }
 
     fn checkpoint_using_dump(&mut self) -> Result<()> {
@@ -1261,6 +1332,7 @@ mod tests {
                 directory: table_dir.join("data_pool").to_path_buf(),
                 max_element_size: 65536,
             }),
+            cache_keys_count: 8,
             _key: PhantomData,
             _value: PhantomData,
         })
