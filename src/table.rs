@@ -1228,6 +1228,7 @@ mod tests {
     use super::*;
     use nanorand::{Rng, WyRand};
 
+    use bytesize::ByteSize;
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -1328,7 +1329,7 @@ mod tests {
             },
             data_pool: DataPoolConfigEnum::Variable(VariableDataPoolConfig {
                 directory: table_dir.join("data_pool").to_path_buf(),
-                max_element_size: 65536,
+                max_element_size: ByteSize::kib(64),
             }),
             cache_keys_count: 8,
             _key: PhantomData,

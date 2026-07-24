@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
 
+use bytesize::ByteSize;
 use serde::{Deserialize, Serialize};
 
 use crate::data_pool::*;
@@ -72,7 +73,7 @@ fn split_scale_logarithmically(max_value: usize) -> Result<[usize; CONTAINERS_SI
 pub struct VariableDataPoolConfig {
     pub directory: PathBuf,
 
-    pub max_element_size: usize,
+    pub max_element_size: ByteSize,
 }
 
 #[derive(Debug)]
@@ -123,15 +124,16 @@ impl VariableDataPool {
     pub fn new(config: &VariableDataPoolConfig) -> Result<Self> {
         let mut fixed_data_pools: Vec<FixedDataPool> = Vec::with_capacity(CONTAINERS_SIZES_COUNT);
         let mut jump_point: Option<usize> = None;
-        for (size_index, container_size) in split_scale_logarithmically(config.max_element_size)
-            .with_context(|| {
-                format!(
-                    "Can not split scale logarithmically for maximum element size {:?}",
-                    config.max_element_size
-                )
-            })?
-            .into_iter()
-            .enumerate()
+        for (size_index, container_size) in
+            split_scale_logarithmically(config.max_element_size.as_u64() as usize)
+                .with_context(|| {
+                    format!(
+                        "Can not split scale logarithmically for maximum element size {:?}",
+                        config.max_element_size
+                    )
+                })?
+                .into_iter()
+                .enumerate()
         {
             if jump_point.is_none() && container_size - size_index > CONTAINER_SIZE_MIN {
                 jump_point = Some(size_index - 1 + CONTAINER_SIZE_MIN);
@@ -288,7 +290,7 @@ mod tests {
         let mut variable_data_pool: Box<dyn DataPool<(Vec<u8>, Vec<u8>)>> = Box::new(
             VariableDataPool::new(&VariableDataPoolConfig {
                 directory: Path::new("/tmp/lawn/test/variable_data_pool").to_path_buf(),
-                max_element_size: 65536,
+                max_element_size: ByteSize::kib(64),
             })
             .unwrap(),
         );

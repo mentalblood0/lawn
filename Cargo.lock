@@ -39,9 +39,9 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "base64"
-version = "0.22.1"
+version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+checksum = "b25655df2c3cdd83c5e5b293b88acd880332b2ddadd7c30ac43144fdc0033da9"
 
 [[package]]
 name = "bincode"
@@ -267,7 +267,7 @@ dependencies = [
 [[package]]
 name = "serde-saphyr"
 version = "1.0.0-rc.1"
-source = "git+https://github.com/bourumir-wyngs/serde-saphyr#af9302538242a268a5dca6ba222b95c9e1ae7ae4"
+source = "git+https://github.com/bourumir-wyngs/serde-saphyr#21171ab45d9bb5c5b97906f74a7f0c607db5335d"
 dependencies = [
  "annotate-snippets",
  "base64",
