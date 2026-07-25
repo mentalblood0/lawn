@@ -8,6 +8,7 @@ schemas:
           directory: /tmp/lawn/test/TEST_NAME/schemas/public/vecs/data_pool
           max_element_size: 64 KiB
       cache_keys_count: 8
+      cache_directory: /tmp/lawn/test/TEST_NAME/schemas/public/vecs/cache
     count:
       index:
         path: /tmp/lawn/test/TEST_NAME/schemas/public/vecs/index.idx
@@ -16,6 +17,7 @@ schemas:
           directory: /tmp/lawn/test/TEST_NAME/schemas/public/vecs/data_pool
           max_element_size: 64 KiB
       cache_keys_count: 8
+      cache_directory: /tmp/lawn/test/TEST_NAME/schemas/public/count/cache
   other:
     vecs:
       index:
@@ -25,6 +27,7 @@ schemas:
           directory: /tmp/lawn/test/TEST_NAME/schemas/other/vecs/data_pool
           max_element_size: 64 KiB
       cache_keys_count: 8
+      cache_directory: /tmp/lawn/test/TEST_NAME/schemas/other/vecs/cache
     count:
       index:
         path: /tmp/lawn/test/TEST_NAME/schemas/other/vecs/index.idx
@@ -33,6 +36,7 @@ schemas:
           directory: /tmp/lawn/test/TEST_NAME/schemas/other/vecs/data_pool
           max_element_size: 64 KiB
       cache_keys_count: 8
+      cache_directory: /tmp/lawn/test/TEST_NAME/schemas/other/count/cache
 log:
   path: /tmp/lawn/test/TEST_NAME/log.dat
   checkpoint_on_size: 8 GiB

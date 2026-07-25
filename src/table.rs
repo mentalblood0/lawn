@@ -1,9 +1,10 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, VecDeque};
 use std::fs::{self, File};
-use std::io::{BufWriter, Write};
+use std::io::{BufReader, BufWriter, Write};
 use std::marker::PhantomData;
 use std::ops::{Bound, Range};
+use std::path::PathBuf;
 
 use anyhow::{Context, Error, Result, anyhow};
 use fallible_iterator::FallibleIterator;
@@ -32,6 +33,7 @@ pub struct TableConfig<K: Key, V: Value> {
     pub data_pool: DataPoolConfigEnum,
     #[serde(default = "default_cache_keys_count")]
     pub cache_keys_count: u64,
+    pub cache_directory: PathBuf,
 
     #[serde(skip)]
     pub _key: PhantomData<K>,
@@ -43,13 +45,13 @@ fn default_cache_keys_count() -> u64 {
     0
 }
 
-#[derive(Debug)]
+#[derive(Debug, bincode::Decode, bincode::Encode)]
 pub struct CacheEntryMetadata<V: Value> {
     value: V,
     index: u64,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, bincode::Decode, bincode::Encode)]
 pub struct Cache<K: Key, V: Value> {
     keys: Vec<K>,
     metadata: Vec<CacheEntryMetadata<V>>,
@@ -177,15 +179,40 @@ impl<K: Key, V: Value> Table<K, V> {
         self.cache = None;
         let effective_cache_keys_count = self.config.cache_keys_count.min(self.index.records_count);
         if effective_cache_keys_count > 0 {
-            let mut result = Cache::default();
-            for current_record_index_index in 0..effective_cache_keys_count {
-                let current_record_index = self.index.records_count * current_record_index_index
-                    / effective_cache_keys_count;
-                let record_id = self.index.get(current_record_index)?.unwrap();
-                let record = self.get_from_index_by_id(record_id)?;
-                result.push(record, current_record_index);
+            let cache_file_path = self.config.cache_directory.join(format!(
+                "with_effective_keys_count_{effective_cache_keys_count}.bin"
+            ));
+            if fs::exists(&cache_file_path)? {
+                self.cache = Some(bincode::decode_from_std_read(
+                    &mut lz4_flex::frame::FrameDecoder::new(&mut BufReader::new(
+                        std::fs::File::open(&cache_file_path)?,
+                    )),
+                    bincode::config::standard(),
+                )?);
+            } else {
+                let mut result = Cache::default();
+                for current_record_index_index in 0..effective_cache_keys_count {
+                    let current_record_index = self.index.records_count
+                        * current_record_index_index
+                        / effective_cache_keys_count;
+                    let record_id = self.index.get(current_record_index)?.unwrap();
+                    let record = self.get_from_index_by_id(record_id)?;
+                    result.push(record, current_record_index);
+                }
+                if let Some(cache_file_path_parent) = cache_file_path.parent() {
+                    fs::create_dir_all(cache_file_path_parent)?;
+                }
+                let mut encoder = lz4_flex::frame::FrameEncoder::new(
+                    std::fs::OpenOptions::new()
+                        .create(true)
+                        .truncate(true)
+                        .write(true)
+                        .open(&cache_file_path)?,
+                );
+                bincode::encode_into_std_write(&result, &mut encoder, bincode::config::standard())?;
+                encoder.finish()?;
+                self.cache = Some(result);
             }
-            self.cache = Some(result);
         }
         Ok(())
     }
@@ -291,6 +318,13 @@ impl<K: Key, V: Value> Table<K, V> {
             self.checkpoint_using_linear_merge()?;
         } else {
             self.checkpoint_using_sparse_merge()?;
+        }
+        let mut cache_files_paths_iterator = glob::glob(&format!(
+            "{}/with_effective_keys_count_*.bin",
+            self.config.cache_directory.to_str().unwrap()
+        ))?;
+        while let Some(Ok(cache_file_path)) = cache_files_paths_iterator.next() {
+            std::fs::remove_file(cache_file_path)?;
         }
         self.initialize_cache()
     }
@@ -1347,6 +1381,7 @@ mod tests {
                 max_element_size: ByteSize::kib(64),
             }),
             cache_keys_count: 8,
+            cache_directory: table_dir.join("cache"),
             _key: PhantomData,
             _value: PhantomData,
         })
