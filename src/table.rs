@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::marker::PhantomData;
-use std::ops::Bound;
+use std::ops::{Bound, Range};
 
 use anyhow::{Context, Error, Result, anyhow};
 use fallible_iterator::FallibleIterator;
@@ -44,16 +44,57 @@ fn default_cache_keys_count() -> u64 {
 }
 
 #[derive(Debug)]
-pub struct CacheEntry<K: Key, V: Value> {
-    data_record: DataRecord<K, V>,
+pub struct CacheEntryMetadata<V: Value> {
+    value: V,
     index: u64,
+}
+
+#[derive(Debug, Default)]
+pub struct Cache<K: Key, V: Value> {
+    keys: Vec<K>,
+    metadata: Vec<CacheEntryMetadata<V>>,
+}
+
+#[derive(Debug)]
+pub enum CacheSearchResult<'a, V: Value> {
+    Exact(&'a CacheEntryMetadata<V>),
+    Range(Range<u64>),
+}
+
+impl<K: Key, V: Value> Cache<K, V> {
+    fn search(&self, key: &K, cached_container_size: u64) -> CacheSearchResult<'_, V> {
+        let partition_point = self
+            .keys
+            .partition_point(|key_from_cache| key_from_cache < key);
+        if partition_point == self.keys.len() {
+            CacheSearchResult::Range(
+                (self.metadata.last().unwrap().index + 1)..cached_container_size,
+            )
+        } else if self.keys[partition_point] == *key {
+            CacheSearchResult::Exact(&self.metadata[partition_point])
+        } else if partition_point == 0 {
+            CacheSearchResult::Range(0..self.metadata[partition_point].index)
+        } else {
+            CacheSearchResult::Range(
+                self.metadata[partition_point - 1].index..self.metadata[partition_point].index,
+            )
+        }
+    }
+
+    fn push(&mut self, data_record: DataRecord<K, V>, index: u64) {
+        self.keys.push(data_record.key);
+        self.metadata.push(CacheEntryMetadata {
+            value: data_record.value,
+            index,
+        });
+    }
 }
 
 pub struct Table<K: Key, V: Value> {
     pub index: Index,
     pub data_pool: Box<dyn DataPool<DataRecord<K, V>> + Send + Sync>,
     pub memtable: BTreeMap<K, Option<V>>,
-    pub cache: Option<Vec<CacheEntry<K, V>>>,
+    pub cache: Option<Cache<K, V>>,
     pub config: TableConfig<K, V>,
 }
 
@@ -136,16 +177,13 @@ impl<K: Key, V: Value> Table<K, V> {
         self.cache = None;
         let effective_cache_keys_count = self.config.cache_keys_count.min(self.index.records_count);
         if effective_cache_keys_count > 0 {
-            let mut result = Vec::with_capacity(effective_cache_keys_count as usize);
+            let mut result = Cache::default();
             for current_record_index_index in 0..effective_cache_keys_count {
                 let current_record_index = self.index.records_count * current_record_index_index
                     / effective_cache_keys_count;
                 let record_id = self.index.get(current_record_index)?.unwrap();
                 let record = self.get_from_index_by_id(record_id)?;
-                result.push(CacheEntry {
-                    data_record: record,
-                    index: current_record_index,
-                });
+                result.push(record, current_record_index);
             }
             self.cache = Some(result);
         }
@@ -163,40 +201,17 @@ impl<K: Key, V: Value> Table<K, V> {
     }
 
     fn get_from_index(&self, key: &K) -> Result<Option<V>> {
-        let (from_index, to_index) = if let Some(ref cache) = self.cache {
-            if let Some(partition_point) =
-                PartitionPoint::new(0, cache.len() as u64, |cache_entry_index| {
-                    let cache_entry = &cache[cache_entry_index as usize];
-                    Ok((
-                        cache_entry.data_record.key.cmp(key),
-                        &cache_entry.data_record.value,
-                        (),
-                    ))
-                })?
-            {
-                (
-                    if partition_point.is_exact {
-                        return Ok(Some(partition_point.first_satisfying.value.clone()));
-                    } else if partition_point.first_satisfying.index == 0 {
-                        return Ok(None);
-                    } else {
-                        cache[partition_point.first_satisfying.index as usize - 1].index
-                    },
-                    if let Some(to_cache_entry) =
-                        cache.get(partition_point.first_satisfying.index as usize + 1)
-                    {
-                        to_cache_entry.index
-                    } else {
-                        self.index.records_count
-                    },
-                )
-            } else {
-                (cache.last().unwrap().index, self.index.records_count)
+        let search_range = if let Some(ref cache) = self.cache {
+            match cache.search(key, self.index.records_count) {
+                CacheSearchResult::Exact(cache_entry_metadata) => {
+                    return Ok(Some(cache_entry_metadata.value.clone()));
+                }
+                CacheSearchResult::Range(range) => range,
             }
         } else {
-            (0, self.index.records_count)
+            0..self.index.records_count
         };
-        Ok(PartitionPoint::new(from_index, to_index, |record_index| {
+        Ok(PartitionPoint::new(search_range, |record_index| {
             let data_record_id = self
                 .index
                 .get(record_index)
@@ -940,7 +955,7 @@ impl<K: Key, V: Value> Table<K, V> {
         match start_bound {
             Bound::Included(from_key) | Bound::Excluded(from_key) => {
                 let from_record_index =
-                    PartitionPoint::new(0, self.index.records_count, |record_index| {
+                    PartitionPoint::new(0..self.index.records_count, |record_index| {
                         let data_record_id = self
                             .index
                             .get(if backwards {
@@ -1174,7 +1189,7 @@ where
         searches_count += 1_f64;
 
         result_insert_indices[middle.middle_index] = Some({
-            PartitionPoint::new(left_bound, right_bound, |element_index| {
+            PartitionPoint::new(left_bound..right_bound, |element_index| {
                 let current = big_get_element(element_index)
                     .with_context(|| {
                         format!(
@@ -1238,7 +1253,7 @@ mod tests {
 
         for element_to_find in &source {
             result.push(
-                PartitionPoint::new(0, (&source.len() - 1) as u64, |element_index| {
+                PartitionPoint::new(0..(&source.len() - 1) as u64, |element_index| {
                     let current = source[element_index as usize];
                     Ok((current.cmp(element_to_find), current, ()))
                 })
