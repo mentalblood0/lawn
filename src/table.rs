@@ -47,14 +47,14 @@ fn default_cache_keys_count() -> u64 {
 
 #[derive(Debug, bincode::Decode, bincode::Encode)]
 pub struct CacheEntryMetadata<V: Value> {
-    value: V,
-    index: u64,
+    pub value: V,
+    pub index: u64,
 }
 
 #[derive(Debug, Default, bincode::Decode, bincode::Encode)]
 pub struct Cache<K: Key, V: Value> {
-    keys: Vec<K>,
-    metadata: Vec<CacheEntryMetadata<V>>,
+    pub keys: Vec<K>,
+    pub metadata: Vec<CacheEntryMetadata<V>>,
 }
 
 #[derive(Debug)]
@@ -64,7 +64,14 @@ pub enum CacheSearchResult<'a, V: Value> {
 }
 
 impl<K: Key, V: Value> Cache<K, V> {
-    fn search(&self, key: &K, cached_container_size: u64) -> CacheSearchResult<'_, V> {
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            keys: Vec::with_capacity(capacity),
+            metadata: Vec::with_capacity(capacity),
+        }
+    }
+
+    pub fn search(&self, key: &K, cached_container_size: u64) -> CacheSearchResult<'_, V> {
         let partition_point = self
             .keys
             .partition_point(|key_from_cache| key_from_cache < key);
@@ -83,7 +90,7 @@ impl<K: Key, V: Value> Cache<K, V> {
         }
     }
 
-    fn push(&mut self, data_record: DataRecord<K, V>, index: u64) {
+    pub fn push(&mut self, data_record: DataRecord<K, V>, index: u64) {
         self.keys.push(data_record.key);
         self.metadata.push(CacheEntryMetadata {
             value: data_record.value,
@@ -171,11 +178,11 @@ impl<K: Key, V: Value> Table<K, V> {
             cache: None,
             config: config.clone(),
         };
-        result.initialize_cache()?;
+        result.reinitialize_cache()?;
         Ok(result)
     }
 
-    fn initialize_cache(&mut self) -> Result<()> {
+    fn reinitialize_cache(&mut self) -> Result<()> {
         self.cache = None;
         let effective_cache_keys_count = self.config.cache_keys_count.min(self.index.records_count);
         if effective_cache_keys_count > 0 {
@@ -199,20 +206,31 @@ impl<K: Key, V: Value> Table<K, V> {
                     let record = self.get_from_index_by_id(record_id)?;
                     result.push(record, current_record_index);
                 }
-                if let Some(cache_file_path_parent) = cache_file_path.parent() {
-                    fs::create_dir_all(cache_file_path_parent)?;
-                }
-                let mut encoder = lz4_flex::frame::FrameEncoder::new(
-                    std::fs::OpenOptions::new()
-                        .create(true)
-                        .truncate(true)
-                        .write(true)
-                        .open(&cache_file_path)?,
-                );
-                bincode::encode_into_std_write(&result, &mut encoder, bincode::config::standard())?;
-                encoder.finish()?;
                 self.cache = Some(result);
             }
+        }
+        Ok(())
+    }
+
+    fn write_cache(&self) -> Result<()> {
+        if let Some(ref cache) = self.cache {
+            let effective_cache_keys_count =
+                self.config.cache_keys_count.min(self.index.records_count);
+            let cache_file_path = self.config.cache_directory.join(format!(
+                "with_effective_keys_count_{effective_cache_keys_count}.bin"
+            ));
+            if let Some(cache_file_path_parent) = cache_file_path.parent() {
+                fs::create_dir_all(cache_file_path_parent)?;
+            }
+            let mut encoder = lz4_flex::frame::FrameEncoder::new(
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .truncate(true)
+                    .write(true)
+                    .open(&cache_file_path)?,
+            );
+            bincode::encode_into_std_write(cache, &mut encoder, bincode::config::standard())?;
+            encoder.finish()?;
         }
         Ok(())
     }
@@ -309,6 +327,85 @@ impl<K: Key, V: Value> Table<K, V> {
         Ok(())
     }
 
+    fn sparse_merge<F, T, A>(
+        &self,
+        big_len: u64,
+        mut big_get_element: F,
+        small: &[T],
+    ) -> Result<Vec<MergeLocation<A>>>
+    where
+        F: FnMut(u64) -> Result<Option<(T, A)>>,
+        T: Ord,
+        A: Clone + Ord + Default,
+    {
+        let mut searches_count = 0f64;
+        let mut search_sizes_logarithms_sum = 0f64;
+        let mut result_insert_indices: Vec<Option<MergeLocation<A>>> = vec![None; small.len()];
+        for middle in Middles::new(small.len()) {
+            let element_to_insert = &small[middle.middle_index];
+
+            let left_bound = result_insert_indices[middle.left_index.saturating_sub(1)]
+                .as_ref()
+                .map(|merge_location| merge_location.index)
+                .unwrap_or(0);
+            let right_bound = result_insert_indices
+                [std::cmp::min(middle.right_index + 1, result_insert_indices.len() - 1)]
+            .as_ref()
+            .map(|merge_location| merge_location.index)
+            .unwrap_or(big_len);
+            search_sizes_logarithms_sum += ((right_bound - left_bound + 1) as f64).log2();
+            searches_count += 1_f64;
+
+            result_insert_indices[middle.middle_index] = Some({
+                PartitionPoint::new(left_bound..right_bound, |element_index| {
+                    let current = big_get_element(element_index)
+                        .with_context(|| {
+                            format!(
+                                "Can not get element at index {element_index:?} from big merging \
+                                 part"
+                            )
+                        })?
+                        .with_context(|| {
+                            format!("Can not get element at index {element_index:?}")
+                        })?;
+                    Ok((current.0.cmp(element_to_insert), current.0, current.1))
+                })
+                .with_context(|| {
+                    format!(
+                        "Can not create partition point from left bound {left_bound:?} to \
+                         {right_bound:?} to maybe get {:?}-nth insert indice",
+                        middle.middle_index + 1
+                    )
+                })?
+                .map_or(
+                    MergeLocation {
+                        index: right_bound,
+                        replace: false,
+                        additional_data: A::default(),
+                    },
+                    |partition_point| MergeLocation {
+                        index: partition_point.first_satisfying.index,
+                        replace: partition_point.is_exact,
+                        additional_data: partition_point.first_satisfying.additional_data,
+                    },
+                )
+            });
+        }
+        log::info!(
+            "mean search size logarithm was {:.2} (it would be {:.2} for direct binary search \
+             merge)",
+            search_sizes_logarithms_sum / searches_count,
+            (big_len as f64).log2()
+        );
+        let mut result: Vec<MergeLocation<A>> = Vec::with_capacity(result_insert_indices.len());
+        for insert_index in result_insert_indices.into_iter() {
+            result.push(insert_index.ok_or(anyhow!(
+                "Can not find where to insert element using sparse merge"
+            ))?);
+        }
+        Ok(result)
+    }
+
     pub fn checkpoint(&mut self) -> Result<()> {
         if self.memtable.is_empty() {
             return Ok(());
@@ -316,17 +413,26 @@ impl<K: Key, V: Value> Table<K, V> {
             self.checkpoint_using_dump()?;
         } else if self.index.records_count <= 9 * self.memtable.len() as u64 {
             self.checkpoint_using_linear_merge()?;
+            let mut cache_files_paths_iterator = glob::glob(&format!(
+                "{}/with_effective_keys_count_*.bin",
+                self.config.cache_directory.to_str().unwrap()
+            ))?;
+            while let Some(Ok(cache_file_path)) = cache_files_paths_iterator.next() {
+                std::fs::remove_file(cache_file_path)?;
+            }
+            self.reinitialize_cache()?;
         } else {
             self.checkpoint_using_sparse_merge()?;
+            let mut cache_files_paths_iterator = glob::glob(&format!(
+                "{}/with_effective_keys_count_*.bin",
+                self.config.cache_directory.to_str().unwrap()
+            ))?;
+            while let Some(Ok(cache_file_path)) = cache_files_paths_iterator.next() {
+                std::fs::remove_file(cache_file_path)?;
+            }
+            self.reinitialize_cache()?;
         }
-        let mut cache_files_paths_iterator = glob::glob(&format!(
-            "{}/with_effective_keys_count_*.bin",
-            self.config.cache_directory.to_str().unwrap()
-        ))?;
-        while let Some(Ok(cache_file_path)) = cache_files_paths_iterator.next() {
-            std::fs::remove_file(cache_file_path)?;
-        }
-        self.initialize_cache()
+        self.write_cache()
     }
 
     fn checkpoint_using_dump(&mut self) -> Result<()> {
@@ -335,6 +441,7 @@ impl<K: Key, V: Value> Table<K, V> {
             self.index.config.path
         );
         let mut ids: Vec<u64> = Vec::new();
+        let mut data_records_with_values = Vec::new();
         let mut max_id: u64 = 0;
         for current_record in std::mem::take(&mut self.memtable).into_iter() {
             if let Some(value) = current_record.1 {
@@ -352,6 +459,7 @@ impl<K: Key, V: Value> Table<K, V> {
                     max_id = id;
                 }
                 ids.push(id);
+                data_records_with_values.push(data_record_to_insert);
             }
         }
         self.data_pool
@@ -381,7 +489,14 @@ impl<K: Key, V: Value> Table<K, V> {
         })?;
         let mut index_writer = BufWriter::new(index_file);
 
-        for id in ids.into_iter() {
+        let mut cache = Cache::with_capacity(ids.len());
+        let cached_entries_interval = ids.len() / self.config.cache_keys_count as usize;
+        for (id_and_data_record_index, (id, data_record)) in
+            ids.into_iter().zip(data_records_with_values).enumerate()
+        {
+            if id_and_data_record_index.is_multiple_of(cached_entries_interval) {
+                cache.push(data_record, id_and_data_record_index as u64);
+            }
             write_data_id(&mut index_writer, id, index_record_size).with_context(|| {
                 format!(
                     "Can not write data id {id:?} using {index_writer:?} aligning it with index \
@@ -392,6 +507,7 @@ impl<K: Key, V: Value> Table<K, V> {
         index_writer
             .flush()
             .with_context(|| "Can not flush new index file")?;
+        self.cache = Some(cache);
 
         fs::rename(&index_file_path, &self.index.config.path).with_context(|| {
             format!(
@@ -687,31 +803,34 @@ impl<K: Key, V: Value> Table<K, V> {
             .collect();
 
         let start = std::time::Instant::now();
-        let merge_locations = sparse_merge(
-            self.index.records_count,
-            |data_record_id_index| {
-                let data_record_id = self.index.get(data_record_id_index)?.with_context(|| {
-                    format!("Can not get data record id at index {data_record_id_index}")
-                })?;
-                let data_record = self.get_from_index_by_id(data_record_id).with_context(|| {
-                    format!("Can not get value from index by id {data_record_id:?}")
-                })?;
-                Ok(Some((
-                    MemtableRecord {
-                        key: data_record.key,
-                        value: Some(data_record.value),
-                    },
-                    data_record_id,
-                )))
-            },
-            &memtable_records,
-        )
-        .with_context(|| {
-            format!(
-                "Can not get merge locations using sparse merge on index {:?}",
-                self.index
+        let merge_locations = self
+            .sparse_merge(
+                self.index.records_count,
+                |data_record_id_index| {
+                    let data_record_id =
+                        self.index.get(data_record_id_index)?.with_context(|| {
+                            format!("Can not get data record id at index {data_record_id_index}")
+                        })?;
+                    let data_record =
+                        self.get_from_index_by_id(data_record_id).with_context(|| {
+                            format!("Can not get value from index by id {data_record_id:?}")
+                        })?;
+                    Ok(Some((
+                        MemtableRecord {
+                            key: data_record.key,
+                            value: Some(data_record.value),
+                        },
+                        data_record_id,
+                    )))
+                },
+                &memtable_records,
             )
-        })?;
+            .with_context(|| {
+                format!(
+                    "Can not get merge locations using sparse merge on index {:?}",
+                    self.index
+                )
+            })?;
         let elapsed = start.elapsed();
         log::info!(
             "finding merge locations for table with index at {:?} took {elapsed:?}",
@@ -1194,80 +1313,6 @@ struct MergeLocation<A: Clone + Ord> {
     additional_data: A,
 }
 
-fn sparse_merge<F, T, A>(
-    big_len: u64,
-    mut big_get_element: F,
-    small: &[T],
-) -> Result<Vec<MergeLocation<A>>>
-where
-    F: FnMut(u64) -> Result<Option<(T, A)>>,
-    T: Ord,
-    A: Clone + Ord + Default,
-{
-    let mut searches_count = 0f64;
-    let mut search_sizes_logarithms_sum = 0f64;
-    let mut result_insert_indices: Vec<Option<MergeLocation<A>>> = vec![None; small.len()];
-    for middle in Middles::new(small.len()) {
-        let element_to_insert = &small[middle.middle_index];
-
-        let left_bound = result_insert_indices[middle.left_index.saturating_sub(1)]
-            .as_ref()
-            .map(|merge_location| merge_location.index)
-            .unwrap_or(0);
-        let right_bound = result_insert_indices
-            [std::cmp::min(middle.right_index + 1, result_insert_indices.len() - 1)]
-        .as_ref()
-        .map(|merge_location| merge_location.index)
-        .unwrap_or(big_len);
-        search_sizes_logarithms_sum += ((right_bound - left_bound + 1) as f64).log2();
-        searches_count += 1_f64;
-
-        result_insert_indices[middle.middle_index] = Some({
-            PartitionPoint::new(left_bound..right_bound, |element_index| {
-                let current = big_get_element(element_index)
-                    .with_context(|| {
-                        format!(
-                            "Can not get element at index {element_index:?} from big merging part"
-                        )
-                    })?
-                    .with_context(|| format!("Can not get element at index {element_index:?}"))?;
-                Ok((current.0.cmp(element_to_insert), current.0, current.1))
-            })
-            .with_context(|| {
-                format!(
-                    "Can not create partition point from left bound {left_bound:?} to \
-                     {right_bound:?} to maybe get {:?}-nth insert indice",
-                    middle.middle_index + 1
-                )
-            })?
-            .map_or(
-                MergeLocation {
-                    index: right_bound,
-                    replace: false,
-                    additional_data: A::default(),
-                },
-                |partition_point| MergeLocation {
-                    index: partition_point.first_satisfying.index,
-                    replace: partition_point.is_exact,
-                    additional_data: partition_point.first_satisfying.additional_data,
-                },
-            )
-        });
-    }
-    log::info!(
-        "mean search size logarithm was {:.2} (it would be {:.2} for direct binary search merge)",
-        search_sizes_logarithms_sum / searches_count,
-        (big_len as f64).log2()
-    );
-    let mut result: Vec<MergeLocation<A>> = Vec::with_capacity(result_insert_indices.len());
-    for insert_index in result_insert_indices.into_iter() {
-        result.push(insert_index.ok_or(anyhow!(
-            "Can not find where to insert element using sparse merge"
-        ))?);
-    }
-    Ok(result)
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -1305,67 +1350,6 @@ mod tests {
     fn test_middles() {
         let middles: Vec<usize> = Middles::new(10).map(|middle| middle.middle_index).collect();
         assert_eq!(middles, vec![4, 1, 7, 0, 2, 5, 8, 3, 6, 9]);
-    }
-
-    #[test]
-    fn test_sparse_merge_simple() {
-        let big = [vec![0], vec![2], vec![4]];
-        let small = [vec![1], vec![3]];
-
-        let insert_indices: Vec<MergeLocation<()>> = sparse_merge(
-            big.len() as u64,
-            |element_index| {
-                Ok(big
-                    .get(element_index as usize)
-                    .cloned()
-                    .map(|element| (element, ())))
-            },
-            &small,
-        )
-        .unwrap();
-
-        assert_eq!(insert_indices[0].index, 1);
-        assert_eq!(insert_indices[1].index, 2);
-    }
-
-    #[test]
-    fn test_sparse_merge() {
-        let mut rng = WyRand::new_seed(0);
-
-        let mut big: Vec<u8> = (0..256).map(|_| rng.generate()).collect();
-        big.sort();
-        big.dedup();
-        let mut small: Vec<u8> = (0..256).map(|_| rng.generate()).collect();
-        small.sort();
-        small.dedup();
-
-        let insert_indices: Vec<MergeLocation<()>> = sparse_merge(
-            big.len() as u64,
-            |element_index| {
-                Ok(big
-                    .get(element_index as usize)
-                    .cloned()
-                    .map(|element| (element, ())))
-            },
-            &small,
-        )
-        .unwrap();
-
-        let mut result = big.clone();
-        for (element_index, merge_location) in insert_indices.iter().enumerate().rev() {
-            let element = small[element_index];
-            if merge_location.replace {
-                result[merge_location.index as usize] = element;
-            } else {
-                result.insert(merge_location.index as usize, element);
-            }
-        }
-
-        let mut correct_result = [big, small].concat();
-        correct_result.sort();
-        correct_result.dedup();
-
-        assert_eq!(result, correct_result);
     }
 
     fn new_default_table<K: Key, V: Value>(test_name_for_isolation: &str) -> Table<K, V> {
