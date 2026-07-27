@@ -1129,31 +1129,44 @@ impl<K: Key, V: Value> Table<K, V> {
     ) -> Result<TableIndexIterator<'_, K, V>> {
         match start_bound {
             Bound::Included(from_key) | Bound::Excluded(from_key) => {
-                let from_record_index =
-                    PartitionPoint::new(0..self.index.records_count, |record_index| {
-                        let data_record_id = self
-                            .index
-                            .get(if backwards {
-                                self.index.records_count - 1 - record_index
-                            } else {
-                                record_index
-                            })?
-                            .with_context(|| {
-                                format!("Can not get data record id at index {record_index}")
-                            })?;
+                let mut from_record_index = None;
+                let mut search_range = 0..self.index.records_count;
+                if let Some(ref cache) = self.cache {
+                    match cache.search(from_key, self.index.records_count) {
+                        CacheSearchResult::Exact(CacheEntryMetadata {
+                            value: _,
+                            index,
+                            data_id: _,
+                        }) => match start_bound {
+                            Bound::Included(_) => from_record_index = Some(*index),
+                            Bound::Excluded(_) => {
+                                if backwards {
+                                    from_record_index = index.checked_sub(1)
+                                } else {
+                                    from_record_index = Some(index + 1)
+                                }
+                            }
+                            _ => panic!(),
+                        },
+                        CacheSearchResult::Range(search_range_from_cache) => {
+                            if search_range_from_cache.end - search_range_from_cache.start
+                                < search_range.end - search_range.start
+                            {
+                                search_range = search_range_from_cache;
+                            }
+                        }
+                    }
+                };
+                if from_record_index.is_none() {
+                    from_record_index = PartitionPoint::new(search_range.clone(), |record_index| {
+                        let data_record_id = self.index.get(record_index)?.with_context(|| {
+                            format!("Can not get data record id at index {record_index}")
+                        })?;
                         let data_record =
                             self.get_from_index_by_id(data_record_id).with_context(|| {
                                 format!("Can not get record from index by id {data_record_id:?}")
                             })?;
-                        Ok((
-                            if backwards {
-                                from_key.cmp(&data_record.key)
-                            } else {
-                                data_record.key.cmp(from_key)
-                            },
-                            data_record.value,
-                            (),
-                        ))
+                        Ok((data_record.key.cmp(from_key), data_record.value, ()))
                     })
                     .with_context(|| {
                         format!(
@@ -1162,41 +1175,59 @@ impl<K: Key, V: Value> Table<K, V> {
                             self.index
                         )
                     })?
-                    .and_then(|mut partition_point| {
-                        if backwards {
-                            partition_point.first_satisfying.index = self.index.records_count
-                                - 1
-                                - partition_point.first_satisfying.index;
-                        }
-                        if let Bound::Included(_) = start_bound {
-                            Some(partition_point.first_satisfying.index)
-                        } else if backwards {
-                            if partition_point.is_exact {
-                                partition_point.first_satisfying.index.checked_sub(1)
-                            } else {
+                    .and_then(|partition_point| {
+                        match (start_bound, backwards, partition_point.is_exact) {
+                            (Bound::Included(_), false, _) => {
                                 Some(partition_point.first_satisfying.index)
                             }
-                        } else if partition_point.is_exact {
-                            Some(partition_point.first_satisfying.index + 1)
-                        } else {
-                            Some(partition_point.first_satisfying.index)
+                            (Bound::Included(_), true, false) => {
+                                partition_point.first_satisfying.index.checked_sub(1)
+                            }
+                            (Bound::Included(_), true, true) => {
+                                Some(partition_point.first_satisfying.index)
+                            }
+                            (Bound::Excluded(_), false, false) => {
+                                Some(partition_point.first_satisfying.index)
+                            }
+                            (Bound::Excluded(_), false, true) => {
+                                Some(partition_point.first_satisfying.index + 1)
+                            }
+                            (Bound::Excluded(_), true, false) => {
+                                partition_point.first_satisfying.index.checked_sub(1)
+                            }
+                            (Bound::Excluded(_), true, true) => {
+                                partition_point.first_satisfying.index.checked_sub(1)
+                            }
+                            _ => panic!(),
                         }
                     });
+                }
                 Ok(TableIndexIterator {
                     data_pool: &*self.data_pool,
-                    index_iter: if let Some(from_record_index) = from_record_index {
-                        Box::new(self.index.iter(from_record_index, backwards).with_context(
-                            || {
+                    index_iter: Box::new(
+                        self.index
+                            .iter(
+                                from_record_index.unwrap_or({
+                                    if backwards {
+                                        if search_range.start == self.index.records_count {
+                                            self.index.records_count.saturating_sub(1)
+                                        } else {
+                                            search_range.end.saturating_sub(1)
+                                        }
+                                    } else {
+                                        search_range.end
+                                    }
+                                }),
+                                backwards,
+                            )
+                            .with_context(|| {
                                 format!(
                                     "Can not initiate iteration over index {:?} from key \
                                      {from_key:?}",
                                     self.index
                                 )
-                            },
-                        )?)
-                    } else {
-                        Box::new(fallible_iterator::convert([0u64; 0].into_iter().map(Ok)))
-                    },
+                            })?,
+                    ),
                 })
             }
             Bound::Unbounded => Ok(TableIndexIterator {
