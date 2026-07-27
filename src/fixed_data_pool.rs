@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::{fs, io::BufWriter};
 
 use anyhow::{Context, Result, anyhow};
+use bytesize::ByteSize;
 
 use serde::{Deserialize, Serialize};
 
@@ -14,7 +15,7 @@ use crate::keyvalue::Value;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FixedDataPoolConfig {
     pub path: PathBuf,
-    pub container_size: usize,
+    pub container_size: ByteSize,
 }
 
 #[derive(Debug)]
@@ -66,7 +67,7 @@ impl FixedDataPool {
             writer: None,
             buffer_of_pointers_to_data_to_remove: Vec::new(),
         };
-        result.head_size = std::cmp::min(config.container_size, 8) as u8;
+        result.head_size = std::cmp::min(config.container_size.as_u64(), 8) as u8;
         result.bytesize_on_disk = result
             .file
             .metadata()
@@ -81,8 +82,8 @@ impl FixedDataPool {
                 .file
                 .read_exact_at(&mut result.head, 0)
                 .with_context(|| format!("Can not read head of {result:?}"))?;
-            result.containers_allocated =
-                (result.bytesize_on_disk - result.head_size as u64) / config.container_size as u64;
+            result.containers_allocated = (result.bytesize_on_disk - result.head_size as u64)
+                / config.container_size.as_u64();
             result.no_holes_left = result.head.iter().all(|byte| *byte == 255);
         }
         Ok(result)
@@ -115,10 +116,10 @@ impl FixedDataPool {
 
     fn pointer_to_container(&self, pointer: u64) -> Vec<u8> {
         let result_not_cutted = pointer.to_le_bytes();
-        if self.config.container_size >= 8 {
+        if self.config.container_size.as_u64() >= 8 {
             result_not_cutted.to_vec()
         } else {
-            result_not_cutted[8 - self.config.container_size..].to_vec()
+            result_not_cutted[(8 - self.config.container_size.as_u64()) as usize..].to_vec()
         }
     }
 
@@ -127,7 +128,7 @@ impl FixedDataPool {
         self.file
             .read_exact_at(
                 &mut result,
-                self.head_size as u64 + pointer * self.config.container_size as u64,
+                self.head_size as u64 + pointer * self.config.container_size.as_u64(),
             )
             .with_context(|| {
                 format!("Can not get container of size {size} at pointer {pointer} of {self:?}")
@@ -139,7 +140,7 @@ impl FixedDataPool {
         self.file
             .write_all_at(
                 container,
-                self.head_size as u64 + pointer * self.config.container_size as u64,
+                self.head_size as u64 + pointer * self.config.container_size.as_u64(),
             )
             .with_context(|| {
                 format!(
@@ -172,7 +173,10 @@ impl FixedDataPool {
                     })?;
                 self.writer = Some(BufWriter::new(file));
             }
-            match data.len().cmp(&self.config.container_size) {
+            match data
+                .len()
+                .cmp(&(self.config.container_size.as_u64() as usize))
+            {
                 Ordering::Greater => {
                     return Err(anyhow!(
                         "Can not insert data of size {} into fixed data pool for containers of \
@@ -182,7 +186,7 @@ impl FixedDataPool {
                     ));
                 }
                 Ordering::Less => {
-                    data.resize(self.config.container_size, 0);
+                    data.resize(self.config.container_size.as_u64() as usize, 0);
                 }
                 Ordering::Equal => {}
             }
@@ -192,7 +196,7 @@ impl FixedDataPool {
                 .write_all(&data)
                 .with_context(|| format!("Can not write to file {:?}", self.file))?;
             self.containers_allocated += 1;
-            self.bytesize_on_disk += self.config.container_size as u64;
+            self.bytesize_on_disk += self.config.container_size.as_u64();
             Ok(self.containers_allocated - 1)
         } else {
             let pointer = self.pointer_from_container(&self.head);
@@ -210,7 +214,7 @@ impl FixedDataPool {
     }
 
     pub fn get_raw(&self, pointer: u64) -> Result<Vec<u8>> {
-        self.get_of_size(pointer, self.config.container_size)
+        self.get_of_size(pointer, self.config.container_size.as_u64() as usize)
     }
 }
 
@@ -288,7 +292,7 @@ mod tests {
 
     #[test]
     fn test_generative() {
-        const CONTAINER_SIZE: usize = 16;
+        const CONTAINER_SIZE: ByteSize = ByteSize(16);
         let path = Path::new("/tmp/lawn/test/fixed_data_pool.dat");
         let mut rng = WyRand::new_seed(0);
 

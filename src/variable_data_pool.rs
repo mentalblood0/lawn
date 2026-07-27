@@ -143,7 +143,7 @@ impl VariableDataPool {
                     path: config
                         .directory
                         .join(format!("containers_of_size_{container_size:0>10}.dat")),
-                    container_size,
+                    container_size: ByteSize(container_size as u64),
                 })
                 .with_context(|| {
                     format!(
@@ -180,7 +180,7 @@ impl VariableDataPool {
         let container_size_index = self
             .container_size_index_to_fixed_data_pool
             .partition_point(|fixed_data_pool| {
-                fixed_data_pool.config.container_size < encoded_data.len()
+                fixed_data_pool.config.container_size.as_u64() < encoded_data.len() as u64
             });
         let pointer = self.container_size_index_to_fixed_data_pool[container_size_index]
             .insert_raw(encoded_data.clone())
