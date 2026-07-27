@@ -49,6 +49,7 @@ fn default_cache_keys_count() -> u64 {
 pub struct CacheEntryMetadata<V: Value> {
     pub value: V,
     pub index: u64,
+    pub data_id: u64,
 }
 
 #[derive(Debug, Default, bincode::Decode, bincode::Encode)]
@@ -90,11 +91,12 @@ impl<K: Key, V: Value> Cache<K, V> {
         }
     }
 
-    pub fn push(&mut self, data_record: DataRecord<K, V>, index: u64) {
+    pub fn push(&mut self, data_record: DataRecord<K, V>, index: u64, data_id: u64) {
         self.keys.push(data_record.key);
         self.metadata.push(CacheEntryMetadata {
             value: data_record.value,
             index,
+            data_id,
         });
     }
 }
@@ -204,7 +206,7 @@ impl<K: Key, V: Value> Table<K, V> {
                         / effective_cache_keys_count;
                     let record_id = self.index.get(current_record_index)?.unwrap();
                     let record = self.get_from_index_by_id(record_id)?;
-                    result.push(record, current_record_index);
+                    result.push(record, current_record_index, record_id);
                 }
                 self.cache = Some(result);
             }
@@ -327,37 +329,59 @@ impl<K: Key, V: Value> Table<K, V> {
         Ok(())
     }
 
-    fn sparse_merge<F, T, A>(
+    fn sparse_merge<F>(
         &self,
         big_len: u64,
         mut big_get_element: F,
-        small: &[T],
-    ) -> Result<Vec<MergeLocation<A>>>
+        small: &[MemtableRecord<K, V>],
+    ) -> Result<Vec<MergeLocation<u64>>>
     where
-        F: FnMut(u64) -> Result<Option<(T, A)>>,
-        T: Ord,
-        A: Clone + Ord + Default,
+        F: FnMut(u64) -> Result<Option<(MemtableRecord<K, V>, u64)>>,
     {
         let mut searches_count = 0f64;
         let mut search_sizes_logarithms_sum = 0f64;
-        let mut result_insert_indices: Vec<Option<MergeLocation<A>>> = vec![None; small.len()];
+        let mut result_insert_indices: Vec<Option<MergeLocation<u64>>> = vec![None; small.len()];
         for middle in Middles::new(small.len()) {
             let element_to_insert = &small[middle.middle_index];
 
-            let left_bound = result_insert_indices[middle.left_index.saturating_sub(1)]
+            let mut search_range = result_insert_indices[middle.left_index.saturating_sub(1)]
                 .as_ref()
                 .map(|merge_location| merge_location.index)
-                .unwrap_or(0);
-            let right_bound = result_insert_indices
-                [std::cmp::min(middle.right_index + 1, result_insert_indices.len() - 1)]
-            .as_ref()
-            .map(|merge_location| merge_location.index)
-            .unwrap_or(big_len);
-            search_sizes_logarithms_sum += ((right_bound - left_bound + 1) as f64).log2();
+                .unwrap_or(0)
+                ..result_insert_indices
+                    [std::cmp::min(middle.right_index + 1, result_insert_indices.len() - 1)]
+                .as_ref()
+                .map(|merge_location| merge_location.index)
+                .unwrap_or(big_len);
+            if let Some(ref cache) = self.cache {
+                match cache.search(&element_to_insert.key, self.index.records_count) {
+                    CacheSearchResult::Exact(CacheEntryMetadata {
+                        value: _,
+                        index,
+                        data_id,
+                    }) => {
+                        result_insert_indices[middle.middle_index] = Some(MergeLocation {
+                            index: *index,
+                            replace: true,
+                            additional_data: *data_id,
+                        });
+                        continue;
+                    }
+                    CacheSearchResult::Range(range_from_cache) => {
+                        if search_range.end - search_range.start
+                            > range_from_cache.end - range_from_cache.start
+                        {
+                            search_range = range_from_cache;
+                        }
+                    }
+                }
+            };
+            search_sizes_logarithms_sum +=
+                ((search_range.end - search_range.start + 1) as f64).log2();
             searches_count += 1_f64;
 
             result_insert_indices[middle.middle_index] = Some({
-                PartitionPoint::new(left_bound..right_bound, |element_index| {
+                PartitionPoint::new(search_range.clone(), |element_index| {
                     let current = big_get_element(element_index)
                         .with_context(|| {
                             format!(
@@ -372,16 +396,16 @@ impl<K: Key, V: Value> Table<K, V> {
                 })
                 .with_context(|| {
                     format!(
-                        "Can not create partition point from left bound {left_bound:?} to \
-                         {right_bound:?} to maybe get {:?}-nth insert indice",
+                        "Can not create partition point in {search_range:?} to maybe get {:?}-nth \
+                         insert indice",
                         middle.middle_index + 1
                     )
                 })?
                 .map_or(
                     MergeLocation {
-                        index: right_bound,
+                        index: search_range.end,
                         replace: false,
-                        additional_data: A::default(),
+                        additional_data: 0u64,
                     },
                     |partition_point| MergeLocation {
                         index: partition_point.first_satisfying.index,
@@ -392,12 +416,10 @@ impl<K: Key, V: Value> Table<K, V> {
             });
         }
         log::info!(
-            "mean search size logarithm was {:.2} (it would be {:.2} for direct binary search \
-             merge)",
+            "mean search size logarithm was {:.2}",
             search_sizes_logarithms_sum / searches_count,
-            (big_len as f64).log2()
         );
-        let mut result: Vec<MergeLocation<A>> = Vec::with_capacity(result_insert_indices.len());
+        let mut result = Vec::with_capacity(result_insert_indices.len());
         for insert_index in result_insert_indices.into_iter() {
             result.push(insert_index.ok_or(anyhow!(
                 "Can not find where to insert element using sparse merge"
@@ -495,7 +517,7 @@ impl<K: Key, V: Value> Table<K, V> {
             ids.into_iter().zip(data_records_with_values).enumerate()
         {
             if id_and_data_record_index.is_multiple_of(cached_entries_interval) {
-                cache.push(data_record, id_and_data_record_index as u64);
+                cache.push(data_record, id_and_data_record_index as u64, id);
             }
             write_data_id(&mut index_writer, id, index_record_size).with_context(|| {
                 format!(
@@ -1307,7 +1329,7 @@ impl Iterator for Middles {
 }
 
 #[derive(Clone, Debug)]
-struct MergeLocation<A: Clone + Ord> {
+struct MergeLocation<A: Ord> {
     index: u64,
     replace: bool,
     additional_data: A,
