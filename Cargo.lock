@@ -284,7 +284,7 @@ dependencies = [
 [[package]]
 name = "serde-saphyr"
 version = "1.0.0-rc.1"
-source = "git+https://github.com/bourumir-wyngs/serde-saphyr#21171ab45d9bb5c5b97906f74a7f0c607db5335d"
+source = "git+https://github.com/bourumir-wyngs/serde-saphyr#808c8eaa1a61fde829f0762bbcfa8beab568ac1d"
 dependencies = [
  "annotate-snippets",
  "base64",

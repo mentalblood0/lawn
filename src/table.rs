@@ -192,13 +192,16 @@ impl<K: Key, V: Value> Table<K, V> {
                 "with_effective_keys_count_{effective_cache_keys_count}.bin"
             ));
             if fs::exists(&cache_file_path)? {
+                log::info!("reading cache {cache_file_path:?}");
                 self.cache = Some(bincode::decode_from_std_read(
                     &mut lz4_flex::frame::FrameDecoder::new(&mut BufReader::new(
                         std::fs::File::open(&cache_file_path)?,
                     )),
                     bincode::config::standard(),
                 )?);
+                log::info!("read cache {cache_file_path:?}");
             } else {
+                log::info!("creating cache from index {:?}", self.index.config.path);
                 let mut result = Cache::default();
                 for current_record_index_index in 0..effective_cache_keys_count {
                     let current_record_index = self.index.records_count
@@ -208,6 +211,7 @@ impl<K: Key, V: Value> Table<K, V> {
                     let record = self.get_from_index_by_id(record_id)?;
                     result.push(record, current_record_index, record_id);
                 }
+                log::info!("created cache from index {:?}", self.index.config.path);
                 self.cache = Some(result);
             }
         }
@@ -221,6 +225,7 @@ impl<K: Key, V: Value> Table<K, V> {
             let cache_file_path = self.config.cache_directory.join(format!(
                 "with_effective_keys_count_{effective_cache_keys_count}.bin"
             ));
+            log::info!("writing cache {cache_file_path:?}");
             if let Some(cache_file_path_parent) = cache_file_path.parent() {
                 fs::create_dir_all(cache_file_path_parent)?;
             }
@@ -233,6 +238,7 @@ impl<K: Key, V: Value> Table<K, V> {
             );
             bincode::encode_into_std_write(cache, &mut encoder, bincode::config::standard())?;
             encoder.finish()?;
+            log::info!("wrote cache {cache_file_path:?}");
         }
         Ok(())
     }
