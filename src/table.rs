@@ -512,7 +512,7 @@ impl<K: Key, V: Value> Table<K, V> {
         let mut index_writer = BufWriter::new(index_file);
 
         let mut cache = Cache::with_capacity(ids.len());
-        let cached_entries_interval = ids.len() / self.config.cache_keys_count as usize;
+        let cached_entries_interval = ids.len().div_ceil(self.config.cache_keys_count as usize);
         for (id_and_data_record_index, (id, data_record)) in
             ids.into_iter().zip(data_records_with_values).enumerate()
         {
