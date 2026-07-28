@@ -439,7 +439,8 @@ impl<K: Key, V: Value> Table<K, V> {
             return Ok(());
         } else if self.index.records_count == 0 {
             self.checkpoint_using_dump()?;
-        } else if self.index.records_count <= 9 * self.memtable.len() as u64 {
+        } else if self.cache.is_none() && self.index.records_count <= 9 * self.memtable.len() as u64
+        {
             self.checkpoint_using_linear_merge()?;
             let mut cache_files_paths_iterator = glob::glob(&format!(
                 "{}/with_effective_keys_count_*.bin",
