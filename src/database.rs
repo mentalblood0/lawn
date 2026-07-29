@@ -9,6 +9,9 @@ use crate::{
     table::Table,
 };
 
+#[global_allocator]
+pub static ALLOCATOR: cap::Cap<std::alloc::System> = cap::Cap::new(std::alloc::System, usize::MAX);
+
 pub struct TableTransaction<K: Key, V: Value> {
     pub table: Table<K, V>,
     pub changes: BTreeMap<K, Option<V>>,
@@ -94,7 +97,7 @@ macro_rules! define_database {
                     thread::{self, JoinHandle}
                 },
                 $crate::{
-                    database::TableTransaction,
+                    database::{TableTransaction, ALLOCATOR},
                     bincode,
                     log,
                     anyhow::{Context, Result, Error},
@@ -106,10 +109,21 @@ macro_rules! define_database {
                 },
             };
 
+            pub fn default_checkpoint_on_size() -> ByteSize {
+                ByteSize(u64::MAX)
+            }
+
+            pub fn default_checkpoint_on_memory_usage() -> ByteSize {
+                ByteSize(u64::MAX)
+            }
+
             #[derive(Serialize, Deserialize, Debug, Clone)]
             pub struct LogConfig {
                 pub path: PathBuf,
-                pub checkpoint_on_size: ByteSize
+                #[serde(default = "default_checkpoint_on_size")]
+                pub checkpoint_on_size: ByteSize,
+                #[serde(default = "default_checkpoint_on_memory_usage")]
+                pub checkpoint_on_memory_usage: ByteSize
             }
 
             #[derive(Debug)]
@@ -512,7 +526,10 @@ macro_rules! define_database {
 
                 pub fn lock_all_and_checkpoint(&self, if_enough_log_size: bool) -> Result<&Self> {
                     let mut lockable_internals_write_guard = self.lockable_internals.write();
-                    if !if_enough_log_size || lockable_internals_write_guard.log.size >= lockable_internals_write_guard.log.config.checkpoint_on_size.as_u64() {
+                    if !if_enough_log_size ||
+                        lockable_internals_write_guard.log.size >= lockable_internals_write_guard.log.config.checkpoint_on_size.as_u64() ||
+                        ALLOCATOR.allocated() >= lockable_internals_write_guard.log.config.checkpoint_on_memory_usage.as_u64() as usize
+                    {
                         log::info!("checkpointing database with log at {:?}", lockable_internals_write_guard.log.config.path);
                         let start = std::time::Instant::now();
                         let tables_unsafe_send_wrapper = UnsafeSendWrapper(&mut lockable_internals_write_guard.tables);
