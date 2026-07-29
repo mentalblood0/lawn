@@ -1138,6 +1138,7 @@ impl<K: Key, V: Value> Table<K, V> {
             Bound::Included(from_key) | Bound::Excluded(from_key) => {
                 let mut from_record_index = None;
                 let mut search_range = 0..self.index.records_count;
+                dbg!(&search_range);
                 if let Some(ref cache) = self.cache {
                     match cache.search(from_key, self.index.records_count) {
                         CacheSearchResult::Exact(CacheEntryMetadata {
