@@ -140,6 +140,7 @@ impl Index {
         self.file
             .set_len(0)
             .with_context(|| format!("Can not truncate file {:?}", self.file))?;
+        self.records_count = 0;
         Ok(())
     }
 
