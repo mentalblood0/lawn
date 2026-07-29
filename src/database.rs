@@ -313,6 +313,15 @@ macro_rules! define_database {
                             pub $table_name: TableTransaction<$key_type, $value_type>,
                         )+
                     }
+
+                    impl $schema_name {
+                        pub fn clear(&mut self) -> Result<()> {
+                            $(
+                                self.$table_name.table.clear()?;
+                            )+
+                            Ok(())
+                        }
+                    }
                 )+
             }
 
