@@ -213,6 +213,7 @@ impl<K: Key, V: Value> Table<K, V> {
                 }
                 log::info!("created cache from index {:?}", self.index.config.path);
                 self.cache = Some(result);
+                self.write_cache()?;
             }
         }
         Ok(())
@@ -440,6 +441,7 @@ impl<K: Key, V: Value> Table<K, V> {
             return Ok(());
         } else if self.index.records_count == 0 {
             self.checkpoint_using_dump()?;
+            self.write_cache()?;
         } else if self.cache.is_none() && self.index.records_count <= 9 * self.memtable.len() as u64
         {
             self.checkpoint_using_linear_merge()?;
@@ -462,7 +464,7 @@ impl<K: Key, V: Value> Table<K, V> {
             }
             self.reinitialize_cache()?;
         }
-        self.write_cache()
+        Ok(())
     }
 
     fn checkpoint_using_dump(&mut self) -> Result<()> {
