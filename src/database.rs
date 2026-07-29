@@ -524,9 +524,9 @@ macro_rules! define_database {
                     Ok(self)
                 }
 
-                pub fn lock_all_and_checkpoint(&self, if_enough_log_size: bool) -> Result<&Self> {
+                pub fn lock_all_and_checkpoint(&self, only_if_size_limit_reached: bool) -> Result<&Self> {
                     let mut lockable_internals_write_guard = self.lockable_internals.write();
-                    if !if_enough_log_size ||
+                    if !only_if_size_limit_reached ||
                         lockable_internals_write_guard.log.size >= lockable_internals_write_guard.log.config.checkpoint_on_size.as_u64() ||
                         ALLOCATOR.allocated() >= lockable_internals_write_guard.log.config.checkpoint_on_memory_usage.as_u64() as usize
                     {
