@@ -65,6 +65,14 @@ pub enum CacheSearchResult<'a, V: Value> {
 }
 
 impl<K: Key, V: Value> Cache<K, V> {
+    pub fn len(&self) -> u64 {
+        self.keys.len() as u64
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             keys: Vec::with_capacity(capacity),
@@ -72,14 +80,12 @@ impl<K: Key, V: Value> Cache<K, V> {
         }
     }
 
-    pub fn search(&self, key: &K, cached_container_size: u64) -> CacheSearchResult<'_, V> {
+    pub fn search(&self, key: &K, range: Range<u64>) -> CacheSearchResult<'_, V> {
         let partition_point = self
             .keys
             .partition_point(|key_from_cache| key_from_cache < key);
         if partition_point == self.keys.len() {
-            CacheSearchResult::Range(
-                (self.metadata.last().unwrap().index + 1)..cached_container_size,
-            )
+            CacheSearchResult::Range((self.metadata.last().unwrap().index + 1)..range.end)
         } else if self.keys[partition_point] == *key {
             CacheSearchResult::Exact(&self.metadata[partition_point])
         } else if partition_point == 0 {
@@ -262,7 +268,7 @@ impl<K: Key, V: Value> Table<K, V> {
 
     fn get_from_index(&self, key: &K) -> Result<Option<V>> {
         let search_range = if let Some(ref cache) = self.cache {
-            match cache.search(key, self.index.records_count) {
+            match cache.search(key, 0..self.index.records_count) {
                 CacheSearchResult::Exact(cache_entry_metadata) => {
                     return Ok(Some(cache_entry_metadata.value.clone()));
                 }
@@ -368,7 +374,11 @@ impl<K: Key, V: Value> Table<K, V> {
                 .map(|merge_location| merge_location.index)
                 .unwrap_or(big_len);
             if let Some(ref cache) = self.cache {
-                match cache.search(&element_to_insert.key, self.index.records_count) {
+                match cache.search(
+                    &element_to_insert.key,
+                    (search_range.start * cache.len() / self.index.records_count)
+                        ..(search_range.end * cache.len() / self.index.records_count),
+                ) {
                     CacheSearchResult::Exact(CacheEntryMetadata {
                         value: _,
                         index,
@@ -1148,7 +1158,7 @@ impl<K: Key, V: Value> Table<K, V> {
                 let mut from_record_index = None;
                 let mut search_range = 0..self.index.records_count;
                 if let Some(ref cache) = self.cache {
-                    match cache.search(from_key, self.index.records_count) {
+                    match cache.search(from_key, 0..self.index.records_count) {
                         CacheSearchResult::Exact(CacheEntryMetadata {
                             value: _,
                             index,
