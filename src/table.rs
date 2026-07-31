@@ -1230,30 +1230,37 @@ impl<K: Key, V: Value> Table<K, V> {
                 }
                 Ok(TableIndexIterator {
                     data_pool: &*self.data_pool,
-                    index_iter: Box::new(
-                        self.index
-                            .iter(
-                                from_record_index.unwrap_or({
-                                    if backwards {
-                                        if search_range.start == self.index.records_count {
-                                            self.index.records_count.saturating_sub(1)
+                    index_iter: if backwards
+                        && from_record_index.is_none()
+                        && search_range == (0..0)
+                    {
+                        Box::new(fallible_iterator::convert([].into_iter()))
+                    } else {
+                        Box::new(
+                            self.index
+                                .iter(
+                                    from_record_index.unwrap_or({
+                                        if backwards {
+                                            if search_range.start == self.index.records_count {
+                                                self.index.records_count.saturating_sub(1)
+                                            } else {
+                                                search_range.end.saturating_sub(1)
+                                            }
                                         } else {
-                                            search_range.end.saturating_sub(1)
+                                            search_range.end
                                         }
-                                    } else {
-                                        search_range.end
-                                    }
-                                }),
-                                backwards,
-                            )
-                            .with_context(|| {
-                                format!(
-                                    "Can not initiate iteration over index {:?} from key \
-                                     {from_key:?}",
-                                    self.index
+                                    }),
+                                    backwards,
                                 )
-                            })?,
-                    ),
+                                .with_context(|| {
+                                    format!(
+                                        "Can not initiate iteration over index {:?} from key \
+                                         {from_key:?}",
+                                        self.index
+                                    )
+                                })?,
+                        )
+                    },
                 })
             }
             Bound::Unbounded => Ok(TableIndexIterator {
@@ -1848,8 +1855,8 @@ mod tests {
         let mut previously_added_keyvalues: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
         let mut rng = WyRand::new_seed(0);
 
-        for _ in 1..=20 {
-            for _ in 1..=20 {
+        for _ in 1..=100 {
+            for _ in 1..=100 {
                 let random_byte = rng.generate_range(0..=255);
                 let key: Vec<u8> = vec![0, random_byte];
                 let value = if rng.generate_range(0..=1) == 0 {
