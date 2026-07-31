@@ -154,6 +154,12 @@ struct LinearMergeElement<K: Key> {
     id: Option<u64>,
 }
 
+fn intersection<T: Ord + Clone>(a: Range<T>, b: Range<T>) -> Option<Range<T>> {
+    let start = a.start.max(b.start);
+    let end = a.end.min(b.end);
+    if start < end { Some(start..end) } else { None }
+}
+
 impl<K: Key, V: Value> Table<K, V> {
     pub fn new(config: TableConfig<K, V>) -> Result<Self> {
         let mut result = Self {
@@ -376,10 +382,10 @@ impl<K: Key, V: Value> Table<K, V> {
                         continue;
                     }
                     CacheSearchResult::Range(range_from_cache) => {
-                        if search_range.end - search_range.start
-                            > range_from_cache.end - range_from_cache.start
+                        if let Some(intersection) =
+                            intersection(search_range.clone(), range_from_cache)
                         {
-                            search_range = range_from_cache;
+                            search_range = intersection;
                         }
                     }
                 }
